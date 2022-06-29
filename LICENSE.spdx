@@ -1,7 +1,7 @@
 SPDXVersion: SPDX-2.0
 DataLicense: CC0-1.0
 Creator: Morgan Stanley
-PackageName: morphir-mps
+PackageName: morphir-editor
 PackageOriginator: Morgan Stanley
-PackageHomePage: https://github.com/finos/morphir-mps
+PackageHomePage: https://github.com/finos/morphir-editor
 PackageLicenseDeclared: Apache-2.0

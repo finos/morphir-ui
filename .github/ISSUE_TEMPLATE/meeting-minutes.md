@@ -1,7 +1,7 @@
 ---
-name: "\U0001F91D morphir-mps Meeting Minutes"
-about: To track morphir-mps meeting agenda and attendance
-title: DD MMM YYYY - morphir-mps Meeting Minutes
+name: "\U0001F91D morphir-editor Meeting Minutes"
+about: To track morphir-editor meeting agenda and attendance
+title: DD MMM YYYY - morphir-editor Meeting Minutes
 labels: meeting
 assignees: 
 
