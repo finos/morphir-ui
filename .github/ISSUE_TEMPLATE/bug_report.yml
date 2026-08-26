@@ -1,0 +1,51 @@
+name: 🐛 Bug Report
+description: If something is not working as expected
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please complete the form below.
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide clear steps that reproduce the problem.
+      placeholder: |
+        1. Step one
+        2. Step two
+        3. Step three
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: What happened? Include complete stack traces, relevant logs, and screenshots where useful.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the Morphir UI version or commit, operating system, runtime versions, and other relevant details.
+      placeholder: |
+        - Morphir UI version or commit:
+        - Operating system:
+        - Runtime version:
+        - Other details:
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add any other information that could help diagnose the problem.

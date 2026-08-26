@@ -1,0 +1,27 @@
+name: 🚀 Feature Request
+description: Suggest a change or new capability
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the problem. A job story can help: "When [condition], I want to [goal], so I can [outcome]."
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem should Morphir UI solve?
+      placeholder: |
+        When [condition], I want to [goal], so I can [outcome].
+
+        Describe the problem and who it affects.
+    validations:
+      required: true
+  - type: textarea
+    id: solutions
+    attributes:
+      label: Possible solutions
+      description: Describe a possible solution, its drawbacks, and any alternatives you considered.
+    validations:
+      required: true

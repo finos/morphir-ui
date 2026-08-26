@@ -1,60 +1,27 @@
-[![FINOS - Incubating](https://cdn.jsdelivr.net/gh/finos/contrib-toolbox@master/images/badge-incubating.svg)](https://finosfoundation.atlassian.net/wiki/display/FINOS/Incubating)
-![website build](https://github.com/finos/morphir-editor/workflows/Docusaurus-website-build/badge.svg)
+[![FINOS - Graduated](https://cdn.jsdelivr.net/gh/finos/contrib-toolbox@master/images/badge-graduated.svg)](https://community.finos.org/docs/governance/lifecycle-stages/graduated)
 
-# morphir-editor
+# Morphir UI
 
-Short blurb about what your project does.
+Morphir UI is the FINOS repository for user-interface work in the [Morphir](https://github.com/finos/morphir) project. Morphir captures business logic as data so it can be shared, stored, translated, and visualized across technologies.
 
-## Installation
+This repository does not yet contain an implementation. Use [GitHub issues](https://github.com/finos/morphir-ui/issues) to discuss the scope and proposed work before submitting code.
 
-OS X & Linux:
+## Project resources
 
-```sh
-npm install my-crazy-module --save
-```
+- [Morphir documentation](https://morphir.finos.org/)
+- [Morphir source repository](https://github.com/finos/morphir)
+- [Morphir Slack channel](https://finos-lf.slack.com/messages/morphir/)
+- [FINOS community calendar](https://calendar.finos.org/)
 
-Windows:
-
-```sh
-edit autoexec.bat
-```
-
-## Usage example
-
-A few motivating and useful examples of how your project can be used. Spice this up with code blocks and potentially screenshots / videos ([LiceCap](https://www.cockos.com/licecap/) is great for this kind of thing).
-
-_For more examples and usage, please refer to the [Wiki][wiki]._
-
-## Development setup
-
-Describe how to install all development dependencies and how to run an automated test-suite of some kind. Potentially do this for multiple platforms.
-
-```sh
-make install
-npm test
-```
-
-## Roadmap
-
-List the roadmap steps; alternatively link the Confluence Wiki page where the project roadmap is published.
-
-1. Item 1
-2. Item 2
-3. ....
+For help joining FINOS Slack or project meetings, email [help@finos.org](mailto:help@finos.org).
 
 ## Contributing
 
-1. Fork it (<https://github.com/finos/morphir-editor/fork>)
-2. Create your feature branch (`git checkout -b feature/fooBar`)
-3. Read our [contribution guidelines](.github/CONTRIBUTING.md) and [Community Code of Conduct](https://www.finos.org/code-of-conduct)
-4. Commit your changes (`git commit -am 'Add some fooBar'`)
-5. Push to the branch (`git push origin feature/fooBar`)
-6. Create a new Pull Request
+Questions, bug reports, and feature requests belong in [GitHub issues](https://github.com/finos/morphir-ui/issues). Before opening a pull request, read the [contribution and governance policies](CONTRIBUTING.md) and the [FINOS Community Code of Conduct](https://www.finos.org/code-of-conduct).
 
-_NOTE:_ Commits and pull requests to FINOS repositories will only be accepted from those contributors with an active, executed Individual Contributor License Agreement (ICLA) with FINOS OR who are covered under an existing and active Corporate Contribution License Agreement (CCLA) executed with FINOS. Commits from individuals not covered under an ICLA or CCLA will be flagged and blocked by the FINOS Clabot tool (or [EasyCLA](https://github.com/finos/community/blob/master/governance/Software-Projects/EasyCLA.md)). Please note that some CCLAs require individuals/employees to be explicitly named on the CCLA.
+All commits must include a Developer Certificate of Origin sign-off. Contributors must also satisfy the repository's EasyCLA check. See [CONTRIBUTING.md](CONTRIBUTING.md) for both workflows.
 
-*Need an ICLA? Unsure if you are covered under an existing CCLA? Email [help@finos.org](mailto:help@finos.org)*
-
+The current project maintainers are listed in [MAINTAINERS.md](MAINTAINERS.md). Report suspected vulnerabilities privately according to [SECURITY.md](SECURITY.md).
 
 ## License
 
