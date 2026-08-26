@@ -1,7 +1,7 @@
 SPDXVersion: SPDX-2.0
 DataLicense: CC0-1.0
-Creator: Morgan Stanley
-PackageName: morphir-editor
+Creator: FINOS
+PackageName: morphir-ui
 PackageOriginator: Morgan Stanley
-PackageHomePage: https://github.com/finos/morphir-editor
+PackageHomePage: https://github.com/finos/morphir-ui
 PackageLicenseDeclared: Apache-2.0

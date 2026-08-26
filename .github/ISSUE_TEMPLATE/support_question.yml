@@ -1,0 +1,16 @@
+name: 🤗 Support Question
+description: Ask about setup, configuration, or use
+title: "[Support] "
+labels: ["question", "support"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues before asking. Someone may have already answered the same question.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Explain what you are trying to do, what you tried, and where you are stuck.
+    validations:
+      required: true
