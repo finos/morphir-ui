@@ -76,6 +76,24 @@ describe('SettingsView', () => {
     await waitFor(() => expect(screen.queryByText('Token(ghp_...TAIL)')).toBeNull())
   })
 
+  test('PAT capture: saving a new token after a successful verify clears the stale result', async () => {
+    const { shell } = await setup({ github: true })
+    shell.selectSettingsSection('github')
+    await userEvent.click(await screen.findByLabelText('Personal access token'))
+    const input = await screen.findByPlaceholderText(/github_pat_/)
+    await userEvent.type(input, 'ghp_' + 'k'.repeat(36) + 'TAIL')
+    await userEvent.click(screen.getByRole('button', { name: 'Save token' }))
+    await screen.findByText('Token(ghp_...TAIL)')
+    await userEvent.click(screen.getByRole('button', { name: 'Verify' }))
+    expect(await screen.findByText(/Authenticated as octocat/)).toBeTruthy()
+
+    // Source is still 'pat', so the token input row stays mounted — type and save a second
+    // token without re-selecting the radio.
+    await userEvent.type(input, 'ghp_' + 'j'.repeat(36) + 'TAIL')
+    await userEvent.click(screen.getByRole('button', { name: 'Save token' }))
+    await waitFor(() => expect(screen.queryByText(/Authenticated as octocat/)).toBeNull())
+  })
+
   test('about shows the version', async () => {
     const { shell } = await setup()
     shell.selectSettingsSection('about')

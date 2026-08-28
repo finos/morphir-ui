@@ -6,10 +6,16 @@
   let { services, workspace }: { services: AppServices; workspace: WorkspaceState } = $props()
 
   let reopenOnLaunch = $state(true)
+  // Guards against the mount-load effect below resolving *after* a user toggle and
+  // clobbering the just-set value with the (now stale) config-file snapshot.
+  let touched = $state(false)
   $effect(() => {
-    void services.loadConfig().then((cfg) => (reopenOnLaunch = cfg.workspace.reopenOnLaunch))
+    void services.loadConfig().then((cfg) => {
+      if (!touched) reopenOnLaunch = cfg.workspace.reopenOnLaunch
+    })
   })
   async function setReopen(value: boolean) {
+    touched = true
     reopenOnLaunch = value
     const cfg = await services.loadConfig()
     await services.saveConfig({ ...cfg, workspace: { ...cfg.workspace, reopenOnLaunch: value } })

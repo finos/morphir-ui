@@ -29,6 +29,7 @@
   }
   async function saveToken() {
     error = null
+    verifyResult = null
     try {
       await github.savePat(pat)
       pat = ''
@@ -39,6 +40,7 @@
   }
   async function verify() {
     error = null
+    verifyResult = null
     try {
       verifyResult = `Authenticated as ${(await github.verify()).login}`
     } catch (e) {
@@ -62,6 +64,7 @@
     <label
       ><input
         type="radio"
+        name="github-source"
         checked={status?.source === 'none' && !patSelected}
         onchange={() => selectSource('none')}
       /> None</label
@@ -69,6 +72,7 @@
     <label
       ><input
         type="radio"
+        name="github-source"
         checked={status?.source === 'gh-cli'}
         onchange={() => selectSource('gh-cli')}
       /> gh CLI</label
@@ -76,6 +80,7 @@
     <label>
       <input
         type="radio"
+        name="github-source"
         checked={status?.source === 'pat' || patSelected}
         onchange={() => (patSelected = true)}
       /> Personal access token
