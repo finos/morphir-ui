@@ -3,6 +3,7 @@
   import AppShell from './AppShell.svelte'
   import OverviewView from '../views/OverviewView.svelte'
   import IrExplorerView from '../views/IrExplorerView.svelte'
+  import SettingsView from '../views/settings/SettingsView.svelte'
   import { ShellState, type SettingsSection } from '../state/shell-state.svelte.ts'
   import { WorkspaceState } from '../state/workspace-state.svelte.ts'
   import { configToSnapshot, withSnapshot, type UiConfig } from '../services/config.ts'
@@ -83,8 +84,7 @@
 >
   {#snippet center()}
     {#if shell.isSettings}
-      <!-- Replaced by SettingsView in Task 14 -->
-      <div class="settings-stub">Settings</div>
+      <SettingsView {services} {shell} {workspace} {version} />
     {:else if activeNav === 'overview'}
       <OverviewView
         {workspace}
