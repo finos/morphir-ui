@@ -56,4 +56,13 @@ describe('IrExplorerView', () => {
     expect(screen.queryByText('WindDirection')).toBeNull()
     expect(screen.getByText('listExample')).toBeTruthy()
   })
+
+  test('clicking a definition opens the detail surface with an XRay tab', async () => {
+    render(IrExplorerView, { props: { workspace: await openWorkspace() } })
+    await userEvent.click(screen.getByText('listExample'))
+    expect(screen.getByText('XRay')).toBeTruthy()
+    expect(screen.getAllByText('value-list').length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByText('Back'))
+    expect(screen.getByPlaceholderText('Filter definitions')).toBeTruthy()
+  })
 })

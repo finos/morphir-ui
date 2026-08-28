@@ -1,10 +1,11 @@
 import { Cause, Effect, Exit, Option } from 'effect'
-import { decodeMorphirIr, toWorkspaceIr, type WorkspaceIr } from '@morphir/ir'
+import { decodeMorphirIr, toWorkspaceIr, type MorphirLibrary, type WorkspaceIr } from '@morphir/ir'
 import type { AppServices, WorkspaceRef } from '../services/services.ts'
 
 export interface OpenWorkspace {
   readonly ref: WorkspaceRef
   readonly ir: WorkspaceIr
+  readonly library: MorphirLibrary
 }
 
 const MAX_RECENTS = 8
@@ -47,7 +48,7 @@ export class WorkspaceState {
     const exit = await Effect.runPromiseExit(decodeMorphirIr(content))
     this.loading = false
     if (Exit.isSuccess(exit)) {
-      this.current = { ref, ir: toWorkspaceIr(exit.value) }
+      this.current = { ref, ir: toWorkspaceIr(exit.value), library: exit.value }
       this.error = null
       this.recents = [ref.path, ...this.recents.filter((p) => p !== ref.path)].slice(0, MAX_RECENTS)
       await this.#services.updateConfig((cfg) => ({

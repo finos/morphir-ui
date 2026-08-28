@@ -1,5 +1,9 @@
 <script lang="ts">
   import type { WorkspaceState } from '../state/workspace-state.svelte.ts'
+  import DefinitionDetail from './insight/DefinitionDetail.svelte'
+  import Icon from '../icons/Icon.svelte'
+  import { nameToCamel, nameToTitle, pathToTitle, type RawDefEntry } from '@morphir/ir'
+
   let { workspace }: { workspace: WorkspaceState } = $props()
 
   let search = $state('')
@@ -17,6 +21,22 @@
         d.ref.localName.toLowerCase().includes(search.toLowerCase()),
     ),
   )
+
+  let selected = $state<{ info: (typeof definitions)[number]; entry: RawDefEntry } | null>(null)
+
+  const findEntry = (moduleName: string, localName: string, kind: 'type' | 'value'): RawDefEntry | null => {
+    const lib = workspace.current?.library
+    if (!lib) return null
+    for (const m of lib.modules) {
+      if (pathToTitle(m.path) !== moduleName) continue
+      const entries = kind === 'type' ? m.types : m.values
+      for (const e of entries) {
+        const display = kind === 'type' ? nameToTitle(e.name) : nameToCamel(e.name)
+        if (display === localName) return e
+      }
+    }
+    return null
+  }
 </script>
 
 {#if !ir}
@@ -44,25 +64,41 @@
   </section>
   <section class="card">
     <h2 class="card-title">Definitions</h2>
-    <div class="filter">
-      <input placeholder="Filter definitions" bind:value={search} />
-      <button class="toggle" class:on={showTypes} onclick={() => (showTypes = !showTypes)}
-        >Types</button
-      >
-      <button class="toggle" class:on={showValues} onclick={() => (showValues = !showValues)}
-        >Values</button
-      >
-    </div>
-    {#each definitions as d (d.ref.localName + d.kind)}
-      <div class="def">
-        <span class="def-name">{d.ref.localName}</span>
-        <span class="def-kind">{d.kind}</span>
-        <span class="def-access">{d.access}</span>
-        {#if d.doc}<span class="def-doc">{d.doc}</span>{/if}
-      </div>
+    {#if selected}
+      <button class="back" onclick={() => (selected = null)}><Icon name="back" /> Back</button>
+      <DefinitionDetail
+        entry={selected.entry}
+        kind={selected.info.kind}
+        moduleName={selected.info.ref.moduleName}
+        packageName={selected.info.ref.packageName}
+      />
     {:else}
-      <p class="muted">No definitions match.</p>
-    {/each}
+      <div class="filter">
+        <input placeholder="Filter definitions" bind:value={search} />
+        <button class="toggle" class:on={showTypes} onclick={() => (showTypes = !showTypes)}
+          >Types</button
+        >
+        <button class="toggle" class:on={showValues} onclick={() => (showValues = !showValues)}
+          >Values</button
+        >
+      </div>
+      {#each definitions as d (d.ref.localName + d.kind)}
+        <button
+          class="def"
+          onclick={() => {
+            const entry = findEntry(d.ref.moduleName, d.ref.localName, d.kind)
+            if (entry) selected = { info: d, entry }
+          }}
+        >
+          <span class="def-name">{d.ref.localName}</span>
+          <span class="def-kind">{d.kind}</span>
+          <span class="def-access">{d.access}</span>
+          {#if d.doc}<span class="def-doc">{d.doc}</span>{/if}
+        </button>
+      {:else}
+        <p class="muted">No definitions match.</p>
+      {/each}
+    {/if}
   </section>
 {/if}
 
@@ -149,10 +185,34 @@
   }
   .def {
     display: flex;
+    width: 100%;
     gap: 10px;
     align-items: baseline;
     padding: 6px 0;
     border-bottom: 1px solid var(--row-edge);
+    background: none;
+    border-left: none;
+    border-right: none;
+    border-top: none;
+    text-align: left;
+    cursor: pointer;
+  }
+  .back {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 8px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    text-align: left;
+  }
+  .back:hover {
+    background: var(--hover);
+    color: var(--text);
   }
   .def-name {
     font-family: var(--mono);
