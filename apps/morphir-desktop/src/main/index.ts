@@ -44,7 +44,8 @@ function createWindow(): BrowserWindow {
     width: 1200,
     height: 800,
     show: !smoke,
-    frame: process.platform === 'darwin',
+    // Custom window controls are a follow-up; frameless win/linux returns when they land.
+    frame: true,
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 18 } }
       : {}),
