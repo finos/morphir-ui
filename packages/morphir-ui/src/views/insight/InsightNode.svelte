@@ -25,15 +25,33 @@
     return undefined
   }
   // Spread onto each dispatch target's root element to report it to the shell inspector.
-  // Deliberately NOT given an interactive role/tabindex: several dispatch targets (notably
-  // v-reference, whose display name is its OWN <button>) already contain real interactive
-  // children, and layering a second `role="button"` around them breaks accessible-name
-  // uniqueness (and this ReferenceNode contract's button query) rather than helping it.
+  // Keyboard-accessible: role="button" + tabindex so the selection affordance is reachable
+  // without a mouse, with Enter/Space activating it like a native button would.
+  const select = (kindLabel: string, fqn?: string, doc?: string) => (e: Event) => {
+    e.stopPropagation()
+    onInspect?.({ kindLabel, fqn, doc })
+  }
+  // aria-label pins the accessible name to `kindLabel` instead of letting it fall back to
+  // "name from content": composite wrappers (if-tree, decision-table, ...) can contain a
+  // nested v-reference <button>, and without an explicit label the wrapper's content-derived
+  // name would include that button's text, colliding with `getByRole('button', { name })`
+  // queries for the reference itself.
   const selectProps = (kindLabel: string, fqn?: string, doc?: string) => ({
-    onclick: (e: MouseEvent) => {
-      e.stopPropagation()
-      onInspect?.({ kindLabel, fqn, doc })
+    role: 'button' as const,
+    tabindex: 0,
+    'aria-label': kindLabel,
+    onclick: select(kindLabel, fqn, doc),
+    onkeydown: (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') select(kindLabel, fqn, doc)(e)
     }
+  })
+  // v-reference is the one exception: its display name is already its OWN real <button>
+  // (see ReferenceNode) that's keyboard-accessible for expand/collapse. Layering a SECOND
+  // `role="button"` + tabindex around it would nest two interactive elements with
+  // overlapping accessible names, which breaks ReferenceNode's own button-role query — so
+  // this wrapper stays mouse-only and deliberately un-focusable.
+  const referenceSelectProps = (kindLabel: string, fqn?: string, doc?: string) => ({
+    onclick: select(kindLabel, fqn, doc)
   })
 </script>
 
@@ -89,15 +107,15 @@
 {:else if node.kind === 'v-pipeline'}
   <span class="inline" {...selectProps(node.kind)}><InsightNode node={node.input} />{#each node.stages as s, i (i)} <span class="op">▸</span> <span class="label">{s.label}</span> <InsightNode node={s.arg} />{/each}</span>
 {:else if node.kind === 'v-arith-chain' || node.kind === 'v-logic-chain'}
-  <ChainNode {node} render={renderChild} />
+  <span {...selectProps(node.kind)}><ChainNode {node} render={renderChild} /></span>
 {:else if node.kind === 'v-fraction'}
-  <FractionNode {node} render={renderChild} />
+  <span {...selectProps(node.kind)}><FractionNode {node} render={renderChild} /></span>
 {:else if node.kind === 'v-if-tree'}
-  <IfTreeNode {node} render={renderChild} />
+  <div {...selectProps(node.kind)}><IfTreeNode {node} render={renderChild} /></div>
 {:else if node.kind === 'v-decision-table'}
-  <TableNode {node} render={renderChild} />
+  <div {...selectProps(node.kind)}><TableNode {node} render={renderChild} /></div>
 {:else if node.kind === 'v-reference'}
-  <span {...selectProps(node.display, fqnText(node.fqn), findDoc(node.fqn))}>
+  <span {...referenceSelectProps(node.display, fqnText(node.fqn), findDoc(node.fqn))}>
     <ReferenceNode {node} render={renderChild} />
   </span>
 {/if}

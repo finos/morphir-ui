@@ -7,16 +7,17 @@ import { fileURLToPath } from 'node:url'
 import { Effect } from 'effect'
 import InsightView from '../src/views/insight/InsightView.svelte'
 import { decodeMorphirIr, decodeEntryValueDef, nameToCamel, type MorphirLibrary } from '@morphir/ir'
+import type { InspectMeta } from '../src/views/insight/insight-context.ts'
 
 afterEach(() => cleanup())
 
 const fixture = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '../../morphir-ir/test/fixtures/insight-ir.json'), 'utf8'
 )
-const setup = async (name: string) => {
+const setup = async (name: string, onSelect?: (meta: InspectMeta) => void) => {
   const lib: MorphirLibrary = await Effect.runPromise(decodeMorphirIr(fixture))
   const entry = lib.modules[0]!.values.find((v) => nameToCamel(v.name) === name)!
-  render(InsightView, { props: { def: decodeEntryValueDef(entry), library: lib } })
+  render(InsightView, { props: { def: decodeEntryValueDef(entry), library: lib, onSelect } })
   return lib
 }
 
@@ -57,5 +58,28 @@ describe('InsightView', () => {
     await setup('selfRecursive')
     await userEvent.click(screen.getByRole('button', { name: /selfRecursive/ }))
     expect(screen.getByText(/recursive/)).toBeTruthy()
+  })
+
+  // Important review finding: composite nodes (chain/fraction/if-tree/decision-table) were
+  // dispatched without a selection wrapper, so clicking their own chrome (not a nested inline
+  // child) reported nothing to the inspector. InsightNode now wraps all four the same way it
+  // wraps v-reference, passing node.kind as the label.
+  test('selecting a composite node (decision table) reports its kind to the inspector', async () => {
+    let selected: InspectMeta | null = null
+    await setup('tupleCase', (meta) => (selected = meta))
+    await userEvent.click(screen.getByRole('button', { name: 'v-decision-table' }))
+    expect(selected).toEqual({ kindLabel: 'v-decision-table' })
+  })
+
+  // Non-reference selectable nodes are real keyboard targets (role="button" + tabindex + an
+  // Enter/Space onkeydown) — only v-reference's wrapper stays mouse-only, since its own
+  // display name is already a real, keyboard-accessible <button> (see ReferenceNode.svelte).
+  test('keyboard (Enter) activates a non-reference selectable node', async () => {
+    let selected: InspectMeta | null = null
+    await setup('chainedArithmetic', (meta) => (selected = meta))
+    const chain = screen.getByRole('button', { name: 'v-arith-chain' })
+    chain.focus()
+    await userEvent.keyboard('{Enter}')
+    expect(selected).toEqual({ kindLabel: 'v-arith-chain' })
   })
 })
