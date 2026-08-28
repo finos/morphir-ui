@@ -1,6 +1,14 @@
+import { Effect, Layer, Option } from 'effect'
 import { describe, expect, test } from 'vitest'
 import { WorkspaceState } from '../src/index.ts'
 import { makeAppServices } from '../src/index.ts'
+import {
+  AppInfoService,
+  ConfigService,
+  WorkspaceError,
+  WorkspaceService,
+  defaultUiConfig,
+} from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -43,5 +51,23 @@ describe('WorkspaceState', () => {
     const ws = new WorkspaceState(await makeAppServices({ core }))
     await ws.reopen('/anything')
     expect(ws.current).toBeNull()
+  })
+
+  test('openPicked surfaces a pick/read failure instead of throwing', async () => {
+    const core = Layer.mergeAll(
+      Layer.succeed(ConfigService, {
+        load: Effect.sync(() => defaultUiConfig),
+        save: () => Effect.sync(() => void 0),
+      }),
+      Layer.succeed(WorkspaceService, {
+        pickAndRead: Effect.fail(new WorkspaceError({ message: 'boom: permission denied' })),
+        read: Option.none(),
+      }),
+      Layer.succeed(AppInfoService, { version: Effect.succeed('0.0.0-test') }),
+    )
+    const ws = new WorkspaceState(await makeAppServices({ core }))
+    await ws.openPicked()
+    expect(ws.current).toBeNull()
+    expect(ws.error).toContain('boom: permission denied')
   })
 })

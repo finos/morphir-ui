@@ -22,8 +22,13 @@ export class WorkspaceState {
   }
 
   async openPicked(): Promise<void> {
-    const picked = await this.#services.pickWorkspace()
-    if (picked) await this.#ingest(picked.ref, picked.content)
+    try {
+      const picked = await this.#services.pickWorkspace()
+      if (picked) await this.#ingest(picked.ref, picked.content)
+    } catch (e) {
+      this.current = null
+      this.error = e instanceof Error ? e.message : String(e)
+    }
   }
 
   async reopen(path: string): Promise<void> {
