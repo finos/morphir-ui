@@ -173,3 +173,13 @@ selfRecursive n =
 
     else
         selfRecursive (n - 1)
+
+
+leftSubtraction : Int -> Int -> Int -> Int
+leftSubtraction a b c =
+    a - b - c
+
+
+rightSubtraction : Int -> Int -> Int -> Int
+rightSubtraction a b c =
+    a - (b - c)

@@ -14,15 +14,29 @@ const asSdkApply = (e: ValueExpr): SdkApply | null => {
   return { call: sdkCallName(fn.fqn), local: fn.fqn.local.join('-'), args }
 }
 
-const flattenArith = (e: ValueExpr, op: '+' | '-' | '*', ctx: InsightContext): { node: ViewNode; grouped: boolean }[] => {
+// '+' and '*' are associative: a same-operator child on EITHER side flattens into the chain.
+// '-' is not: `a - (b - c)` != `a - b - c`, so a same-operator '-' child only flattens on the
+// LEFT (mirroring left-to-right evaluation); a same-operator '-' child on the RIGHT falls
+// through to `viewExpr` and is grouped (parens preserved) even though its precedence is equal.
+const ASSOCIATIVE: Record<'+' | '-' | '*', boolean> = { '+': true, '*': true, '-': false }
+
+const flattenArith = (
+  e: ValueExpr,
+  op: '+' | '-' | '*',
+  ctx: InsightContext,
+  isRightArg = false
+): { node: ViewNode; grouped: boolean }[] => {
   const sdk = asSdkApply(e)
-  if (sdk && sdk.args.length === 2 && ARITH_OPS[sdk.call] === op) {
-    return [...flattenArith(sdk.args[0]!, op, ctx), ...flattenArith(sdk.args[1]!, op, ctx)]
+  if (sdk && sdk.args.length === 2 && ARITH_OPS[sdk.call] === op && !(isRightArg && !ASSOCIATIVE[op])) {
+    return [...flattenArith(sdk.args[0]!, op, ctx, false), ...flattenArith(sdk.args[1]!, op, ctx, true)]
   }
   const node = viewExpr(e, ctx)
   const childPrecedence =
     node.kind === 'v-arith-chain' ? ARITH_PRECEDENCE[node.op]! : node.kind === 'v-fraction' ? 2 : null
-  const grouped = childPrecedence !== null && childPrecedence < ARITH_PRECEDENCE[op]!
+  const grouped =
+    childPrecedence !== null &&
+    (childPrecedence < ARITH_PRECEDENCE[op]! ||
+      (isRightArg && !ASSOCIATIVE[op] && childPrecedence === ARITH_PRECEDENCE[op]!))
   return [{ node, grouped }]
 }
 

@@ -42,6 +42,27 @@ describe('arithmetic chains', () => {
     expect(node.kind).toBe('v-fraction')
     if (node.kind === 'v-fraction') expect(node.denominator.kind).toBe('v-arith-chain')
   })
+
+  test('a - b - c (left-associated) flattens to one 3-item chain', async () => {
+    const node = await tree('leftSubtraction')
+    expect(node.kind).toBe('v-arith-chain')
+    if (node.kind === 'v-arith-chain') {
+      expect(node.op).toBe('-')
+      expect(node.items).toHaveLength(3)
+      expect(node.items.every((i) => !i.grouped)).toBe(true)
+    }
+  })
+
+  test('a - (b - c) keeps the right-hand subtraction grouped, not flattened', async () => {
+    const node = await tree('rightSubtraction')
+    expect(node.kind).toBe('v-arith-chain')
+    if (node.kind === 'v-arith-chain') {
+      expect(node.op).toBe('-')
+      expect(node.items).toHaveLength(2)
+      expect(node.items[1]!.node.kind).toBe('v-arith-chain')
+      expect(node.items[1]!.grouped).toBe(true)
+    }
+  })
 })
 
 describe('logic chains and comparisons', () => {

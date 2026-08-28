@@ -52,9 +52,9 @@ describe('decodeValueExpr against unit snippets', () => {
 })
 
 describe('decoding the insight fixture', () => {
-  test('all 21 definitions decode with zero unknown nodes', async () => {
+  test('all 23 definitions decode with zero unknown nodes', async () => {
     const values = await loadFixture()
-    expect(values.size).toBe(21)
+    expect(values.size).toBe(23)
     for (const [name, entry] of values) {
       const def = decodeEntryValueDef(entry)
       expect(def, name).not.toBeNull()

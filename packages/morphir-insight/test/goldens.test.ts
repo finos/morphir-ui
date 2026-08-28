@@ -5,7 +5,7 @@ import { decodeMorphirIr, decodeEntryValueDef, nameToCamel } from '@morphir/ir'
 import { makeContext, toViewTree } from '../src/index.ts'
 
 // Golden coverage grows per task: Task 6 commits goldens for the chain/apply definitions;
-// Task 7 adds branching; Task 8 regenerates the full 21 with drill-down fields present.
+// Task 7 adds branching; Task 8 regenerates the full 23 with drill-down fields present.
 const GOLDEN_DIR = new URL('./goldens/', import.meta.url)
 
 describe('display-tree goldens', () => {

@@ -1,0 +1,36 @@
+{
+  "kind": "v-arith-chain",
+  "op": "-",
+  "items": [
+    {
+      "node": {
+        "kind": "v-variable",
+        "name": "a"
+      },
+      "grouped": false
+    },
+    {
+      "node": {
+        "kind": "v-arith-chain",
+        "op": "-",
+        "items": [
+          {
+            "node": {
+              "kind": "v-variable",
+              "name": "b"
+            },
+            "grouped": false
+          },
+          {
+            "node": {
+              "kind": "v-variable",
+              "name": "c"
+            },
+            "grouped": false
+          }
+        ]
+      },
+      "grouped": true
+    }
+  ]
+}
