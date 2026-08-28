@@ -9,6 +9,7 @@
   import { configToSnapshot, withSnapshot, type UiConfig } from '../services/config.ts'
   import type { AppServices } from '../services/services.ts'
   import type { NavItem } from './nav.ts'
+  import type { InspectMeta } from '../views/insight/insight-context.ts'
 
   let {
     services,
@@ -39,6 +40,7 @@
   shell.hydrate(configToSnapshot(initialConfig))
   const workspace = new WorkspaceState(services, initialConfig.workspace.recent)
   let activeNav = $state('overview')
+  let inspected = $state<InspectMeta | null>(null)
 
   const crumbTitle = $derived(
     shell.route.kind === 'settings'
@@ -92,7 +94,26 @@
         onOpen={() => void workspace.openPicked()}
       />
     {:else}
-      <IrExplorerView {workspace} />
+      <IrExplorerView {workspace} onInspect={(meta) => (inspected = meta)} />
+    {/if}
+  {/snippet}
+  {#snippet inspector()}
+    {#if inspected}
+      <div class="inspector">
+        {#if inspected.fqn}<div class="fqn">{inspected.fqn}</div>{/if}
+        <div class="kind">{inspected.kindLabel}</div>
+        {#if inspected.doc}<div class="doc">{inspected.doc}</div>{/if}
+      </div>
+    {:else}
+      <span class="empty">Select a node to inspect</span>
     {/if}
   {/snippet}
 </AppShell>
+
+<style>
+  .inspector { display: flex; flex-direction: column; gap: 4px; }
+  .fqn { font-family: var(--mono); font-size: 12px; color: var(--text-strong); word-break: break-word; }
+  .kind { font-size: 11px; color: var(--accent2); text-transform: uppercase; letter-spacing: 0.08em; }
+  .doc { font-size: 12.5px; color: var(--muted); }
+  .empty { font-size: 12.5px; color: var(--muted); }
+</style>

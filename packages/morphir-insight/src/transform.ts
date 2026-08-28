@@ -3,11 +3,11 @@ import {
   type ValueDef, type ValueExpr
 } from '@morphir/ir'
 import type { InsightContext } from './context.ts'
-import { isSdkFqn } from './context.ts'
 import { literalText, patternToText } from './pattern-text.ts'
 import type { ViewNode } from './view-node.ts'
 import { routeSpecial } from './chains.ts'
 import { viewDecisionTable, viewIfTree } from './branching.ts'
+import { resolveReference } from './drill-down.ts'
 
 export const toViewTree = (def: ValueDef, ctx: InsightContext): ViewNode => viewExpr(def.body, ctx)
 
@@ -64,14 +64,11 @@ const viewLetGroup = (e: Extract<ValueExpr, { kind: 'let-definition' }>, ctx: In
   return { kind: 'v-let-group', bindings, body: viewExpr(current, ctx) }
 }
 
-// Task 8 replaces this with drill-down resolution; until then references stay collapsed.
-export const referenceNode = (fqn: Parameters<typeof isSdkFqn>[0], args: ViewNode[], _ctx: InsightContext): ViewNode => ({
-  kind: 'v-reference',
-  fqn,
-  display: nameToCamel(fqn.local),
-  expandable: !isSdkFqn(fqn),
-  args
-})
+// Drill-down resolution: looks the FQName up in ctx.library and, when its key is in
+// ctx.expanded, embeds the referenced definition's view tree (or a cycle marker when the
+// key is already on ctx.path). See drill-down.ts.
+export const referenceNode = (fqn: Parameters<typeof resolveReference>[0], args: ViewNode[], ctx: InsightContext): ViewNode =>
+  resolveReference(fqn, args, ctx)
 
 // Task 6 implements the real router in chains.ts; this delegates to it. The transform↔chains
 // import cycle is intentional and safe: each module only calls the other's functions at

@@ -1,4 +1,4 @@
-import { nameToCamel, nameToTitle, type Literal, type Pattern } from '@morphir/ir'
+import { nameToCamel, nameToTitle, type Literal, type Pattern, type TypeExpr } from '@morphir/ir'
 
 export const literalText = (l: Literal): string => {
   switch (l.kind) {
@@ -9,6 +9,23 @@ export const literalText = (l: Literal): string => {
     case 'float': return String(l.value)
     case 'decimal': return l.value
     case 'unknown': return `?${l.tag}`
+  }
+}
+
+/** Compact type formatter for signature lines: references → local Title name with args in
+ * angle brackets, functions → `a → b`, tuples/records structurally. */
+export const typeText = (t: TypeExpr): string => {
+  switch (t.kind) {
+    case 'type-variable': return nameToCamel(t.name)
+    case 'type-reference':
+      return t.args.length === 0 ? nameToTitle(t.fqn.local) : `${nameToTitle(t.fqn.local)}<${t.args.map(typeText).join(', ')}>`
+    case 'type-tuple': return `(${t.elements.map(typeText).join(', ')})`
+    case 'type-record': return `{ ${t.fields.map((f) => `${nameToCamel(f.name)} : ${typeText(f.tpe)}`).join(', ')} }`
+    case 'type-extensible-record':
+      return `{ ${nameToCamel(t.variable)} | ${t.fields.map((f) => `${nameToCamel(f.name)} : ${typeText(f.tpe)}`).join(', ')} }`
+    case 'type-function': return `${typeText(t.argument)} → ${typeText(t.result)}`
+    case 'type-unit': return '()'
+    case 'unknown': return `?${t.tag}`
   }
 }
 

@@ -81,6 +81,7 @@
     "packages/morphir-ui": {
       "name": "@morphir/ui",
       "dependencies": {
+        "@morphir/insight": "workspace:*",
         "@morphir/ir": "workspace:*",
         "effect": "^3.22.1",
       },

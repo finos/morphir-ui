@@ -1,17 +1,32 @@
 <script lang="ts">
   import DetailTabs from './DetailTabs.svelte'
   import XRayView from './XRayView.svelte'
-  import { decodeEntryValueDef, nameToCamel, nameToTitle, type RawDefEntry } from '@morphir/ir'
+  import InsightView from './InsightView.svelte'
+  import { decodeEntryValueDef, nameToCamel, nameToTitle, type MorphirLibrary, type RawDefEntry } from '@morphir/ir'
+  import type { InspectMeta } from './insight-context.ts'
 
   let {
     entry,
     kind,
     moduleName,
-    packageName
-  }: { entry: RawDefEntry; kind: 'type' | 'value'; moduleName: string; packageName: string } = $props()
+    packageName,
+    library,
+    onSelect
+  }: {
+    entry: RawDefEntry
+    kind: 'type' | 'value'
+    moduleName: string
+    packageName: string
+    library: MorphirLibrary
+    onSelect?: (meta: InspectMeta) => void
+  } = $props()
 
   const displayName = $derived(kind === 'value' ? nameToCamel(entry.name) : nameToTitle(entry.name))
-  const tabs = $derived(kind === 'value' ? [{ id: 'xray', label: 'XRay' }] : [{ id: 'type', label: 'Type' }, { id: 'xray', label: 'XRay' }])
+  const tabs = $derived(
+    kind === 'value'
+      ? [{ id: 'insight', label: 'Insight' }, { id: 'xray', label: 'XRay' }]
+      : [{ id: 'type', label: 'Type' }, { id: 'xray', label: 'XRay' }]
+  )
   let active = $derived(tabs[0]!.id)
   const def = $derived(kind === 'value' ? decodeEntryValueDef(entry) : null)
 </script>
@@ -22,7 +37,9 @@
     {#if entry.doc}<span class="doc">{entry.doc}</span>{/if}
   </header>
   <DetailTabs {tabs} {active} onSelect={(id) => (active = id)} />
-  {#if active === 'xray' && kind === 'value'}
+  {#if active === 'insight' && kind === 'value'}
+    <InsightView {def} {library} {onSelect} />
+  {:else if active === 'xray' && kind === 'value'}
     <XRayView {def} />
   {:else}
     <XRayView typeRaw={entry.rawDefinition} />

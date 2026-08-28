@@ -3,8 +3,9 @@
   import DefinitionDetail from './insight/DefinitionDetail.svelte'
   import Icon from '../icons/Icon.svelte'
   import { nameToCamel, nameToTitle, pathToTitle, type RawDefEntry } from '@morphir/ir'
+  import type { InspectMeta } from './insight/insight-context.ts'
 
-  let { workspace }: { workspace: WorkspaceState } = $props()
+  let { workspace, onInspect }: { workspace: WorkspaceState; onInspect?: (meta: InspectMeta) => void } = $props()
 
   let search = $state('')
   let showTypes = $state(true)
@@ -71,6 +72,8 @@
         kind={selected.info.kind}
         moduleName={selected.info.ref.moduleName}
         packageName={selected.info.ref.packageName}
+        library={workspace.current!.library}
+        onSelect={onInspect}
       />
     {:else}
       <div class="filter">

@@ -45,9 +45,12 @@ describe('structural transform', () => {
     })
   })
 
-  test('non-SDK reference is expandable and collapsed by default; SDK plain reference is not expandable', () => {
+  // Drill-down (see drill-down.test.ts) narrows "expandable" to found-in-library && !SDK; an
+  // unresolvable non-SDK reference (this context's library has no modules) is collapsed and
+  // not expandable, same as an SDK reference.
+  test('non-SDK reference not found in the library is not expandable; SDK plain reference is not expandable', () => {
     const userRef = toViewTree(def({ kind: 'value-reference', attr: {}, fqn: { pkg: [['my'], ['pkg']], module: [['mod']], local: ['helper'] } }), ctx())
-    expect(userRef).toEqual({ kind: 'v-reference', fqn: { pkg: [['my'], ['pkg']], module: [['mod']], local: ['helper'] }, display: 'helper', expandable: true, args: [] })
+    expect(userRef).toEqual({ kind: 'v-reference', fqn: { pkg: [['my'], ['pkg']], module: [['mod']], local: ['helper'] }, display: 'helper', expandable: false, args: [] })
     const sdkRef = toViewTree(def({ kind: 'value-reference', attr: {}, fqn: { pkg: [['morphir'], ['s', 'd', 'k']], module: [['string']], local: ['to', 'upper'] } }), ctx())
     expect(sdkRef.kind).toBe('v-reference')
     if (sdkRef.kind === 'v-reference') expect(sdkRef.expandable).toBe(false)
