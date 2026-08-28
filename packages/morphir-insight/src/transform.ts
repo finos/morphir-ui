@@ -7,6 +7,7 @@ import { isSdkFqn } from './context.ts'
 import { literalText, patternToText } from './pattern-text.ts'
 import type { ViewNode } from './view-node.ts'
 import { routeSpecial } from './chains.ts'
+import { viewDecisionTable, viewIfTree } from './branching.ts'
 
 export const toViewTree = (def: ValueDef, ctx: InsightContext): ViewNode => viewExpr(def.body, ctx)
 
@@ -46,8 +47,8 @@ export const viewExpr = (e: ValueExpr, ctx: InsightContext): ViewNode => {
       if (fn.kind === 'lambda') return { kind: 'v-prefix-call', label: `(${patternToText(fn.pattern)} → …)`, args: viewArgs }
       return { kind: 'v-prefix-call', label: '…', args: viewArgs }
     }
-    case 'if-then-else': return viewBranching(e, ctx)     // Task 7 replaces this stub
-    case 'pattern-match': return viewBranching(e, ctx)    // Task 7 replaces this stub
+    case 'if-then-else': return viewIfTree(e, ctx)
+    case 'pattern-match': return viewDecisionTable(e, ctx)
     case 'value-unit': return { kind: 'v-unit' }
     case 'unknown': return { kind: 'v-unknown', tag: e.tag }
   }
@@ -76,22 +77,3 @@ export const referenceNode = (fqn: Parameters<typeof isSdkFqn>[0], args: ViewNod
 // import cycle is intentional and safe: each module only calls the other's functions at
 // runtime (inside function bodies), never at module-init time.
 export const viewSpecial = (e: ValueExpr, ctx: InsightContext): ViewNode | null => routeSpecial(e, ctx)
-
-// Task 7 implements if-trees and decision tables; interim: readable fallbacks.
-export const viewBranching = (e: ValueExpr, ctx: InsightContext): ViewNode => {
-  if (e.kind === 'if-then-else') {
-    return {
-      kind: 'v-if-tree',
-      branches: [{ condition: viewExpr(e.condition, ctx), thenLabel: 'Yes', elseLabel: 'No', result: viewExpr(e.thenBranch, ctx) }],
-      fallback: viewExpr(e.elseBranch, ctx)
-    }
-  }
-  if (e.kind === 'pattern-match') {
-    return {
-      kind: 'v-decision-table',
-      columns: [viewExpr(e.subject, ctx)],
-      rows: e.cases.map((c) => ({ cells: [{ kind: 'cell-pattern' as const, text: patternToText(c.pattern) }], result: viewExpr(c.body, ctx) }))
-    }
-  }
-  return { kind: 'v-unknown', tag: e.kind }
-}

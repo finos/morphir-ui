@@ -1,0 +1,50 @@
+{
+  "kind": "v-decision-table",
+  "columns": [
+    {
+      "kind": "v-variable",
+      "name": "color"
+    }
+  ],
+  "rows": [
+    {
+      "cells": [
+        {
+          "kind": "cell-pattern",
+          "text": "Red"
+        }
+      ],
+      "result": {
+        "kind": "v-literal",
+        "text": "\"warm\"",
+        "literalKind": "string"
+      }
+    },
+    {
+      "cells": [
+        {
+          "kind": "cell-pattern",
+          "text": "Green"
+        }
+      ],
+      "result": {
+        "kind": "v-literal",
+        "text": "\"natural\"",
+        "literalKind": "string"
+      }
+    },
+    {
+      "cells": [
+        {
+          "kind": "cell-pattern",
+          "text": "Blue"
+        }
+      ],
+      "result": {
+        "kind": "v-literal",
+        "text": "\"cool\"",
+        "literalKind": "string"
+      }
+    }
+  ]
+}

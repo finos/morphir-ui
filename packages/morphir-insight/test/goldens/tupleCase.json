@@ -1,0 +1,63 @@
+{
+  "kind": "v-decision-table",
+  "columns": [
+    {
+      "kind": "v-variable",
+      "name": "pair"
+    },
+    {
+      "kind": "v-variable",
+      "name": "pair"
+    }
+  ],
+  "rows": [
+    {
+      "cells": [
+        {
+          "kind": "cell-pattern",
+          "text": "0"
+        },
+        {
+          "kind": "cell-pattern",
+          "text": "True"
+        }
+      ],
+      "result": {
+        "kind": "v-literal",
+        "text": "\"zero-true\"",
+        "literalKind": "string"
+      }
+    },
+    {
+      "cells": [
+        {
+          "kind": "cell-wildcard"
+        },
+        {
+          "kind": "cell-pattern",
+          "text": "False"
+        }
+      ],
+      "result": {
+        "kind": "v-literal",
+        "text": "\"any-false\"",
+        "literalKind": "string"
+      }
+    },
+    {
+      "cells": [
+        {
+          "kind": "cell-wildcard"
+        },
+        {
+          "kind": "cell-wildcard"
+        }
+      ],
+      "result": {
+        "kind": "v-literal",
+        "text": "\"other\"",
+        "literalKind": "string"
+      }
+    }
+  ]
+}
