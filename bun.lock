@@ -61,10 +61,10 @@
       "name": "@morphir/insight",
       "dependencies": {
         "@morphir/ir": "workspace:*",
-        "effect": "^3.22.1",
       },
       "devDependencies": {
         "bun-types": "^1.4.0",
+        "effect": "^3.22.1",
         "typescript": "7.0.2",
       },
     },

@@ -82,4 +82,18 @@ describe('InsightView', () => {
     await userEvent.keyboard('{Enter}')
     expect(selected).toEqual({ kindLabel: 'v-arith-chain' })
   })
+
+  // Important review finding: the Space branch of the keydown handler activated selection
+  // but never called preventDefault(), so pressing Space also scrolled the page like a
+  // native Space-over-focused-text would. Space must both select AND suppress the scroll.
+  test('keyboard (Space) activates a non-reference selectable node and prevents page scroll', async () => {
+    let selected: InspectMeta | null = null
+    await setup('chainedArithmetic', (meta) => (selected = meta))
+    const chain = screen.getByRole('button', { name: 'v-arith-chain' })
+    chain.focus()
+    const event = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })
+    chain.dispatchEvent(event)
+    expect(selected).toEqual({ kindLabel: 'v-arith-chain' })
+    expect(event.defaultPrevented).toBe(true)
+  })
 })

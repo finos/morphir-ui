@@ -42,7 +42,11 @@
     'aria-label': kindLabel,
     onclick: select(kindLabel, fqn, doc),
     onkeydown: (e: KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') select(kindLabel, fqn, doc)(e)
+      if (e.key === 'Enter') select(kindLabel, fqn, doc)(e)
+      else if (e.key === ' ') {
+        e.preventDefault() // stop the page from scrolling when Space activates selection
+        select(kindLabel, fqn, doc)(e)
+      }
     }
   })
   // v-reference is the one exception: its display name is already its OWN real <button>
