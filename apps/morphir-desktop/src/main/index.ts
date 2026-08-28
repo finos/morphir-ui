@@ -1,6 +1,8 @@
 import { BrowserWindow, app, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { RPC_CHANNEL, RpcRegistry } from './rpc.ts'
+import { loadConfigFile, saveConfigFile } from './config.ts'
+import { decodeUiConfig } from '@morphir/ui/config'
 
 const smoke = process.env['MORPHIR_SMOKE'] === '1'
 const registry = new RpcRegistry()
@@ -11,6 +13,12 @@ registry.register('morphir/shell/smokeReport', async (params) => {
     typeof params === 'object' && params !== null && (params as { ok?: boolean }).ok === true
   console.log(ok ? 'SMOKE OK' : 'SMOKE FAILED')
   if (smoke) app.exit(ok ? 0 : 1)
+  return {}
+})
+registry.register('morphir/config/load', async () => loadConfigFile())
+registry.register('morphir/config/save', async (params) => {
+  const config = decodeUiConfig((params as { config?: unknown })?.config)
+  await saveConfigFile(config)
   return {}
 })
 
