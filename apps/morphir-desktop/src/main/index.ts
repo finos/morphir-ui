@@ -121,6 +121,10 @@ void app.whenReady().then(() => {
       app.exit(1)
     }, 90_000)
   }
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
 })
 
 app.on('window-all-closed', () => {
