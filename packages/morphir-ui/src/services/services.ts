@@ -74,20 +74,13 @@ export interface AppServices {
   } | null
 }
 
-export const makeAppServices = async (opts: {
-  core: Layer.Layer<CoreServices>
-  github?: Layer.Layer<GitHubService>
-}): Promise<AppServices> => {
-  const layer = opts.github ? Layer.merge(opts.core, opts.github) : opts.core
-  const runtime = ManagedRuntime.make(layer as unknown as Layer.Layer<CoreServices | GitHubService>)
+const buildFacade = async (
+  runtime: ManagedRuntime.ManagedRuntime<CoreServices, never>,
+  github: GitHubServiceApi | null,
+): Promise<AppServices> => {
   const config = await runtime.runPromise(ConfigService)
   const workspace = await runtime.runPromise(WorkspaceService)
   const appInfo = await runtime.runPromise(AppInfoService)
-  const github = opts.github
-    ? await (runtime.runPromise as unknown as (tag: typeof GitHubService) => Promise<GitHubServiceApi>)(
-        GitHubService,
-      )
-    : null
   const read = Option.getOrNull(workspace.read)
   return {
     capabilities: { github: github !== null, reopenWorkspaces: read !== null },
@@ -106,4 +99,22 @@ export const makeAppServices = async (opts: {
         }
       : null,
   }
+}
+
+export const makeAppServices = async (opts: {
+  core: Layer.Layer<CoreServices>
+  github?: Layer.Layer<GitHubService>
+}): Promise<AppServices> => {
+  if (opts.github) {
+    const layer = Layer.merge(opts.core, opts.github)
+    const runtime = ManagedRuntime.make(layer)
+    const github = await runtime.runPromise(GitHubService)
+    // Sound narrowing: the merged runtime provides CoreServices | GitHubService; buildFacade only needs CoreServices, but Layer/Runtime contravariance keeps the compiler from expressing this widening-as-subset directly.
+    return buildFacade(
+      runtime as ManagedRuntime.ManagedRuntime<CoreServices, never>,
+      github,
+    )
+  }
+  const runtime = ManagedRuntime.make(opts.core)
+  return buildFacade(runtime, null)
 }
