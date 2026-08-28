@@ -13,6 +13,7 @@
 **Working directory:** ALL tasks run inside the morphir-ui checkout at
 `/home/damre/.t3/worktrees/morphir/t3code-d18fb25c/ecosystem/morphir-ui` on branch `feat/bootstrap`.
 Source material referenced from sibling checkouts:
+
 - morphir-scala: `/home/damre/.t3/worktrees/morphir/t3code-d18fb25c/ecosystem/morphir-scala`
 - morphir-elm fixtures: `/home/damre/.t3/worktrees/morphir/t3code-d18fb25c/ecosystem/morphir-elm/tests-integration/cli/test-ir-files/`
 
@@ -24,7 +25,7 @@ Source material referenced from sibling checkouts:
 - **Package names:** `@morphir/ui`, `@morphir/ir`, `@morphir/desktop`, `@morphir/web`. Private (no publishing this cycle).
 - **Versions (exact unless stated):** typescript `7.0.2` (root), typescript `^5.9.0` (svelte packages, local devDep so svelte-check resolves it), svelte `^5.56.10`, effect `^3.22.1`, electron `^44.0.0`, electron-builder `^26.15.3`, electron-vite `^5.0.0`, vite `^8.2.2` (web) / the version electron-vite 5 requires (desktop), `@sveltejs/vite-plugin-svelte` `^7.3.0`, vitest `^4.1.11`, svelte-check `^4.7.6`, happy-dom `^20.11.12`, `@testing-library/svelte` `^5.4.2`, smol-toml `^1.8.0`, eslint `^10.9.1`, eslint-plugin-svelte `^3.23.0`, typescript-eslint `^8.68.0`, prettier `^3.9.6`, prettier-plugin-svelte `^4.1.1`, `@moonrepo/cli 2.5.3`, bun `1.4.0`, node `24`. **Degree of freedom:** if a peer-dependency range rejects a pairing (e.g. vite-plugin-svelte vs the vite that electron-vite wants), choose the newest satisfying pair and record it in the commit message; do not downgrade Svelte, Effect, Electron, or TypeScript majors.
 - **Typecheck split:** pure-TS packages run `tsc --noEmit` on TS 7; Svelte packages run `svelte-check` (which needs its local TS 5). Both run in CI.
-- **Design fidelity:** token values, CSS values, redaction rules, IPC posture, and copy strings in this plan were extracted verbatim from morphir-scala — port the VALUES exactly; do not "improve" them (e.g. the `restore` icon is 15×15 while the others are 16×16 — keep it). The *organization* of styles is deliberately NOT a port — see the next bullet.
+- **Design fidelity:** token values, CSS values, redaction rules, IPC posture, and copy strings in this plan were extracted verbatim from morphir-scala — port the VALUES exactly; do not "improve" them (e.g. the `restore` icon is 15×15 while the others are 16×16 — keep it). The _organization_ of styles is deliberately NOT a port — see the next bullet.
 - **Styling rules (Svelte-idiomatic):** NO inline `style` attributes anywhere. Dynamic geometry passes CSS custom properties via Svelte `style:` directives (values only — never rules). All rules live in component `<style>` blocks; global CSS is limited to tokens, base resets, the `.no-motion` kill switch, and `body.resizing-*` cursor rules. Tokens are hand-written CSS using `color-scheme` + `light-dark()` — one definition per token, no generated stylesheets. Styles co-locate with the component that owns the markup.
 - **IR support:** `formatVersion: 3` only. v1/v2/missing produce the exact friendly errors specified in Task 2.
 - **Secrets:** raw tokens never touch config files, logs, or the DOM after capture; only `safeStorage`-encrypted blobs on disk; renderer never holds the raw token after save.
@@ -86,14 +87,17 @@ Out of scope this cycle (spec §5, §6): signing/notarization, auto-update, i18n
 ### Task 1: Toolchain & workspace scaffold
 
 **Files:**
+
 - Create: `.config/mise/config.toml`, `.moon/workspace.yml`, `.moon/toolchain.yml`, `.moon/tasks.yml`, `package.json`, `tsconfig.base.json`, `eslint.config.js`, `.prettierrc.json`, `.prettierignore`, `.gitignore`
 
 **Interfaces:**
+
 - Produces: workspace-wide `moon run <project>:lint|typecheck|test|build` task contract — every later project defines package.json scripts `lint`, `typecheck`, `test`, `build`; moon inherits and runs them.
 
 - [ ] **Step 1: Write tool + workspace config**
 
 `.config/mise/config.toml`:
+
 ```toml
 [tools]
 bun = "1.4.0"
@@ -102,6 +106,7 @@ moon = "2.5.3"
 ```
 
 `.moon/workspace.yml`:
+
 ```yaml
 $schema: 'https://moonrepo.dev/schemas/workspace.json'
 projects:
@@ -113,6 +118,7 @@ vcs:
 ```
 
 `.moon/toolchain.yml`:
+
 ```yaml
 $schema: 'https://moonrepo.dev/schemas/toolchain.json'
 bun:
@@ -120,6 +126,7 @@ bun:
 ```
 
 `.moon/tasks.yml` (inherited by every project; each project supplies the scripts):
+
 ```yaml
 $schema: 'https://moonrepo.dev/schemas/tasks.json'
 tasks:
@@ -136,6 +143,7 @@ tasks:
 - [ ] **Step 2: Root package.json, tsconfig, lint/format config**
 
 `package.json`:
+
 ```json
 {
   "name": "morphir-ui-monorepo",
@@ -162,6 +170,7 @@ tasks:
 ```
 
 `tsconfig.base.json`:
+
 ```json
 {
   "compilerOptions": {
@@ -179,6 +188,7 @@ tasks:
 ```
 
 `eslint.config.js`:
+
 ```js
 import eslint from '@eslint/js'
 import tseslint from 'typescript-eslint'
@@ -192,19 +202,25 @@ export default tseslint.config(
   ...svelte.configs['flat/recommended'],
   {
     files: ['**/*.svelte', '**/*.svelte.ts'],
-    languageOptions: { parserOptions: { parser: tseslint.parser }, globals: { ...globals.browser } }
+    languageOptions: {
+      parserOptions: { parser: tseslint.parser },
+      globals: { ...globals.browser },
+    },
   },
-  { rules: { '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }] } }
+  { rules: { '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }] } },
 )
 ```
+
 (`@eslint/js` comes with eslint 10; if it needs an explicit devDep, add `"@eslint/js": "^10.9.1"`.)
 
 `.prettierrc.json`:
+
 ```json
 { "semi": false, "singleQuote": true, "printWidth": 100, "plugins": ["prettier-plugin-svelte"] }
 ```
 
 `.prettierignore`:
+
 ```
 dist
 out
@@ -215,6 +231,7 @@ bun.lock
 ```
 
 `.gitignore`:
+
 ```
 node_modules/
 dist/
@@ -232,6 +249,7 @@ coverage/
 ```bash
 mise install && mise exec -- bun install && mise exec -- moon query projects
 ```
+
 Expected: bun installs (creates `bun.lock`), `moon query projects` prints an empty project list (no apps/packages exist yet) without error. If moon's config schema rejects a key, fix to the current 2.x schema (`moon --version` = 2.5.3) — the intent of each key is documented above.
 
 - [ ] **Step 4: Verify lint/format pass on empty workspace**
@@ -239,6 +257,7 @@ Expected: bun installs (creates `bun.lock`), `moon query projects` prints an emp
 ```bash
 mise exec -- bun run lint && mise exec -- bun run format:check
 ```
+
 Expected: both exit 0 (prettier check may need `--no-error-on-unmatched-pattern`; if so add it to the script).
 
 - [ ] **Step 5: Commit**
@@ -252,11 +271,13 @@ git add -A && git commit -m "chore: scaffold moon/mise/bun workspace with lint a
 ### Task 2: @morphir/ir — envelope decoding with friendly version errors
 
 **Files:**
+
 - Create: `packages/morphir-ir/package.json`, `moon.yml`, `tsconfig.json`, `src/index.ts`, `src/errors.ts`, `src/decode.ts`
 - Create: `packages/morphir-ir/test/fixtures/` — copy from morphir-elm checkout: `base-ir.json`, `multilevelModules-ir.json`, `simpleTypeTree-ir.json`, `listType-ir.json` (paths under **Working directory** note above)
 - Test: `packages/morphir-ir/test/decode.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `decodeMorphirIr(input: string): Effect.Effect<MorphirLibrary, IrError>` — parses+validates
   - `type MorphirLibrary = { packageName: Path; modules: ReadonlyArray<RawModule> }`
@@ -268,6 +289,7 @@ git add -A && git commit -m "chore: scaffold moon/mise/bun workspace with lint a
 - [ ] **Step 1: Package scaffold**
 
 `packages/morphir-ir/package.json`:
+
 ```json
 {
   "name": "@morphir/ir",
@@ -284,9 +306,11 @@ git add -A && git commit -m "chore: scaffold moon/mise/bun workspace with lint a
   "devDependencies": { "bun-types": "^1.4.0" }
 }
 ```
+
 (The package is consumed as TypeScript source via the `exports` map — Vite compiles it in the apps; `build` is a typecheck. This is deliberate: no dist step this cycle.)
 
 `packages/morphir-ir/moon.yml`:
+
 ```yaml
 $schema: 'https://moonrepo.dev/schemas/project.json'
 type: 'library'
@@ -294,6 +318,7 @@ language: 'typescript'
 ```
 
 `packages/morphir-ir/tsconfig.json`:
+
 ```json
 {
   "extends": "../../tsconfig.base.json",
@@ -303,6 +328,7 @@ language: 'typescript'
 ```
 
 Copy fixtures:
+
 ```bash
 cp /home/damre/.t3/worktrees/morphir/t3code-d18fb25c/ecosystem/morphir-elm/tests-integration/cli/test-ir-files/{base-ir.json,multilevelModules-ir.json,simpleTypeTree-ir.json,listType-ir.json} packages/morphir-ir/test/fixtures/
 ```
@@ -310,6 +336,7 @@ cp /home/damre/.t3/worktrees/morphir/t3code-d18fb25c/ecosystem/morphir-elm/tests
 - [ ] **Step 2: Write the failing tests**
 
 `packages/morphir-ir/test/decode.test.ts`:
+
 ```ts
 import { describe, expect, test } from 'bun:test'
 import { Effect, Exit } from 'effect'
@@ -340,7 +367,10 @@ describe('decodeMorphirIr', () => {
   })
 
   test('rejects formatVersion 2 with the regenerate message', async () => {
-    const v2 = JSON.stringify({ formatVersion: 2, distribution: ['Library', [], [], { modules: [] }] })
+    const v2 = JSON.stringify({
+      formatVersion: 2,
+      distribution: ['Library', [], [], { modules: [] }],
+    })
     const exit = await Effect.runPromiseExit(decodeMorphirIr(v2))
     expect(Exit.isFailure(exit)).toBe(true)
     const message = Exit.isFailure(exit) ? String(exit.cause) : ''
@@ -371,11 +401,13 @@ describe('decodeMorphirIr', () => {
 ```bash
 cd packages/morphir-ir && bun test
 ```
+
 Expected: FAIL — cannot resolve `../src/index.ts`.
 
 - [ ] **Step 4: Implement**
 
 `src/errors.ts`:
+
 ```ts
 import { Data } from 'effect'
 
@@ -386,7 +418,8 @@ export class MissingFormatVersion extends Data.TaggedError('MissingFormatVersion
 }> {
   static make = () =>
     new MissingFormatVersion({
-      message: "The IR is in an old format that doesn't have a format version on it. Please regenerate it!"
+      message:
+        "The IR is in an old format that doesn't have a format version on it. Please regenerate it!",
     })
 }
 
@@ -400,7 +433,7 @@ export class UnsupportedFormatVersion extends Data.TaggedError('UnsupportedForma
       message:
         found === 1
           ? 'The IR is using format version 1, a legacy format that morphir-ui does not support yet. Please regenerate it with a current morphir-elm!'
-          : `The IR is using format version ${found} but the latest format version is 3. Please regenerate it!`
+          : `The IR is using format version ${found} but the latest format version is 3. Please regenerate it!`,
     })
 }
 
@@ -410,21 +443,35 @@ export type IrError = InvalidJson | MissingFormatVersion | UnsupportedFormatVers
 ```
 
 `src/decode.ts` — hand-rolled narrowing for the positional encodings (Effect Schema stays out of the tagged-tuple business on purpose; the shapes are simple and the error messages must be ours):
+
 ```ts
 import { Effect } from 'effect'
-import { InvalidIr, InvalidJson, MissingFormatVersion, UnsupportedFormatVersion, type IrError } from './errors.ts'
+import {
+  InvalidIr,
+  InvalidJson,
+  MissingFormatVersion,
+  UnsupportedFormatVersion,
+  type IrError,
+} from './errors.ts'
 
 export type Name = ReadonlyArray<string>
 export type Path = ReadonlyArray<Name>
 export type Access = 'Public' | 'Private'
-export interface RawDefEntry { readonly name: Name; readonly access: Access; readonly doc: string | null }
+export interface RawDefEntry {
+  readonly name: Name
+  readonly access: Access
+  readonly doc: string | null
+}
 export interface RawModule {
   readonly path: Path
   readonly access: Access
   readonly types: ReadonlyArray<RawDefEntry>
   readonly values: ReadonlyArray<RawDefEntry>
 }
-export interface MorphirLibrary { readonly packageName: Path; readonly modules: ReadonlyArray<RawModule> }
+export interface MorphirLibrary {
+  readonly packageName: Path
+  readonly modules: ReadonlyArray<RawModule>
+}
 
 const isName = (u: unknown): u is Name => Array.isArray(u) && u.every((p) => typeof p === 'string')
 const isPath = (u: unknown): u is Path => Array.isArray(u) && u.every(isName)
@@ -433,9 +480,11 @@ const isAccess = (u: unknown): u is Access => u === 'Public' || u === 'Private'
 const fail = (message: string) => new InvalidIr({ message })
 
 function readDefEntry(entry: unknown, section: string): RawDefEntry {
-  if (!Array.isArray(entry) || entry.length !== 2 || !isName(entry[0])) throw fail(`malformed ${section} entry`)
+  if (!Array.isArray(entry) || entry.length !== 2 || !isName(entry[0]))
+    throw fail(`malformed ${section} entry`)
   const ac = entry[1] as Record<string, unknown>
-  if (typeof ac !== 'object' || ac === null || !isAccess(ac['access'])) throw fail(`malformed ${section} access`)
+  if (typeof ac !== 'object' || ac === null || !isAccess(ac['access']))
+    throw fail(`malformed ${section} access`)
   const documented = ac['value'] as Record<string, unknown> | undefined
   const doc =
     documented && typeof documented === 'object' && typeof documented['doc'] === 'string'
@@ -445,27 +494,36 @@ function readDefEntry(entry: unknown, section: string): RawDefEntry {
 }
 
 function readModule(entry: unknown): RawModule {
-  if (!Array.isArray(entry) || entry.length !== 2 || !isPath(entry[0])) throw fail('malformed module entry')
+  if (!Array.isArray(entry) || entry.length !== 2 || !isPath(entry[0]))
+    throw fail('malformed module entry')
   const ac = entry[1] as Record<string, unknown>
-  if (typeof ac !== 'object' || ac === null || !isAccess(ac['access'])) throw fail('malformed module access')
+  if (typeof ac !== 'object' || ac === null || !isAccess(ac['access']))
+    throw fail('malformed module access')
   const def = ac['value'] as Record<string, unknown>
   if (typeof def !== 'object' || def === null) throw fail('malformed module definition')
   const types = Array.isArray(def['types']) ? def['types'].map((t) => readDefEntry(t, 'type')) : []
-  const values = Array.isArray(def['values']) ? def['values'].map((v) => readDefEntry(v, 'value')) : []
+  const values = Array.isArray(def['values'])
+    ? def['values'].map((v) => readDefEntry(v, 'value'))
+    : []
   return { path: entry[0], access: ac['access'], types, values }
 }
 
 export const decodeMorphirIr = (input: string): Effect.Effect<MorphirLibrary, IrError> =>
-  Effect.try({ try: () => JSON.parse(input) as unknown, catch: (e) => new InvalidJson({ message: String(e) }) }).pipe(
+  Effect.try({
+    try: () => JSON.parse(input) as unknown,
+    catch: (e) => new InvalidJson({ message: String(e) }),
+  }).pipe(
     Effect.flatMap((root) =>
       Effect.try({
         try: () => {
           if (typeof root !== 'object' || root === null) throw fail('IR root must be an object')
           const env = root as Record<string, unknown>
           if (!('formatVersion' in env)) throw MissingFormatVersion.make()
-          if (env['formatVersion'] !== 3) throw UnsupportedFormatVersion.make(Number(env['formatVersion']))
+          if (env['formatVersion'] !== 3)
+            throw UnsupportedFormatVersion.make(Number(env['formatVersion']))
           const dist = env['distribution']
-          if (!Array.isArray(dist) || dist[0] !== 'Library') throw fail('expected a Library distribution')
+          if (!Array.isArray(dist) || dist[0] !== 'Library')
+            throw fail('expected a Library distribution')
           if (!isPath(dist[1])) throw fail('malformed package name')
           const pkgDef = dist[3] as Record<string, unknown>
           if (typeof pkgDef !== 'object' || pkgDef === null || !Array.isArray(pkgDef['modules']))
@@ -473,15 +531,18 @@ export const decodeMorphirIr = (input: string): Effect.Effect<MorphirLibrary, Ir
           return { packageName: dist[1], modules: pkgDef['modules'].map(readModule) }
         },
         catch: (e) =>
-          e instanceof MissingFormatVersion || e instanceof UnsupportedFormatVersion || e instanceof InvalidIr
+          e instanceof MissingFormatVersion ||
+          e instanceof UnsupportedFormatVersion ||
+          e instanceof InvalidIr
             ? e
-            : new InvalidIr({ message: String(e) })
-      })
-    )
+            : new InvalidIr({ message: String(e) }),
+      }),
+    ),
   )
 ```
 
 `src/index.ts`:
+
 ```ts
 export * from './decode.ts'
 export * from './errors.ts'
@@ -492,6 +553,7 @@ export * from './errors.ts'
 ```bash
 cd packages/morphir-ir && bun test && bun run typecheck && cd ../.. && bun run lint
 ```
+
 Expected: all PASS / exit 0.
 
 - [ ] **Step 6: Commit**
@@ -505,10 +567,12 @@ git add -A && git commit -m "feat(ir): decode morphir-ir.json v3 envelope with f
 ### Task 3: @morphir/ir — explorer model and name formatting
 
 **Files:**
+
 - Create: `packages/morphir-ir/src/names.ts`, `src/explorer.ts`; extend `src/index.ts`
 - Test: `packages/morphir-ir/test/explorer.test.ts`
 
 **Interfaces:**
+
 - Consumes: `MorphirLibrary`, `Name`, `Path` from Task 2.
 - Produces:
   - `nameToTitle(name: Name): string` — `["custom","report"]` → `CustomReport`; single letters uppercase (`["u","s"]` → `US`); digit parts verbatim (`["f","r","2052","a"]` → `FR2052A`)
@@ -525,22 +589,31 @@ git add -A && git commit -m "feat(ir): decode morphir-ir.json v3 envelope with f
 - [ ] **Step 1: Write the failing tests**
 
 `packages/morphir-ir/test/explorer.test.ts`:
+
 ```ts
 import { describe, expect, test } from 'bun:test'
 import { Effect } from 'effect'
-import { decodeMorphirIr, nameToCamel, nameToTitle, pathToTitle, toWorkspaceIr } from '../src/index.ts'
+import {
+  decodeMorphirIr,
+  nameToCamel,
+  nameToTitle,
+  pathToTitle,
+  toWorkspaceIr,
+} from '../src/index.ts'
 
 const load = async (name: string) =>
   toWorkspaceIr(
     await Effect.runPromise(
-      decodeMorphirIr(await Bun.file(new URL(`./fixtures/${name}`, import.meta.url)).text())
-    )
+      decodeMorphirIr(await Bun.file(new URL(`./fixtures/${name}`, import.meta.url)).text()),
+    ),
   )
 
 describe('name formatting', () => {
-  test('title-cases word parts', () => expect(nameToTitle(['custom', 'report'])).toBe('CustomReport'))
+  test('title-cases word parts', () =>
+    expect(nameToTitle(['custom', 'report'])).toBe('CustomReport'))
   test('uppercases single letters', () => expect(nameToTitle(['u', 's'])).toBe('US'))
-  test('keeps digit parts verbatim', () => expect(nameToTitle(['f', 'r', '2052', 'a'])).toBe('FR2052A'))
+  test('keeps digit parts verbatim', () =>
+    expect(nameToTitle(['f', 'r', '2052', 'a'])).toBe('FR2052A'))
   test('camel-cases values', () => expect(nameToCamel(['list', 'example'])).toBe('listExample'))
   test('joins paths with dots', () =>
     expect(pathToTitle([['morphir'], ['example'], ['app']])).toBe('Morphir.Example.App'))
@@ -558,7 +631,7 @@ describe('toWorkspaceIr', () => {
       packageName: 'Morphir.Example.App',
       name: 'Forecast',
       typeCount: 2,
-      valueCount: 0
+      valueCount: 0,
     })
   })
 
@@ -583,17 +656,23 @@ describe('toWorkspaceIr', () => {
 ```bash
 cd packages/morphir-ir && bun test test/explorer.test.ts
 ```
+
 Expected: FAIL — `nameToTitle` etc. not exported.
 
 - [ ] **Step 3: Implement**
 
 `src/names.ts`:
+
 ```ts
 import type { Name, Path } from './decode.ts'
 
 const isDigits = (part: string) => /^\d+$/.test(part)
 const cap = (part: string) =>
-  isDigits(part) ? part : part.length === 1 ? part.toUpperCase() : part[0]!.toUpperCase() + part.slice(1)
+  isDigits(part)
+    ? part
+    : part.length === 1
+      ? part.toUpperCase()
+      : part[0]!.toUpperCase() + part.slice(1)
 
 export const nameToTitle = (name: Name): string => name.map(cap).join('')
 
@@ -604,11 +683,15 @@ export const pathToTitle = (path: Path): string => path.map(nameToTitle).join('.
 ```
 
 `src/explorer.ts`:
+
 ```ts
 import type { MorphirLibrary } from './decode.ts'
 import { nameToCamel, nameToTitle, pathToTitle } from './names.ts'
 
-export interface PackageInfo { readonly name: string; readonly moduleCount: number }
+export interface PackageInfo {
+  readonly name: string
+  readonly moduleCount: number
+}
 export interface ModuleInfo {
   readonly packageName: string
   readonly name: string
@@ -639,7 +722,7 @@ export const toWorkspaceIr = (lib: MorphirLibrary): WorkspaceIr => {
     packageName,
     name: pathToTitle(m.path),
     typeCount: m.types.length,
-    valueCount: m.values.length
+    valueCount: m.values.length,
   }))
   const definitions = lib.modules.flatMap((m) => {
     const moduleName = pathToTitle(m.path)
@@ -647,11 +730,11 @@ export const toWorkspaceIr = (lib: MorphirLibrary): WorkspaceIr => {
       ref: {
         packageName,
         moduleName,
-        localName: kind === 'type' ? nameToTitle(entry.name) : nameToCamel(entry.name)
+        localName: kind === 'type' ? nameToTitle(entry.name) : nameToCamel(entry.name),
       },
       kind,
       access: entry.access,
-      doc: entry.doc
+      doc: entry.doc,
     })
     return [...m.types.map(mk('type')), ...m.values.map(mk('value'))]
   })
@@ -660,6 +743,7 @@ export const toWorkspaceIr = (lib: MorphirLibrary): WorkspaceIr => {
 ```
 
 Add to `src/index.ts`:
+
 ```ts
 export * from './names.ts'
 export * from './explorer.ts'
@@ -670,6 +754,7 @@ export * from './explorer.ts'
 ```bash
 cd packages/morphir-ir && bun test && bun run typecheck
 ```
+
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -683,11 +768,13 @@ git add -A && git commit -m "feat(ir): explorer model with morphir name formatti
 ### Task 4: @morphir/ui — package scaffold and theme stylesheets
 
 **Files:**
+
 - Create: `packages/morphir-ui/package.json`, `moon.yml`, `tsconfig.json`, `vite.config.ts`
 - Create: `packages/morphir-ui/src/theme/tokens.css`, `src/theme/base.css`, `src/theme/global.css`, `src/theme/index.css`, `src/index.ts`
 - Test: `packages/morphir-ui/test/theme.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `@morphir/ui/theme.css` export (→ `src/theme/index.css`) consumed once by each app's entry.
   - The CSS custom-property contract every component builds on: the 20 palette tokens (`--bg --surface --panel --panel-edge --rail --edge --row-edge --head-edge --hover --hover-soft --code-bg --text --text-strong --muted --muted2 --nav --dot --accent --accent2 --accent-text`), plus `--knob`, `--mono`, `--sans`, `--slide-ms: 320ms`, `--traffic-light-inset: 78px`.
@@ -697,6 +784,7 @@ git add -A && git commit -m "feat(ir): explorer model with morphir name formatti
 - [ ] **Step 1: Package scaffold**
 
 `packages/morphir-ui/package.json`:
+
 ```json
 {
   "name": "@morphir/ui",
@@ -732,9 +820,11 @@ git add -A && git commit -m "feat(ir): explorer model with morphir name formatti
   }
 }
 ```
+
 (The local `typescript ^5.9.0` devDep exists ONLY so svelte-check resolves TS 5.x while the root stays on 7.0.2 — Global Constraints.)
 
 `packages/morphir-ui/moon.yml`:
+
 ```yaml
 $schema: 'https://moonrepo.dev/schemas/project.json'
 type: 'library'
@@ -742,6 +832,7 @@ language: 'typescript'
 ```
 
 `packages/morphir-ui/tsconfig.json`:
+
 ```json
 {
   "extends": "../../tsconfig.base.json",
@@ -751,6 +842,7 @@ language: 'typescript'
 ```
 
 `packages/morphir-ui/vite.config.ts`:
+
 ```ts
 import { defineConfig } from 'vitest/config'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
@@ -758,13 +850,14 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 export default defineConfig({
   plugins: [svelte()],
   test: { environment: 'happy-dom', include: ['test/**/*.test.ts'] },
-  resolve: { conditions: ['browser'] }
+  resolve: { conditions: ['browser'] },
 })
 ```
 
 - [ ] **Step 2: Write the failing test**
 
 `packages/morphir-ui/test/theme.test.ts` (the token pairs live in the TEST as the fidelity oracle — the shipped artifact is plain CSS):
+
 ```ts
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
@@ -793,7 +886,7 @@ const PALETTE: ReadonlyArray<readonly [string, string, string]> = [
   ['dot', '#c9c1de', '#3d3550'],
   ['accent', '#c02e8c', '#d6409f'],
   ['accent2', '#7c4ddb', '#8b5cf6'],
-  ['accent-text', '#9c2f77', '#f2b7dd']
+  ['accent-text', '#9c2f77', '#f2b7dd'],
 ]
 
 describe('theme stylesheets', () => {
@@ -847,11 +940,13 @@ describe('theme stylesheets', () => {
 ```bash
 cd packages/morphir-ui && bun install && bun run test
 ```
+
 Expected: FAIL — the `src/theme/*.css` files do not exist yet.
 
 - [ ] **Step 4: Write the stylesheets (token VALUES verbatim from morphir-scala `Tokens.scala`)**
 
 `src/theme/tokens.css` — each token defined ONCE; `light-dark(light, dark)`; scheme classes only flip `color-scheme` (default is dark, matching `ShellDefaults.colorScheme`):
+
 ```css
 /* Design tokens — values ported verbatim from morphir-scala Tokens.scala. */
 :root {
@@ -887,15 +982,29 @@ Expected: FAIL — the `src/theme/*.css` files do not exist yet.
   --traffic-light-inset: 78px;
 }
 
-.theme-dark { color-scheme: dark; }
-.theme-light { color-scheme: light; }
-.theme-system { color-scheme: light dark; }
+.theme-dark {
+  color-scheme: dark;
+}
+.theme-light {
+  color-scheme: light;
+}
+.theme-system {
+  color-scheme: light dark;
+}
 ```
 
 `src/theme/base.css` (reset + body typography, ported from `theme/Base.scala`):
+
 ```css
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+html,
+body {
+  height: 100%;
+}
 body {
   -webkit-font-smoothing: antialiased;
   background: var(--bg);
@@ -904,12 +1013,20 @@ body {
   line-height: 1.55;
   font-family: var(--sans);
 }
-::selection { background: rgba(214, 64, 159, 0.35); }
-::-webkit-scrollbar { width: 10px; }
-::-webkit-scrollbar-thumb { background: var(--panel-edge); border-radius: 5px; }
+::selection {
+  background: rgba(214, 64, 159, 0.35);
+}
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--panel-edge);
+  border-radius: 5px;
+}
 ```
 
 `src/theme/global.css` — ONLY rules that genuinely need global reach; everything else lives in component `<style>` blocks:
+
 ```css
 /* Motion kill-switch: must beat every scoped transition, hence global + !important. */
 .no-motion *,
@@ -920,11 +1037,20 @@ body {
 }
 
 /* Cursor stability while a pointer drag outruns the 5px resize strip. */
-body.resizing-col, body.resizing-col * { cursor: col-resize; user-select: none; }
-body.resizing-row, body.resizing-row * { cursor: row-resize; user-select: none; }
+body.resizing-col,
+body.resizing-col * {
+  cursor: col-resize;
+  user-select: none;
+}
+body.resizing-row,
+body.resizing-row * {
+  cursor: row-resize;
+  user-select: none;
+}
 ```
 
 `src/theme/index.css`:
+
 ```css
 @import './tokens.css';
 @import './base.css';
@@ -932,17 +1058,18 @@ body.resizing-row, body.resizing-row * { cursor: row-resize; user-select: none; 
 ```
 
 `src/index.ts` (grows in later tasks):
+
 ```ts
 // Public API of @morphir/ui — exports accumulate as modules land.
 export {}
 ```
-
 
 - [ ] **Step 5: Run tests, verify pass**
 
 ```bash
 bun run test && bun run typecheck
 ```
+
 Expected: PASS. (First `svelte-check` run validates the TS-5-local resolution — if it picks up root TS 7 and errors, check that `packages/morphir-ui/node_modules/typescript` exists.)
 
 - [ ] **Step 6: Commit**
@@ -956,10 +1083,12 @@ git add -A && git commit -m "feat(ui): port morphir-scala design tokens as light
 ### Task 5: @morphir/ui — ShellState (runes)
 
 **Files:**
+
 - Create: `packages/morphir-ui/src/state/shell-constants.ts` (pure TS — NO runes; the Electron main process imports the `@morphir/ui/config` chain, which must never touch Svelte), `packages/morphir-ui/src/state/shell-state.svelte.ts`; extend `src/index.ts`
 - Test: `packages/morphir-ui/test/shell-state.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `type ColorScheme = 'system' | 'light' | 'dark'`; `SCHEME_CLASSES: Record<ColorScheme, string>` → `theme-system|theme-light|theme-dark`; `SCHEME_LABELS` → `System|Light|Dark`
   - `type SettingsSection = 'general' | 'appearance' | 'github' | 'about'`
@@ -972,6 +1101,7 @@ git add -A && git commit -m "feat(ui): port morphir-scala design tokens as light
 - [ ] **Step 1: Write the failing tests**
 
 `packages/morphir-ui/test/shell-state.test.ts`:
+
 ```ts
 import { describe, expect, test } from 'vitest'
 import { PANEL_BOUNDS, SHELL_DEFAULTS, ShellState } from '../src/index.ts'
@@ -1051,6 +1181,7 @@ describe('ShellState', () => {
 - [ ] **Step 3: Implement**
 
 `src/state/shell-constants.ts` (pure TS — no runes):
+
 ```ts
 export type ColorScheme = 'system' | 'light' | 'dark'
 export type SettingsSection = 'general' | 'appearance' | 'github' | 'about'
@@ -1059,22 +1190,29 @@ export type Route = { kind: 'workspace' } | { kind: 'settings'; section: Setting
 export const SCHEME_CLASSES: Record<ColorScheme, string> = {
   system: 'theme-system',
   light: 'theme-light',
-  dark: 'theme-dark'
+  dark: 'theme-dark',
 }
-export const SCHEME_LABELS: Record<ColorScheme, string> = { system: 'System', light: 'Light', dark: 'Dark' }
+export const SCHEME_LABELS: Record<ColorScheme, string> = {
+  system: 'System',
+  light: 'Light',
+  dark: 'Dark',
+}
 
-export interface PanelBounds { readonly min: number; readonly max: number }
+export interface PanelBounds {
+  readonly min: number
+  readonly max: number
+}
 export const PANEL_BOUNDS = {
   left: { min: 180, max: 420 },
   right: { min: 220, max: 560 },
-  bottom: { min: 120, max: 460 }
+  bottom: { min: 120, max: 460 },
 } as const satisfies Record<string, PanelBounds>
 
 export const SHELL_DEFAULTS = {
   leftWidth: 224,
   rightWidth: 300,
   bottomHeight: 180,
-  colorScheme: 'dark' as ColorScheme
+  colorScheme: 'dark' as ColorScheme,
 }
 
 export interface ShellSnapshot {
@@ -1094,6 +1232,7 @@ export const clampPanel = (px: number, bounds: PanelBounds): number =>
 ```
 
 `src/state/shell-state.svelte.ts`:
+
 ```ts
 import {
   PANEL_BOUNDS,
@@ -1103,7 +1242,7 @@ import {
   type ColorScheme,
   type Route,
   type SettingsSection,
-  type ShellSnapshot
+  type ShellSnapshot,
 } from './shell-constants.ts'
 
 export * from './shell-constants.ts'
@@ -1119,23 +1258,55 @@ export class ShellState {
   colorScheme = $state<ColorScheme>(SHELL_DEFAULTS.colorScheme)
   route = $state<Route>({ kind: 'workspace' })
 
-  get leftExtent() { return this.leftVisible ? this.leftWidth : 0 }
-  get rightExtent() { return this.rightVisible ? this.rightWidth : 0 }
-  get bottomExtent() { return this.bottomVisible ? this.bottomHeight : 0 }
-  get schemeClass() { return SCHEME_CLASSES[this.colorScheme] }
-  get isSettings() { return this.route.kind === 'settings' }
+  get leftExtent() {
+    return this.leftVisible ? this.leftWidth : 0
+  }
+  get rightExtent() {
+    return this.rightVisible ? this.rightWidth : 0
+  }
+  get bottomExtent() {
+    return this.bottomVisible ? this.bottomHeight : 0
+  }
+  get schemeClass() {
+    return SCHEME_CLASSES[this.colorScheme]
+  }
+  get isSettings() {
+    return this.route.kind === 'settings'
+  }
 
-  toggleLeft() { this.leftVisible = !this.leftVisible }
-  toggleRight() { this.rightVisible = !this.rightVisible }
-  toggleBottom() { this.bottomVisible = !this.bottomVisible }
-  resizeLeft(px: number) { this.leftWidth = clamp(px, PANEL_BOUNDS.left) }
-  resizeRight(px: number) { this.rightWidth = clamp(px, PANEL_BOUNDS.right) }
-  resizeBottom(px: number) { this.bottomHeight = clamp(px, PANEL_BOUNDS.bottom) }
-  openSettings(section: SettingsSection = 'general') { this.route = { kind: 'settings', section } }
-  closeSettings() { this.route = { kind: 'workspace' } }
-  selectSettingsSection(section: SettingsSection) { this.route = { kind: 'settings', section } }
-  selectColorScheme(scheme: ColorScheme) { this.colorScheme = scheme }
-  toggleAnimations() { this.animations = !this.animations }
+  toggleLeft() {
+    this.leftVisible = !this.leftVisible
+  }
+  toggleRight() {
+    this.rightVisible = !this.rightVisible
+  }
+  toggleBottom() {
+    this.bottomVisible = !this.bottomVisible
+  }
+  resizeLeft(px: number) {
+    this.leftWidth = clamp(px, PANEL_BOUNDS.left)
+  }
+  resizeRight(px: number) {
+    this.rightWidth = clamp(px, PANEL_BOUNDS.right)
+  }
+  resizeBottom(px: number) {
+    this.bottomHeight = clamp(px, PANEL_BOUNDS.bottom)
+  }
+  openSettings(section: SettingsSection = 'general') {
+    this.route = { kind: 'settings', section }
+  }
+  closeSettings() {
+    this.route = { kind: 'workspace' }
+  }
+  selectSettingsSection(section: SettingsSection) {
+    this.route = { kind: 'settings', section }
+  }
+  selectColorScheme(scheme: ColorScheme) {
+    this.colorScheme = scheme
+  }
+  toggleAnimations() {
+    this.animations = !this.animations
+  }
 
   restoreDefaults() {
     this.leftVisible = this.rightVisible = this.bottomVisible = true
@@ -1155,8 +1326,8 @@ export class ShellState {
         bottomHeight: this.bottomHeight,
         leftVisible: this.leftVisible,
         rightVisible: this.rightVisible,
-        bottomVisible: this.bottomVisible
-      }
+        bottomVisible: this.bottomVisible,
+      },
     }
   }
 
@@ -1174,6 +1345,7 @@ export class ShellState {
 ```
 
 Add to `src/index.ts`:
+
 ```ts
 export * from './state/shell-state.svelte.ts'
 ```
@@ -1191,10 +1363,12 @@ git add -A && git commit -m "feat(ui): shell state with panel bounds, routing, s
 ### Task 6: @morphir/ui — shell chrome components
 
 **Files:**
+
 - Create: `packages/morphir-ui/src/icons/Icon.svelte`, `src/shell/Titlebar.svelte`, `src/shell/Sidebar.svelte`, `src/shell/RegionPanel.svelte`, `src/shell/ResizeHandle.svelte`, `src/shell/AppShell.svelte`; extend `src/index.ts`
 - Test: `packages/morphir-ui/test/app-shell.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ShellState` (Task 5); the CSS custom properties `--slide-ms` and `--traffic-light-inset` from `tokens.css` (Task 4).
 - Produces:
   - `interface NavItem { id: string; label: string }`
@@ -1206,6 +1380,7 @@ git add -A && git commit -m "feat(ui): shell state with panel bounds, routing, s
 - [ ] **Step 1: Write the icon component (VERBATIM geometry from `Icons.scala`)**
 
 `src/icons/Icon.svelte` — literal `<svg>` markup (no `{@html}`, no string building); the name union is exported from the module script:
+
 ```svelte
 <script lang="ts" module>
   export type IconName = 'sidebar' | 'panelRight' | 'panelBottom' | 'gear' | 'back' | 'restore'
@@ -1217,36 +1392,139 @@ git add -A && git commit -m "feat(ui): shell state with panel bounds, routing, s
 
 {#if name === 'sidebar'}
   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-    <rect fill="none" stroke="currentColor" stroke-width="1.6" x="3" y="3" width="18" height="18" rx="3" />
-    <line stroke="currentColor" stroke-width="1.6" stroke-linecap="round" x1="9.5" y1="3" x2="9.5" y2="21" />
-    <line stroke="currentColor" stroke-width="1.6" stroke-linecap="round" x1="5.5" y1="8" x2="7" y2="8" />
-    <line stroke="currentColor" stroke-width="1.6" stroke-linecap="round" x1="5.5" y1="12" x2="7" y2="12" />
+    <rect
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      x="3"
+      y="3"
+      width="18"
+      height="18"
+      rx="3"
+    />
+    <line
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
+      x1="9.5"
+      y1="3"
+      x2="9.5"
+      y2="21"
+    />
+    <line
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
+      x1="5.5"
+      y1="8"
+      x2="7"
+      y2="8"
+    />
+    <line
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
+      x1="5.5"
+      y1="12"
+      x2="7"
+      y2="12"
+    />
   </svg>
 {:else if name === 'panelRight'}
   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-    <rect fill="none" stroke="currentColor" stroke-width="1.6" x="3" y="3" width="18" height="18" rx="3" />
-    <line stroke="currentColor" stroke-width="1.6" stroke-linecap="round" x1="14.5" y1="3" x2="14.5" y2="21" />
+    <rect
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      x="3"
+      y="3"
+      width="18"
+      height="18"
+      rx="3"
+    />
+    <line
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
+      x1="14.5"
+      y1="3"
+      x2="14.5"
+      y2="21"
+    />
   </svg>
 {:else if name === 'panelBottom'}
   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-    <rect fill="none" stroke="currentColor" stroke-width="1.6" x="3" y="3" width="18" height="18" rx="3" />
-    <line stroke="currentColor" stroke-width="1.6" stroke-linecap="round" x1="3" y1="14.5" x2="21" y2="14.5" />
+    <rect
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      x="3"
+      y="3"
+      width="18"
+      height="18"
+      rx="3"
+    />
+    <line
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
+      x1="3"
+      y1="14.5"
+      x2="21"
+      y2="14.5"
+    />
   </svg>
 {:else if name === 'gear'}
   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-    <path fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round" d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+    <path
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2.0"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
+    />
     <circle fill="none" stroke="currentColor" stroke-width="2.0" cx="12" cy="12" r="3" />
   </svg>
 {:else if name === 'back'}
   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-    <line stroke="currentColor" stroke-width="1.6" stroke-linecap="round" x1="19" y1="12" x2="5" y2="12" />
-    <path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M12 19l-7-7 7-7" />
+    <line
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
+      x1="19"
+      y1="12"
+      x2="5"
+      y2="12"
+    />
+    <path
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      d="M12 19l-7-7 7-7"
+    />
   </svg>
 {:else}
   <!-- restore renders at 15×15 in morphir-scala — keep it. -->
   <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
-    <path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-    <path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M3 3v5h5" />
+    <path
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.7"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      d="M3 12a9 9 0 1 0 3-6.7L3 8"
+    />
+    <path
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.7"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      d="M3 3v5h5"
+    />
   </svg>
 {/if}
 ```
@@ -1254,6 +1532,7 @@ git add -A && git commit -m "feat(ui): shell state with panel bounds, routing, s
 - [ ] **Step 2: Write the failing component tests**
 
 `packages/morphir-ui/test/app-shell.test.ts`:
+
 ```ts
 import { render, screen } from '@testing-library/svelte'
 import { describe, expect, test } from 'vitest'
@@ -1270,12 +1549,12 @@ const renderShell = (shell = new ShellState()) =>
       crumbTitle: 'Overview',
       navItems: [
         { id: 'overview', label: 'Overview' },
-        { id: 'explorer', label: 'IR Explorer' }
+        { id: 'explorer', label: 'IR Explorer' },
       ],
       activeNav: 'overview',
       onNavSelect: () => {},
-      onOpenSettings: () => {}
-    }
+      onOpenSettings: () => {},
+    },
   })
 
 describe('AppShell chrome', () => {
@@ -1328,6 +1607,7 @@ describe('AppShell chrome', () => {
   })
 })
 ```
+
 Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event": "^14.6.0"`.
 
 - [ ] **Step 3: Run to verify failure** — `bun install && bun run test` → FAIL (AppShell.svelte missing).
@@ -1335,13 +1615,15 @@ Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event"
 - [ ] **Step 4: Implement the components**
 
 `src/shell/ResizeHandle.svelte` — 5px strip; drag calls `onResize(px)` with the new size computed from the drag start:
+
 ```svelte
 <script lang="ts">
   let {
     edge,
     currentSize,
-    onResize
-  }: { edge: 'left' | 'right' | 'bottom'; currentSize: number; onResize: (px: number) => void } = $props()
+    onResize,
+  }: { edge: 'left' | 'right' | 'bottom'; currentSize: number; onResize: (px: number) => void } =
+    $props()
   const vertical = edge !== 'bottom'
   let start = 0
   let startSize = 0
@@ -1373,21 +1655,31 @@ Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event"
 ></div>
 
 <style>
-  .resize-handle { flex: 0 0 5px; align-self: stretch; }
-  .resize-vertical { cursor: col-resize; }
-  .resize-horizontal { cursor: row-resize; }
-  .resize-handle:hover { background: var(--edge); }
+  .resize-handle {
+    flex: 0 0 5px;
+    align-self: stretch;
+  }
+  .resize-vertical {
+    cursor: col-resize;
+  }
+  .resize-horizontal {
+    cursor: row-resize;
+  }
+  .resize-handle:hover {
+    background: var(--edge);
+  }
 </style>
 ```
 
 `src/shell/RegionPanel.svelte` — animated extent; collapse animates to 0 without unmounting. NO inline styles: the only dynamic value crosses as a CSS custom property via the `style:` directive; every rule is scoped:
+
 ```svelte
 <script lang="ts">
   import type { Snippet } from 'svelte'
   let {
     region,
     extent,
-    children
+    children,
   }: { region: 'left' | 'right' | 'bottom'; extent: number; children: Snippet } = $props()
 </script>
 
@@ -1411,13 +1703,23 @@ Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event"
   .region-bottom {
     height: var(--region-extent);
   }
-  .region-left { border-right: 1px solid var(--edge); background: var(--rail); }
-  .region-right { border-left: 1px solid var(--edge); background: var(--panel); }
-  .region-bottom { border-top: 1px solid var(--edge); background: var(--panel); }
+  .region-left {
+    border-right: 1px solid var(--edge);
+    background: var(--rail);
+  }
+  .region-right {
+    border-left: 1px solid var(--edge);
+    background: var(--panel);
+  }
+  .region-bottom {
+    border-top: 1px solid var(--edge);
+    background: var(--panel);
+  }
 </style>
 ```
 
 `src/shell/Titlebar.svelte` (structure, ids and copy from `Topbar.scala`; styles carry the extracted values):
+
 ```svelte
 <script lang="ts">
   import Icon from '../icons/Icon.svelte'
@@ -1427,18 +1729,31 @@ Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event"
     badge,
     version,
     crumbTitle,
-    macChrome = false
-  }: { shell: ShellState; badge: string; version: string; crumbTitle: string; macChrome?: boolean } = $props()
+    macChrome = false,
+  }: {
+    shell: ShellState
+    badge: string
+    version: string
+    crumbTitle: string
+    macChrome?: boolean
+  } = $props()
   const crumbPrefix = $derived(shell.isSettings ? 'Settings' : 'morphir')
 </script>
 
 <header class="titlebar" id="titlebar">
   {#if shell.leftVisible}
     <div class="brand-zone" class:lights-inset={macChrome}>
-      <button class="icon-btn" id="sidebar-toggle" onclick={() => shell.toggleLeft()} title="Toggle sidebar">
+      <button
+        class="icon-btn"
+        id="sidebar-toggle"
+        onclick={() => shell.toggleLeft()}
+        title="Toggle sidebar"
+      >
         <Icon name="sidebar" />
       </button>
-      <div class="brand"><span class="brand-mark">morphir</span><span class="brand-sub">{badge}</span></div>
+      <div class="brand">
+        <span class="brand-mark">morphir</span><span class="brand-sub">{badge}</span>
+      </div>
     </div>
     <div class="titlebar-rest">
       <div class="topbar-title"><span class="crumb">{crumbPrefix} / </span>{crumbTitle}</div>
@@ -1446,7 +1761,12 @@ Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event"
     </div>
   {:else}
     <div class="titlebar-left" class:lights-inset={macChrome}>
-      <button class="icon-btn" id="sidebar-toggle" onclick={() => shell.toggleLeft()} title="Toggle sidebar">
+      <button
+        class="icon-btn"
+        id="sidebar-toggle"
+        onclick={() => shell.toggleLeft()}
+        title="Toggle sidebar"
+      >
         <Icon name="sidebar" />
       </button>
       <div class="topbar-title"><span class="crumb">{crumbPrefix} / </span>{crumbTitle}</div>
@@ -1463,10 +1783,20 @@ Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event"
       </button>
     {:else}
       <span class="chip" id="app-version">v{version}</span>
-      <button class="icon-btn" id="right-toggle" onclick={() => shell.toggleRight()} title="Toggle inspector">
+      <button
+        class="icon-btn"
+        id="right-toggle"
+        onclick={() => shell.toggleRight()}
+        title="Toggle inspector"
+      >
         <Icon name="panelRight" />
       </button>
-      <button class="icon-btn" id="bottom-toggle" onclick={() => shell.toggleBottom()} title="Toggle log">
+      <button
+        class="icon-btn"
+        id="bottom-toggle"
+        onclick={() => shell.toggleBottom()}
+        title="Toggle log"
+      >
         <Icon name="panelBottom" />
       </button>
     {/if}
@@ -1475,8 +1805,11 @@ Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event"
 
 <style>
   .titlebar {
-    display: flex; align-items: stretch; height: 52px;
-    background: var(--surface); border-bottom: 1px solid var(--edge);
+    display: flex;
+    align-items: stretch;
+    height: 52px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--edge);
     flex-shrink: 0;
     -webkit-app-region: drag; /* frameless-window drag region — owned here, not in global CSS */
   }
@@ -1486,44 +1819,126 @@ Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event"
     -webkit-app-region: no-drag;
   }
   .brand-zone {
-    display: flex; align-items: center; gap: 8px; width: 224px; padding: 0 12px;
-    background: var(--rail); border-right: 1px solid var(--edge); flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 224px;
+    padding: 0 12px;
+    background: var(--rail);
+    border-right: 1px solid var(--edge);
+    flex-shrink: 0;
   }
-  .brand-zone.lights-inset { padding: 0 12px 0 var(--traffic-light-inset); }
-  .brand-zone.lights-inset .brand-sub { display: none; }
-  .titlebar-rest { flex: 1; display: flex; align-items: center; justify-content: space-between; padding: 0 22px; }
-  .titlebar-left { display: flex; align-items: center; gap: 12px; padding: 0 0 0 22px; }
-  .titlebar-left.lights-inset { padding: 0 0 0 var(--traffic-light-inset); }
-  .titlebar-right { display: flex; align-items: center; gap: 8px; padding: 0 22px 0 0; }
-  .brand { display: flex; align-items: baseline; gap: 8px; padding: 0 10px; font-weight: 700; font-size: 17px; letter-spacing: -0.01em; }
+  .brand-zone.lights-inset {
+    padding: 0 12px 0 var(--traffic-light-inset);
+  }
+  .brand-zone.lights-inset .brand-sub {
+    display: none;
+  }
+  .titlebar-rest {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 22px;
+  }
+  .titlebar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 0 0 22px;
+  }
+  .titlebar-left.lights-inset {
+    padding: 0 0 0 var(--traffic-light-inset);
+  }
+  .titlebar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 22px 0 0;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 0 10px;
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+  }
   .brand-mark {
     background: linear-gradient(120deg, var(--accent), var(--accent2));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
-  .brand-sub { font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: 0.22em; color: var(--muted2); }
-  .topbar-title { display: flex; gap: 4px; font-weight: 600; font-size: 14px; color: var(--text); }
-  .topbar-title .crumb { color: var(--muted2); font-weight: 400; }
+  .brand-sub {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    color: var(--muted2);
+  }
+  .topbar-title {
+    display: flex;
+    gap: 4px;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+  }
+  .topbar-title .crumb {
+    color: var(--muted2);
+    font-weight: 400;
+  }
   .chip {
-    font-family: var(--mono); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
-    color: var(--accent-text); background: rgba(214, 64, 159, 0.14); border: 1px solid rgba(214, 64, 159, 0.35);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 999px;
+    color: var(--accent-text);
+    background: rgba(214, 64, 159, 0.14);
+    border: 1px solid rgba(214, 64, 159, 0.35);
   }
   .titlebar-action {
-    display: flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: 8px;
-    color: var(--muted); font-size: 12.5px; cursor: pointer; background: none; border: none;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: 12.5px;
+    cursor: pointer;
+    background: none;
+    border: none;
   }
-  .titlebar-action:hover { background: var(--hover); color: var(--text); }
-  .titlebar-action-label { font-weight: 500; }
+  .titlebar-action:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+  .titlebar-action-label {
+    font-weight: 500;
+  }
   .icon-btn {
-    display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
-    border-radius: 8px; color: var(--muted); background: none; border: none; cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    color: var(--muted);
+    background: none;
+    border: none;
+    cursor: pointer;
   }
-  .icon-btn:hover { background: var(--hover); color: var(--text); }
+  .icon-btn:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
 </style>
 ```
 
 `src/shell/Sidebar.svelte` (structure and copy from `Sidebar.scala` — the section heading literal is `Workspace`):
+
 ```svelte
 <script lang="ts">
   import Icon from '../icons/Icon.svelte'
@@ -1532,7 +1947,7 @@ Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event"
     navItems,
     activeNav,
     onNavSelect,
-    onOpenSettings
+    onOpenSettings,
   }: {
     navItems: NavItem[]
     activeNav: string
@@ -1544,7 +1959,11 @@ Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event"
 <nav class="sidebar">
   <div class="nav-section">Workspace</div>
   {#each navItems as item (item.id)}
-    <button class="nav-item" class:active={item.id === activeNav} onclick={() => onNavSelect(item.id)}>
+    <button
+      class="nav-item"
+      class:active={item.id === activeNav}
+      onclick={() => onNavSelect(item.id)}
+    >
       <span class="nav-dot"></span>{item.label}
     </button>
   {/each}
@@ -1557,42 +1976,96 @@ Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event"
 
 <style>
   .sidebar {
-    width: 224px; flex: 1; display: flex; flex-direction: column;
-    padding: 6px 12px 18px 12px; overflow: hidden;
+    width: 224px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 6px 12px 18px 12px;
+    overflow: hidden;
   }
   .nav-section {
-    font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em;
-    text-transform: uppercase; color: var(--muted2); padding: 16px 10px 6px 10px; text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted2);
+    padding: 16px 10px 6px 10px;
+    text-align: left;
   }
   .nav-item {
-    display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin: 1px 0;
-    border-radius: 8px; color: var(--nav); font-weight: 500; font-size: 14px;
-    background: none; border: none; text-align: left; width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    margin: 1px 0;
+    border-radius: 8px;
+    color: var(--nav);
+    font-weight: 500;
+    font-size: 14px;
+    background: none;
+    border: none;
+    text-align: left;
+    width: 100%;
     -webkit-app-region: no-drag;
   }
-  .nav-item:hover { background: var(--hover-soft); color: var(--text); }
+  .nav-item:hover {
+    background: var(--hover-soft);
+    color: var(--text);
+  }
   .nav-item.active {
-    background: linear-gradient(to right, rgba(214, 64, 159, 0.16) 0%, rgba(139, 92, 246, 0.1) 100%);
+    background: linear-gradient(
+      to right,
+      rgba(214, 64, 159, 0.16) 0%,
+      rgba(139, 92, 246, 0.1) 100%
+    );
     color: var(--text-strong);
     box-shadow: inset 2px 0 0 var(--accent);
   }
-  .nav-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dot); flex-shrink: 0; }
-  .nav-item.active .nav-dot { background: var(--accent); }
-  .sidebar-foot { margin: auto 0 0 0; padding: 6px 4px 0 4px; }
-  .icon-btn {
-    display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
-    border-radius: 8px; color: var(--muted); background: none; border: none; cursor: pointer;
+  .nav-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--dot);
+    flex-shrink: 0;
   }
-  .icon-btn:hover { background: var(--hover); color: var(--text); }
+  .nav-item.active .nav-dot {
+    background: var(--accent);
+  }
+  .sidebar-foot {
+    margin: auto 0 0 0;
+    padding: 6px 4px 0 4px;
+  }
+  .icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    color: var(--muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  .icon-btn:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
 </style>
 ```
 
 `src/shell/nav.ts`:
+
 ```ts
-export interface NavItem { readonly id: string; readonly label: string }
+export interface NavItem {
+  readonly id: string
+  readonly label: string
+}
 ```
 
 `src/shell/AppShell.svelte`:
+
 ```svelte
 <script lang="ts">
   import type { Snippet } from 'svelte'
@@ -1615,7 +2088,7 @@ export interface NavItem { readonly id: string; readonly label: string }
     macChrome = false,
     center,
     inspector,
-    log
+    log,
   }: {
     shell: ShellState
     badge: string
@@ -1639,7 +2112,11 @@ export interface NavItem { readonly id: string; readonly label: string }
       <Sidebar {navItems} {activeNav} {onNavSelect} {onOpenSettings} />
     </RegionPanel>
     {#if shell.leftVisible}
-      <ResizeHandle edge="left" currentSize={shell.leftWidth} onResize={(px) => shell.resizeLeft(px)} />
+      <ResizeHandle
+        edge="left"
+        currentSize={shell.leftWidth}
+        onResize={(px) => shell.resizeLeft(px)}
+      />
     {/if}
     <div class="shell-center">
       <div class="shell-main">
@@ -1647,27 +2124,59 @@ export interface NavItem { readonly id: string; readonly label: string }
           {#if center}{@render center()}{/if}
         </main>
         {#if shell.rightVisible}
-          <ResizeHandle edge="right" currentSize={shell.rightWidth} onResize={(px) => shell.resizeRight(px)} />
+          <ResizeHandle
+            edge="right"
+            currentSize={shell.rightWidth}
+            onResize={(px) => shell.resizeRight(px)}
+          />
         {/if}
         <RegionPanel region="right" extent={shell.rightExtent}>
-          <div class="panel-body">{#if inspector}{@render inspector()}{:else}<span class="panel-title">Inspector</span>{/if}</div>
+          <div class="panel-body">
+            {#if inspector}{@render inspector()}{:else}<span class="panel-title">Inspector</span
+              >{/if}
+          </div>
         </RegionPanel>
       </div>
       {#if shell.bottomVisible}
-        <ResizeHandle edge="bottom" currentSize={shell.bottomHeight} onResize={(px) => shell.resizeBottom(px)} />
+        <ResizeHandle
+          edge="bottom"
+          currentSize={shell.bottomHeight}
+          onResize={(px) => shell.resizeBottom(px)}
+        />
       {/if}
       <RegionPanel region="bottom" extent={shell.bottomExtent}>
-        <div class="panel-body">{#if log}{@render log()}{:else}<span class="panel-title">Log</span>{/if}</div>
+        <div class="panel-body">
+          {#if log}{@render log()}{:else}<span class="panel-title">Log</span>{/if}
+        </div>
       </RegionPanel>
     </div>
   </div>
 </div>
 
 <style>
-  .shell { display: flex; flex-direction: column; height: 100%; background: var(--bg); color: var(--text); }
-  .shell-body { flex: 1; display: flex; min-height: 0; }
-  .shell-center { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  .shell-main { flex: 1; display: flex; min-height: 0; }
+  .shell {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .shell-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+  .shell-center {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .shell-main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
   .content {
     flex: 1;
     overflow: auto;
@@ -1677,16 +2186,28 @@ export interface NavItem { readonly id: string; readonly label: string }
     gap: 16px;
     align-content: start;
   }
-  .content.content-settings { grid-template-columns: minmax(0, 1fr); gap: 0; }
-  .panel-body { padding: 14px; flex: 1; overflow: auto; }
+  .content.content-settings {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  .panel-body {
+    padding: 14px;
+    flex: 1;
+    overflow: auto;
+  }
   .panel-title {
-    font-family: var(--mono); font-size: 10px; font-weight: 600;
-    letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted2);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted2);
   }
 </style>
 ```
 
 Add to `src/index.ts`:
+
 ```ts
 export { default as Icon, type IconName } from './icons/Icon.svelte'
 export { default as AppShell } from './shell/AppShell.svelte'
@@ -1708,11 +2229,13 @@ git add -A && git commit -m "feat(ui): shell chrome - titlebar, sidebar, resizab
 ### Task 7: @morphir/ui — Token redaction, config schema, Effect services & facade
 
 **Files:**
+
 - Create: `packages/morphir-ui/src/services/token.ts`, `src/services/config.ts`, `src/services/services.ts`; extend `src/index.ts`
 - Create: `packages/morphir-ui/test/support/fake-services.ts`
 - Test: `packages/morphir-ui/test/token.test.ts`, `test/services.test.ts`
 
 **Interfaces:**
+
 - Produces (used by ALL later tasks):
   - `redactToken(raw: string): string`; `class Token { static parse(input: string): Token | null; toString(): string; toJSON(): string; unsafeReveal(): string }`
   - `type GitHubSource = 'none' | 'gh-cli' | 'pat'`
@@ -1728,6 +2251,7 @@ git add -A && git commit -m "feat(ui): shell chrome - titlebar, sidebar, resizab
 - [ ] **Step 1: Write the failing token tests**
 
 `packages/morphir-ui/test/token.test.ts`:
+
 ```ts
 import { describe, expect, test } from 'vitest'
 import { redactToken, Token } from '../src/services/token.ts'
@@ -1759,6 +2283,7 @@ describe('token redaction (morphir-scala contract)', () => {
 - [ ] **Step 3: Implement token.ts (pure TS — importable from Electron main via `@morphir/ui/token`)**
 
 `src/services/token.ts`:
+
 ```ts
 const KNOWN_PREFIXES = ['github_pat_', 'gho_', 'ghu_', 'ghs_', 'ghr_', 'ghp_']
 const MIN_HIDDEN = 16
@@ -1774,24 +2299,39 @@ export const redactToken = (raw: string): string => {
 
 export class Token {
   readonly #raw: string
-  private constructor(raw: string) { this.#raw = raw }
+  private constructor(raw: string) {
+    this.#raw = raw
+  }
   static parse(input: string): Token | null {
     const trimmed = input.trim()
     return trimmed.length === 0 ? null : new Token(trimmed)
   }
-  toString(): string { return redactToken(this.#raw) }
-  toJSON(): string { return this.toString() }
+  toString(): string {
+    return redactToken(this.#raw)
+  }
+  toJSON(): string {
+    return this.toString()
+  }
   /** The only way to the raw value. Callers: transport to safeStorage / Authorization header ONLY. */
-  unsafeReveal(): string { return this.#raw }
+  unsafeReveal(): string {
+    return this.#raw
+  }
 }
 ```
 
 - [ ] **Step 4: Write the failing config + services tests**
 
 `packages/morphir-ui/test/services.test.ts`:
+
 ```ts
 import { describe, expect, test } from 'vitest'
-import { decodeUiConfig, defaultUiConfig, makeAppServices, withSnapshot, configToSnapshot } from '../src/index.ts'
+import {
+  decodeUiConfig,
+  defaultUiConfig,
+  makeAppServices,
+  withSnapshot,
+  configToSnapshot,
+} from '../src/index.ts'
 import { makeFakeCore, makeFakeGitHub } from './support/fake-services.ts'
 
 describe('UiConfig', () => {
@@ -1810,7 +2350,7 @@ describe('UiConfig', () => {
     expect(snap.shell.leftWidth).toBe(224)
     const updated = withSnapshot(defaultUiConfig, {
       ...snap,
-      appearance: { ...snap.appearance, colorScheme: 'light' }
+      appearance: { ...snap.appearance, colorScheme: 'light' },
     })
     expect(updated.appearance.colorScheme).toBe('light')
     expect(updated.github).toEqual(defaultUiConfig.github)
@@ -1845,7 +2385,11 @@ describe('makeAppServices', () => {
   })
   test('github facade appears when the layer is provided', async () => {
     const { core } = makeFakeCore()
-    const { github } = makeFakeGitHub({ source: 'pat', pat: 'ghp_' + 'z'.repeat(36) + 'TAIL', login: 'octocat' })
+    const { github } = makeFakeGitHub({
+      source: 'pat',
+      pat: 'ghp_' + 'z'.repeat(36) + 'TAIL',
+      login: 'octocat',
+    })
     const services = await makeAppServices({ core, github })
     expect(services.capabilities.github).toBe(true)
     const status = await services.github!.status()
@@ -1860,6 +2404,7 @@ describe('makeAppServices', () => {
 - [ ] **Step 5: Run to verify failure**, then implement.
 
 `src/services/config.ts`:
+
 ```ts
 import { Either, Schema } from 'effect'
 import { SHELL_DEFAULTS, type ColorScheme, type ShellSnapshot } from '../state/shell-constants.ts'
@@ -1870,11 +2415,11 @@ const UiConfigSchema = Schema.Struct({
   workspace: Schema.Struct({
     recent: Schema.Array(Schema.String),
     reopenOnLaunch: Schema.Boolean,
-    active: Schema.NullOr(Schema.String)
+    active: Schema.NullOr(Schema.String),
   }),
   appearance: Schema.Struct({
     colorScheme: Schema.Literal('system', 'light', 'dark'),
-    animations: Schema.Boolean
+    animations: Schema.Boolean,
   }),
   shell: Schema.Struct({
     leftWidth: Schema.Number,
@@ -1882,9 +2427,9 @@ const UiConfigSchema = Schema.Struct({
     bottomHeight: Schema.Number,
     leftVisible: Schema.Boolean,
     rightVisible: Schema.Boolean,
-    bottomVisible: Schema.Boolean
+    bottomVisible: Schema.Boolean,
   }),
-  github: Schema.Struct({ source: Schema.Literal('none', 'gh-cli', 'pat') })
+  github: Schema.Struct({ source: Schema.Literal('none', 'gh-cli', 'pat') }),
 })
 
 export interface UiConfig extends Schema.Schema.Type<typeof UiConfigSchema> {}
@@ -1898,9 +2443,9 @@ export const defaultUiConfig: UiConfig = {
     bottomHeight: SHELL_DEFAULTS.bottomHeight,
     leftVisible: true,
     rightVisible: true,
-    bottomVisible: true
+    bottomVisible: true,
   },
-  github: { source: 'none' }
+  github: { source: 'none' },
 }
 
 /** Lenient: any invalid or partial input yields the defaults. Config files are never a crash. */
@@ -1908,10 +2453,16 @@ export const decodeUiConfig = (input: unknown): UiConfig => {
   const merged =
     typeof input === 'object' && input !== null
       ? {
-          workspace: { ...defaultUiConfig.workspace, ...(input as Record<string, object>)['workspace'] },
-          appearance: { ...defaultUiConfig.appearance, ...(input as Record<string, object>)['appearance'] },
+          workspace: {
+            ...defaultUiConfig.workspace,
+            ...(input as Record<string, object>)['workspace'],
+          },
+          appearance: {
+            ...defaultUiConfig.appearance,
+            ...(input as Record<string, object>)['appearance'],
+          },
           shell: { ...defaultUiConfig.shell, ...(input as Record<string, object>)['shell'] },
-          github: { ...defaultUiConfig.github, ...(input as Record<string, object>)['github'] }
+          github: { ...defaultUiConfig.github, ...(input as Record<string, object>)['github'] },
         }
       : input
   return Either.getOrElse(Schema.decodeUnknownEither(UiConfigSchema)(merged), () => defaultUiConfig)
@@ -1919,31 +2470,45 @@ export const decodeUiConfig = (input: unknown): UiConfig => {
 
 export const configToSnapshot = (c: UiConfig): ShellSnapshot => ({
   appearance: { ...c.appearance },
-  shell: { ...c.shell }
+  shell: { ...c.shell },
 })
 
 export const withSnapshot = (c: UiConfig, s: ShellSnapshot): UiConfig => ({
   ...c,
   appearance: { ...s.appearance },
-  shell: { ...s.shell }
+  shell: { ...s.shell },
 })
 ```
 
 `src/services/services.ts`:
+
 ```ts
 import { Context, Data, Effect, Layer, ManagedRuntime, Option } from 'effect'
 import type { UiConfig } from './config.ts'
 
-export interface WorkspaceRef { readonly path: string }
-export interface PickedWorkspace { readonly ref: WorkspaceRef; readonly content: string }
-export interface GitHubStatus { readonly source: import('./config.ts').GitHubSource; readonly tokenDisplay: string | null }
+export interface WorkspaceRef {
+  readonly path: string
+}
+export interface PickedWorkspace {
+  readonly ref: WorkspaceRef
+  readonly content: string
+}
+export interface GitHubStatus {
+  readonly source: import('./config.ts').GitHubSource
+  readonly tokenDisplay: string | null
+}
 
-export class WorkspaceError extends Data.TaggedError('WorkspaceError')<{ readonly message: string }> {}
+export class WorkspaceError extends Data.TaggedError('WorkspaceError')<{
+  readonly message: string
+}> {}
 export class GitHubError extends Data.TaggedError('GitHubError')<{ readonly message: string }> {}
 
 export class ConfigService extends Context.Tag('@morphir/ui/ConfigService')<
   ConfigService,
-  { readonly load: Effect.Effect<UiConfig>; readonly save: (config: UiConfig) => Effect.Effect<void> }
+  {
+    readonly load: Effect.Effect<UiConfig>
+    readonly save: (config: UiConfig) => Effect.Effect<void>
+  }
 >() {}
 
 export class WorkspaceService extends Context.Tag('@morphir/ui/WorkspaceService')<
@@ -1966,11 +2531,17 @@ export interface GitHubServiceApi {
   readonly clearPat: Effect.Effect<void, GitHubError>
   readonly verify: Effect.Effect<{ login: string }, GitHubError>
 }
-export class GitHubService extends Context.Tag('@morphir/ui/GitHubService')<GitHubService, GitHubServiceApi>() {}
+export class GitHubService extends Context.Tag('@morphir/ui/GitHubService')<
+  GitHubService,
+  GitHubServiceApi
+>() {}
 
 export type CoreServices = ConfigService | WorkspaceService | AppInfoService
 
-export interface Capabilities { readonly github: boolean; readonly reopenWorkspaces: boolean }
+export interface Capabilities {
+  readonly github: boolean
+  readonly reopenWorkspaces: boolean
+}
 
 export interface AppServices {
   readonly capabilities: Capabilities
@@ -2012,14 +2583,15 @@ export const makeAppServices = async (opts: {
           setSource: (s) => runtime.runPromise(github.setSource(s)),
           savePat: (raw) => runtime.runPromise(github.savePat(raw)),
           clearPat: () => runtime.runPromise(github.clearPat),
-          verify: () => runtime.runPromise(github.verify)
+          verify: () => runtime.runPromise(github.verify),
         }
-      : null
+      : null,
   }
 }
 ```
 
 `test/support/fake-services.ts`:
+
 ```ts
 import { Effect, Layer, Option } from 'effect'
 import {
@@ -2031,7 +2603,7 @@ import {
   defaultUiConfig,
   redactToken,
   type GitHubSource,
-  type UiConfig
+  type UiConfig,
 } from '../../src/index.ts'
 
 export const makeFakeCore = (opts?: {
@@ -2041,40 +2613,53 @@ export const makeFakeCore = (opts?: {
   reopen?: boolean
 }) => {
   const store = { config: opts?.config ?? defaultUiConfig }
-  const content = opts?.workspaceContent ?? '{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}'
+  const content =
+    opts?.workspaceContent ?? '{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}'
   const core = Layer.mergeAll(
     Layer.succeed(ConfigService, {
       load: Effect.sync(() => store.config),
-      save: (c) => Effect.sync(() => void (store.config = c))
+      save: (c) => Effect.sync(() => void (store.config = c)),
     }),
     Layer.succeed(WorkspaceService, {
       pickAndRead: Effect.succeed(Option.some({ ref: { path: '/fake/morphir-ir.json' }, content })),
-      read: opts?.reopen ? Option.some(() => Effect.succeed(content)) : Option.none()
+      read: opts?.reopen ? Option.some(() => Effect.succeed(content)) : Option.none(),
     }),
-    Layer.succeed(AppInfoService, { version: Effect.succeed(opts?.version ?? '0.0.0-test') })
+    Layer.succeed(AppInfoService, { version: Effect.succeed(opts?.version ?? '0.0.0-test') }),
   )
   return { core, store }
 }
 
-export const makeFakeGitHub = (init?: { source?: GitHubSource; pat?: string | null; login?: string }) => {
+export const makeFakeGitHub = (init?: {
+  source?: GitHubSource
+  pat?: string | null
+  login?: string
+}) => {
   const state = { source: init?.source ?? 'none', pat: init?.pat ?? null }
   const github = Layer.succeed(GitHubService, {
     status: Effect.sync(() => ({
       source: state.source,
-      tokenDisplay: state.pat ? redactToken(state.pat) : null
+      tokenDisplay: state.pat ? redactToken(state.pat) : null,
     })),
     setSource: (source) => Effect.sync(() => void (state.source = source)),
-    savePat: (raw) => Effect.sync(() => { state.pat = raw; state.source = 'pat' }),
-    clearPat: Effect.sync(() => { state.pat = null; state.source = 'none' }),
+    savePat: (raw) =>
+      Effect.sync(() => {
+        state.pat = raw
+        state.source = 'pat'
+      }),
+    clearPat: Effect.sync(() => {
+      state.pat = null
+      state.source = 'none'
+    }),
     verify: init?.login
       ? Effect.sync(() => ({ login: init.login! }))
-      : Effect.fail(new GitHubError({ message: 'no token configured' }))
+      : Effect.fail(new GitHubError({ message: 'no token configured' })),
   })
   return { github, state }
 }
 ```
 
 Add to `src/index.ts`:
+
 ```ts
 export * from './services/token.ts'
 export * from './services/config.ts'
@@ -2094,10 +2679,12 @@ git add -A && git commit -m "feat(ui): token redaction, ui config schema, effect
 ### Task 8: @morphir/ui — WorkspaceState, Overview & IR Explorer views, MorphirApp
 
 **Files:**
+
 - Create: `packages/morphir-ui/src/state/workspace-state.svelte.ts`, `src/views/OverviewView.svelte`, `src/views/IrExplorerView.svelte`, `src/shell/MorphirApp.svelte`; extend `src/index.ts`
 - Test: `packages/morphir-ui/test/workspace-state.test.ts`, `test/ir-explorer.test.ts`, `test/morphir-app.test.ts`
 
 **Interfaces:**
+
 - Consumes: `decodeMorphirIr`, `toWorkspaceIr`, `WorkspaceIr` (@morphir/ir); `AppServices`, `UiConfig`, `configToSnapshot`, `withSnapshot` (Task 7); `AppShell`, `ShellState` (Tasks 5–6).
 - Produces:
   - `class WorkspaceState` — `current: { ref: WorkspaceRef; ir: WorkspaceIr } | null`, `error: string | null`, `recents: ReadonlyArray<string>`, `loading: boolean`; `openPicked(): Promise<void>`, `reopen(path: string): Promise<void>`. Opening updates recents (dedup, max 8) and persists `workspace.recent`/`workspace.active` via ConfigService. (This fulfills the spec's `IrService` row: the "shared isomorphic impl" is `@morphir/ir` called directly — one decode path for both apps; no separate Effect tag needed.)
@@ -2108,6 +2695,7 @@ git add -A && git commit -m "feat(ui): token redaction, ui config schema, effect
 - [ ] **Step 1: Write the failing tests**
 
 `packages/morphir-ui/test/workspace-state.test.ts`:
+
 ```ts
 import { describe, expect, test } from 'vitest'
 import { WorkspaceState } from '../src/index.ts'
@@ -2117,7 +2705,7 @@ import { readFileSync } from 'node:fs'
 
 const irFixture = readFileSync(
   new URL('../../morphir-ir/test/fixtures/simpleTypeTree-ir.json', import.meta.url),
-  'utf8'
+  'utf8',
 )
 
 describe('WorkspaceState', () => {
@@ -2150,6 +2738,7 @@ describe('WorkspaceState', () => {
 ```
 
 `packages/morphir-ui/test/ir-explorer.test.ts`:
+
 ```ts
 import { render, screen } from '@testing-library/svelte'
 import { userEvent } from '@testing-library/user-event'
@@ -2161,7 +2750,7 @@ import { makeFakeCore } from './support/fake-services.ts'
 
 const irFixture = readFileSync(
   new URL('../../morphir-ir/test/fixtures/listType-ir.json', import.meta.url),
-  'utf8'
+  'utf8',
 )
 
 const openWorkspace = async () => {
@@ -2202,6 +2791,7 @@ describe('IrExplorerView', () => {
 ```
 
 `packages/morphir-ui/test/morphir-app.test.ts`:
+
 ```ts
 import { render, screen } from '@testing-library/svelte'
 import { describe, expect, test } from 'vitest'
@@ -2215,10 +2805,10 @@ describe('MorphirApp', () => {
     const services = await makeAppServices({ core })
     const config = {
       ...defaultUiConfig,
-      appearance: { colorScheme: 'light' as const, animations: false }
+      appearance: { colorScheme: 'light' as const, animations: false },
     }
     const { container } = render(MorphirApp, {
-      props: { services, badge: 'WEB', version: '0.0.1', initialConfig: config }
+      props: { services, badge: 'WEB', version: '0.0.1', initialConfig: config },
     })
     const root = container.querySelector('.shell')!
     expect(root.classList.contains('theme-light')).toBe(true)
@@ -2230,9 +2820,11 @@ describe('MorphirApp', () => {
     const { core, store } = makeFakeCore()
     const services = await makeAppServices({ core })
     render(MorphirApp, {
-      props: { services, badge: 'WEB', version: '0.0.1', initialConfig: defaultUiConfig }
+      props: { services, badge: 'WEB', version: '0.0.1', initialConfig: defaultUiConfig },
     })
-    document.getElementById('right-toggle')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    document
+      .getElementById('right-toggle')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await new Promise((r) => setTimeout(r, 350))
     expect(store.config.shell.rightVisible).toBe(false)
   })
@@ -2244,12 +2836,16 @@ describe('MorphirApp', () => {
 - [ ] **Step 3: Implement**
 
 `src/state/workspace-state.svelte.ts`:
+
 ```ts
 import { Cause, Effect, Exit, Option } from 'effect'
 import { decodeMorphirIr, toWorkspaceIr, type WorkspaceIr } from '@morphir/ir'
 import type { AppServices, WorkspaceRef } from '../services/services.ts'
 
-export interface OpenWorkspace { readonly ref: WorkspaceRef; readonly ir: WorkspaceIr }
+export interface OpenWorkspace {
+  readonly ref: WorkspaceRef
+  readonly ir: WorkspaceIr
+}
 
 const MAX_RECENTS = 8
 
@@ -2292,7 +2888,7 @@ export class WorkspaceState {
       const cfg = await this.#services.loadConfig()
       await this.#services.saveConfig({
         ...cfg,
-        workspace: { ...cfg.workspace, recent: this.recents, active: ref.path }
+        workspace: { ...cfg.workspace, recent: this.recents, active: ref.path },
       })
     } else {
       this.current = null
@@ -2304,6 +2900,7 @@ export class WorkspaceState {
 ```
 
 `src/views/OverviewView.svelte`:
+
 ```svelte
 <script lang="ts">
   import type { Capabilities } from '../services/services.ts'
@@ -2311,16 +2908,26 @@ export class WorkspaceState {
   let {
     workspace,
     capabilities,
-    onOpen
+    onOpen,
   }: { workspace: WorkspaceState; capabilities: Capabilities; onOpen: () => void } = $props()
 </script>
 
 <section class="card">
   <h2 class="card-title">Workspace</h2>
   {#if workspace.current}
-    <div class="row"><span class="label">Path</span><span class="value">{workspace.current.ref.path}</span></div>
-    <div class="row"><span class="label">Package</span><span class="value">{workspace.current.ir.package.name}</span></div>
-    <div class="row"><span class="label">Modules</span><span class="value">{workspace.current.ir.package.moduleCount}</span></div>
+    <div class="row">
+      <span class="label">Path</span><span class="value">{workspace.current.ref.path}</span>
+    </div>
+    <div class="row">
+      <span class="label">Package</span><span class="value"
+        >{workspace.current.ir.package.name}</span
+      >
+    </div>
+    <div class="row">
+      <span class="label">Modules</span><span class="value"
+        >{workspace.current.ir.package.moduleCount}</span
+      >
+    </div>
   {:else}
     <p class="muted">No workspace open.</p>
   {/if}
@@ -2338,30 +2945,77 @@ export class WorkspaceState {
 {/if}
 
 <style>
-  .card { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 10px; padding: 16px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: 10px;
+    padding: 16px;
+  }
   .card-title {
-    font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em;
-    text-transform: uppercase; color: var(--muted2); margin-bottom: 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted2);
+    margin-bottom: 10px;
   }
-  .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--row-edge); }
-  .label { color: var(--muted); }
-  .value { font-family: var(--mono); font-size: 12.5px; color: var(--accent-text); }
-  .muted { color: var(--muted); }
-  .error { color: var(--accent); font-size: 13px; margin-top: 8px; }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--row-edge);
+  }
+  .label {
+    color: var(--muted);
+  }
+  .value {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--accent-text);
+  }
+  .muted {
+    color: var(--muted);
+  }
+  .error {
+    color: var(--accent);
+    font-size: 13px;
+    margin-top: 8px;
+  }
   .action {
-    margin-top: 12px; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--panel-edge);
-    background: var(--hover-soft); color: var(--text); cursor: pointer;
+    margin-top: 12px;
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--panel-edge);
+    background: var(--hover-soft);
+    color: var(--text);
+    cursor: pointer;
   }
-  .action:hover { background: var(--hover); }
+  .action:hover {
+    background: var(--hover);
+  }
   .recent {
-    display: block; width: 100%; text-align: left; padding: 7px 10px; border-radius: 8px;
-    background: none; border: none; color: var(--nav); font-family: var(--mono); font-size: 12.5px; cursor: pointer;
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: none;
+    border: none;
+    color: var(--nav);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    cursor: pointer;
   }
-  .recent:hover { background: var(--hover-soft); color: var(--text); }
+  .recent:hover {
+    background: var(--hover-soft);
+    color: var(--text);
+  }
 </style>
 ```
 
 `src/views/IrExplorerView.svelte`:
+
 ```svelte
 <script lang="ts">
   import type { WorkspaceState } from '../state/workspace-state.svelte.ts'
@@ -2379,13 +3033,14 @@ export class WorkspaceState {
       (d) =>
         d.ref.moduleName === activeModule &&
         (d.kind === 'type' ? showTypes : showValues) &&
-        d.ref.localName.toLowerCase().includes(search.toLowerCase())
-    )
+        d.ref.localName.toLowerCase().includes(search.toLowerCase()),
+    ),
   )
 </script>
 
 {#if !ir}
-  <section class="card"><p class="muted">Open a workspace to explore its IR.</p>
+  <section class="card">
+    <p class="muted">Open a workspace to explore its IR.</p>
     {#if workspace.error}<p class="error">{workspace.error}</p>{/if}
   </section>
 {:else}
@@ -2397,7 +3052,11 @@ export class WorkspaceState {
   <section class="card">
     <h2 class="card-title">Modules</h2>
     {#each ir.modules as m (m.name)}
-      <button class="mod" class:active={m.name === activeModule} onclick={() => (selectedModule = m.name)}>
+      <button
+        class="mod"
+        class:active={m.name === activeModule}
+        onclick={() => (selectedModule = m.name)}
+      >
         {m.name}<span class="counts">{m.typeCount}T / {m.valueCount}V</span>
       </button>
     {/each}
@@ -2406,8 +3065,12 @@ export class WorkspaceState {
     <h2 class="card-title">Definitions</h2>
     <div class="filter">
       <input placeholder="Filter definitions" bind:value={search} />
-      <button class="toggle" class:on={showTypes} onclick={() => (showTypes = !showTypes)}>Types</button>
-      <button class="toggle" class:on={showValues} onclick={() => (showValues = !showValues)}>Values</button>
+      <button class="toggle" class:on={showTypes} onclick={() => (showTypes = !showTypes)}
+        >Types</button
+      >
+      <button class="toggle" class:on={showValues} onclick={() => (showValues = !showValues)}
+        >Values</button
+      >
     </div>
     {#each definitions as d (d.ref.localName + d.kind)}
       <div class="def">
@@ -2423,40 +3086,115 @@ export class WorkspaceState {
 {/if}
 
 <style>
-  .card { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 10px; padding: 16px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: 10px;
+    padding: 16px;
+  }
   .card-title {
-    font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em;
-    text-transform: uppercase; color: var(--muted2); margin-bottom: 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted2);
+    margin-bottom: 10px;
   }
-  .pkg { font-weight: 600; color: var(--text-strong); }
-  .muted { color: var(--muted); font-size: 13px; }
-  .error { color: var(--accent); font-size: 13px; }
+  .pkg {
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+  .muted {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .error {
+    color: var(--accent);
+    font-size: 13px;
+  }
   .mod {
-    display: flex; justify-content: space-between; width: 100%; padding: 7px 10px; border-radius: 8px;
-    background: none; border: none; color: var(--nav); cursor: pointer; font-size: 13.5px;
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: none;
+    border: none;
+    color: var(--nav);
+    cursor: pointer;
+    font-size: 13.5px;
   }
-  .mod:hover { background: var(--hover-soft); color: var(--text); }
-  .mod.active { background: var(--hover); color: var(--text-strong); }
-  .counts { font-family: var(--mono); font-size: 11px; color: var(--muted2); }
-  .filter { display: flex; gap: 8px; margin-bottom: 10px; }
+  .mod:hover {
+    background: var(--hover-soft);
+    color: var(--text);
+  }
+  .mod.active {
+    background: var(--hover);
+    color: var(--text-strong);
+  }
+  .counts {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted2);
+  }
+  .filter {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
   .filter input {
-    flex: 1; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--panel-edge);
-    background: var(--code-bg); color: var(--text); font-size: 13px;
+    flex: 1;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--panel-edge);
+    background: var(--code-bg);
+    color: var(--text);
+    font-size: 13px;
   }
   .toggle {
-    padding: 5px 10px; border-radius: 8px; border: 1px solid var(--panel-edge);
-    background: none; color: var(--muted); cursor: pointer; font-size: 12.5px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--panel-edge);
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 12.5px;
   }
-  .toggle.on { color: var(--accent-text); background: rgba(214, 64, 159, 0.14); border-color: rgba(214, 64, 159, 0.35); }
-  .def { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--row-edge); }
-  .def-name { font-family: var(--mono); font-size: 13px; color: var(--text-strong); }
-  .def-kind { font-size: 11px; color: var(--accent2); }
-  .def-access { font-size: 11px; color: var(--muted2); }
-  .def-doc { font-size: 12px; color: var(--muted); }
+  .toggle.on {
+    color: var(--accent-text);
+    background: rgba(214, 64, 159, 0.14);
+    border-color: rgba(214, 64, 159, 0.35);
+  }
+  .def {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--row-edge);
+  }
+  .def-name {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-strong);
+  }
+  .def-kind {
+    font-size: 11px;
+    color: var(--accent2);
+  }
+  .def-access {
+    font-size: 11px;
+    color: var(--muted2);
+  }
+  .def-doc {
+    font-size: 12px;
+    color: var(--muted);
+  }
 </style>
 ```
 
 `src/shell/MorphirApp.svelte`:
+
 ```svelte
 <script lang="ts">
   import { onMount } from 'svelte'
@@ -2474,7 +3212,7 @@ export class WorkspaceState {
     badge,
     version,
     initialConfig,
-    macChrome = false
+    macChrome = false,
   }: {
     services: AppServices
     badge: string
@@ -2485,13 +3223,13 @@ export class WorkspaceState {
 
   const NAV_ITEMS: NavItem[] = [
     { id: 'overview', label: 'Overview' },
-    { id: 'explorer', label: 'IR Explorer' }
+    { id: 'explorer', label: 'IR Explorer' },
   ]
   const SECTION_LABELS: Record<SettingsSection, string> = {
     general: 'General',
     appearance: 'Appearance',
     github: 'GitHub',
-    about: 'About'
+    about: 'About',
   }
 
   const shell = new ShellState()
@@ -2502,7 +3240,7 @@ export class WorkspaceState {
   const crumbTitle = $derived(
     shell.route.kind === 'settings'
       ? SECTION_LABELS[shell.route.section]
-      : (NAV_ITEMS.find((n) => n.id === activeNav)?.label ?? '')
+      : (NAV_ITEMS.find((n) => n.id === activeNav)?.label ?? ''),
   )
 
   let saveTimer: ReturnType<typeof setTimeout> | undefined
@@ -2557,6 +3295,7 @@ export class WorkspaceState {
 ```
 
 Add to `src/index.ts`:
+
 ```ts
 export { WorkspaceState } from './state/workspace-state.svelte.ts'
 export { default as MorphirApp } from './shell/MorphirApp.svelte'
@@ -2577,16 +3316,19 @@ git add -A && git commit -m "feat(ui): workspace state, overview and IR explorer
 ### Task 9: morphir-web — browser host
 
 **Files:**
+
 - Create: `apps/morphir-web/package.json`, `moon.yml`, `tsconfig.json`, `vite.config.ts`, `index.html`, `src/main.ts`, `src/vite-env.d.ts`, `src/layers/browser-layers.ts`
 - Test: `apps/morphir-web/test/browser-layers.test.ts`
 
 **Interfaces:**
+
 - Consumes: `MorphirApp`, `makeAppServices`, service tags, `decodeUiConfig`, `defaultUiConfig` (@morphir/ui).
 - Produces: `browserCore(version: string): Layer.Layer<CoreServices>` — localStorage config under key `morphir-ui.config`, file-picker workspace (`read` = `Option.none()` → recents/reopen hidden), static version. The deployable `apps/morphir-web/dist/`.
 
 - [ ] **Step 1: Scaffold**
 
 `apps/morphir-web/package.json`:
+
 ```json
 {
   "name": "@morphir/web",
@@ -2618,6 +3360,7 @@ git add -A && git commit -m "feat(ui): workspace state, overview and IR explorer
 ```
 
 `apps/morphir-web/moon.yml`:
+
 ```yaml
 $schema: 'https://moonrepo.dev/schemas/project.json'
 type: 'application'
@@ -2625,6 +3368,7 @@ language: 'typescript'
 ```
 
 `apps/morphir-web/tsconfig.json`:
+
 ```json
 {
   "extends": "../../tsconfig.base.json",
@@ -2634,6 +3378,7 @@ language: 'typescript'
 ```
 
 `apps/morphir-web/vite.config.ts`:
+
 ```ts
 import { defineConfig } from 'vitest/config'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
@@ -2643,11 +3388,12 @@ export default defineConfig({
   plugins: [svelte()],
   define: { __MORPHIR_WEB_VERSION__: JSON.stringify(pkg.version) },
   test: { environment: 'happy-dom', include: ['test/**/*.test.ts'] },
-  resolve: { conditions: ['browser'] }
+  resolve: { conditions: ['browser'] },
 })
 ```
 
 `apps/morphir-web/index.html`:
+
 ```html
 <!doctype html>
 <html lang="en">
@@ -2668,6 +3414,7 @@ export default defineConfig({
 ```
 
 `apps/morphir-web/src/vite-env.d.ts`:
+
 ```ts
 /// <reference types="vite/client" />
 declare const __MORPHIR_WEB_VERSION__: string
@@ -2676,6 +3423,7 @@ declare const __MORPHIR_WEB_VERSION__: string
 - [ ] **Step 2: Write the failing layer tests**
 
 `apps/morphir-web/test/browser-layers.test.ts`:
+
 ```ts
 import { beforeEach, describe, expect, test } from 'vitest'
 import { defaultUiConfig, makeAppServices } from '@morphir/ui'
@@ -2718,6 +3466,7 @@ describe('browserCore', () => {
 - [ ] **Step 4: Implement**
 
 `apps/morphir-web/src/layers/browser-layers.ts`:
+
 ```ts
 import { Effect, Layer, Option } from 'effect'
 import {
@@ -2728,7 +3477,7 @@ import {
   decodeUiConfig,
   defaultUiConfig,
   type CoreServices,
-  type PickedWorkspace
+  type PickedWorkspace,
 } from '@morphir/ui'
 
 const CONFIG_KEY = 'morphir-ui.config'
@@ -2743,7 +3492,7 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> =>
           return defaultUiConfig
         }
       }),
-      save: (config) => Effect.sync(() => localStorage.setItem(CONFIG_KEY, JSON.stringify(config)))
+      save: (config) => Effect.sync(() => localStorage.setItem(CONFIG_KEY, JSON.stringify(config))),
     }),
     Layer.succeed(WorkspaceService, {
       pickAndRead: Effect.async<Option.Option<PickedWorkspace>, WorkspaceError>((resume) => {
@@ -2755,19 +3504,20 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> =>
           if (!file) return resume(Effect.succeed(Option.none()))
           file.text().then(
             (content) => resume(Effect.succeed(Option.some({ ref: { path: file.name }, content }))),
-            (e) => resume(Effect.fail(new WorkspaceError({ message: String(e) })))
+            (e) => resume(Effect.fail(new WorkspaceError({ message: String(e) }))),
           )
         }
         input.oncancel = () => resume(Effect.succeed(Option.none()))
         input.click()
       }),
-      read: Option.none()
+      read: Option.none(),
     }),
-    Layer.succeed(AppInfoService, { version: Effect.succeed(version) })
+    Layer.succeed(AppInfoService, { version: Effect.succeed(version) }),
   )
 ```
 
 `apps/morphir-web/src/main.ts`:
+
 ```ts
 import '@morphir/ui/theme.css'
 import { mount } from 'svelte'
@@ -2779,7 +3529,7 @@ const initialConfig = await services.loadConfig()
 
 mount(MorphirApp, {
   target: document.getElementById('app')!,
-  props: { services, badge: 'WEB', version: __MORPHIR_WEB_VERSION__, initialConfig }
+  props: { services, badge: 'WEB', version: __MORPHIR_WEB_VERSION__, initialConfig },
 })
 ```
 
@@ -2788,6 +3538,7 @@ mount(MorphirApp, {
 ```bash
 bun run test && bun run typecheck && bun run build && cd ../.. && mise exec -- moon run morphir-web:build
 ```
+
 Expected: tests PASS, `dist/` produced, moon task green.
 
 - [ ] **Step 6: Commit**
@@ -2801,10 +3552,12 @@ git add -A && git commit -m "feat(web): browser host with localStorage config an
 ### Task 10: morphir-desktop — Electron scaffold, IPC bridge, smoke mode
 
 **Files:**
+
 - Create: `apps/morphir-desktop/package.json`, `moon.yml`, `tsconfig.json`, `tsconfig.node.json`, `electron.vite.config.ts`, `src/main/index.ts`, `src/main/rpc.ts`, `src/preload/index.ts`, `src/renderer/index.html`, `src/renderer/src/main.ts`, `src/renderer/src/vite-env.d.ts`, `src/renderer/src/layers/rpc-client.ts`, `src/renderer/src/layers/desktop-layers.ts`
 - Test: `apps/morphir-desktop/test/rpc.test.ts`
 
 **Interfaces:**
+
 - Consumes: `MorphirApp`, `makeAppServices`, tags, `defaultUiConfig` (@morphir/ui).
 - Produces:
   - `RPC_CHANNEL = 'morphir-rpc'`; request `{ id: number; method: string; params?: unknown }`; response `{ id, result }` or `{ id, error: { code, message, data? } }`; `WIRE_CODE = -32001`, `WIRE_MESSAGE = 'morphir service error'`, `METHOD_NOT_FOUND = -32601`
@@ -2817,6 +3570,7 @@ git add -A && git commit -m "feat(web): browser host with localStorage config an
 - [ ] **Step 1: Scaffold**
 
 `apps/morphir-desktop/package.json`:
+
 ```json
 {
   "name": "@morphir/desktop",
@@ -2852,9 +3606,11 @@ git add -A && git commit -m "feat(web): browser host with localStorage config an
   }
 }
 ```
+
 (If electron-vite 5's peer range rejects vite 8, use the newest vite it accepts — Global Constraints degree of freedom.)
 
 `apps/morphir-desktop/moon.yml`:
+
 ```yaml
 $schema: 'https://moonrepo.dev/schemas/project.json'
 type: 'application'
@@ -2862,6 +3618,7 @@ language: 'typescript'
 ```
 
 `apps/morphir-desktop/tsconfig.json` (renderer):
+
 ```json
 {
   "extends": "../../tsconfig.base.json",
@@ -2871,6 +3628,7 @@ language: 'typescript'
 ```
 
 `apps/morphir-desktop/tsconfig.node.json` (main + preload + tests):
+
 ```json
 {
   "extends": "../../tsconfig.base.json",
@@ -2880,6 +3638,7 @@ language: 'typescript'
 ```
 
 `apps/morphir-desktop/electron.vite.config.ts`:
+
 ```ts
 import { defineConfig } from 'electron-vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
@@ -2887,13 +3646,14 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 export default defineConfig({
   main: {},
   preload: {},
-  renderer: { plugins: [svelte()] }
+  renderer: { plugins: [svelte()] },
 })
 ```
 
 - [ ] **Step 2: Write the failing RPC registry tests**
 
 `apps/morphir-desktop/test/rpc.test.ts`:
+
 ```ts
 import { describe, expect, test } from 'bun:test'
 import { METHOD_NOT_FOUND, RpcRegistry, WIRE_CODE, WIRE_MESSAGE } from '../src/main/rpc.ts'
@@ -2902,7 +3662,11 @@ describe('RpcRegistry', () => {
   test('dispatches to a registered handler', async () => {
     const registry = new RpcRegistry()
     registry.register('morphir/test/echo', async (params) => ({ echoed: params }))
-    const response = await registry.dispatch({ id: 7, method: 'morphir/test/echo', params: { a: 1 } })
+    const response = await registry.dispatch({
+      id: 7,
+      method: 'morphir/test/echo',
+      params: { a: 1 },
+    })
     expect(response).toEqual({ id: 7, result: { echoed: { a: 1 } } })
   })
 
@@ -2921,7 +3685,7 @@ describe('RpcRegistry', () => {
     expect(response.error).toEqual({
       code: WIRE_CODE,
       message: WIRE_MESSAGE,
-      data: 'workspace not found: /x'
+      data: 'workspace not found: /x',
     })
   })
 
@@ -2939,15 +3703,28 @@ describe('RpcRegistry', () => {
 - [ ] **Step 4: Implement main, preload, renderer**
 
 `src/main/rpc.ts`:
+
 ```ts
 export const RPC_CHANNEL = 'morphir-rpc'
 export const WIRE_CODE = -32001
 export const WIRE_MESSAGE = 'morphir service error'
 export const METHOD_NOT_FOUND = -32601
 
-export interface RpcRequest { id: number; method: string; params?: unknown }
-export interface RpcErrorShape { code: number; message: string; data?: unknown }
-export interface RpcResponse { id: number; result?: unknown; error?: RpcErrorShape }
+export interface RpcRequest {
+  id: number
+  method: string
+  params?: unknown
+}
+export interface RpcErrorShape {
+  code: number
+  message: string
+  data?: unknown
+}
+export interface RpcResponse {
+  id: number
+  result?: unknown
+  error?: RpcErrorShape
+}
 
 export type RpcHandler = (params: unknown) => Promise<unknown>
 
@@ -2959,18 +3736,27 @@ export class RpcRegistry {
   }
 
   async dispatch(message: unknown): Promise<RpcResponse> {
-    const req = (typeof message === 'object' && message !== null ? message : {}) as Partial<RpcRequest>
+    const req = (
+      typeof message === 'object' && message !== null ? message : {}
+    ) as Partial<RpcRequest>
     const id = typeof req.id === 'number' ? req.id : -1
     const handler = typeof req.method === 'string' ? this.#handlers.get(req.method) : undefined
     if (!handler) {
-      return { id, error: { code: METHOD_NOT_FOUND, message: `method not found: ${String(req.method)}` } }
+      return {
+        id,
+        error: { code: METHOD_NOT_FOUND, message: `method not found: ${String(req.method)}` },
+      }
     }
     try {
       return { id, result: await handler(req.params) }
     } catch (e) {
       return {
         id,
-        error: { code: WIRE_CODE, message: WIRE_MESSAGE, data: e instanceof Error ? e.message : String(e) }
+        error: {
+          code: WIRE_CODE,
+          message: WIRE_MESSAGE,
+          data: e instanceof Error ? e.message : String(e),
+        },
       }
     }
   }
@@ -2978,6 +3764,7 @@ export class RpcRegistry {
 ```
 
 `src/main/index.ts`:
+
 ```ts
 import { BrowserWindow, app, ipcMain } from 'electron'
 import { join } from 'node:path'
@@ -2988,7 +3775,8 @@ const registry = new RpcRegistry()
 
 registry.register('morphir/shell/appVersion', async () => ({ version: app.getVersion() }))
 registry.register('morphir/shell/smokeReport', async (params) => {
-  const ok = typeof params === 'object' && params !== null && (params as { ok?: boolean }).ok === true
+  const ok =
+    typeof params === 'object' && params !== null && (params as { ok?: boolean }).ok === true
   console.log(ok ? 'SMOKE OK' : 'SMOKE FAILED')
   if (smoke) app.exit(ok ? 0 : 1)
   return {}
@@ -3006,15 +3794,15 @@ function createWindow(): BrowserWindow {
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
-      sandbox: true
-    }
+      sandbox: true,
+    },
   })
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
   if (rendererUrl) {
     void win.loadURL(smoke ? `${rendererUrl}?smoke=1` : rendererUrl)
   } else {
     void win.loadFile(join(import.meta.dirname, '../renderer/index.html'), {
-      query: smoke ? { smoke: '1' } : undefined
+      query: smoke ? { smoke: '1' } : undefined,
     })
   }
   return win
@@ -3037,9 +3825,11 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' || smoke) app.quit()
 })
 ```
+
 (If `import.meta.dirname` is unavailable in the built main bundle, use `dirname(fileURLToPath(import.meta.url))` from `node:path`/`node:url`.)
 
 `src/preload/index.ts` (ported from morphir-scala `preload.cjs`; `platform` is the one documented addition):
+
 ```ts
 import { contextBridge, ipcRenderer } from 'electron'
 
@@ -3049,11 +3839,12 @@ contextBridge.exposeInMainWorld('morphirIpc', {
   platform: process.platform,
   postMessage: (message: unknown) => ipcRenderer.send(CHANNEL, message),
   onMessage: (handler: (message: unknown) => void) =>
-    ipcRenderer.on(CHANNEL, (_event, message) => handler(message))
+    ipcRenderer.on(CHANNEL, (_event, message) => handler(message)),
 })
 ```
 
 `src/renderer/index.html` (CSP verbatim from scala plus `connect-src` for dev HMR):
+
 ```html
 <!doctype html>
 <html lang="en">
@@ -3073,11 +3864,13 @@ contextBridge.exposeInMainWorld('morphirIpc', {
 ```
 
 `src/renderer/src/vite-env.d.ts`:
+
 ```ts
 /// <reference types="vite/client" />
 ```
 
 `src/renderer/src/layers/rpc-client.ts`:
+
 ```ts
 import { Effect } from 'effect'
 
@@ -3088,11 +3881,20 @@ export interface MorphirIpc {
 }
 
 declare global {
-  interface Window { morphirIpc: MorphirIpc }
+  interface Window {
+    morphirIpc: MorphirIpc
+  }
 }
 
-interface Pending { resolve: (value: unknown) => void; reject: (error: Error) => void }
-interface WireResponse { id: number; result?: unknown; error?: { message: string; data?: unknown } }
+interface Pending {
+  resolve: (value: unknown) => void
+  reject: (error: Error) => void
+}
+interface WireResponse {
+  id: number
+  result?: unknown
+  error?: { message: string; data?: unknown }
+}
 
 export class RpcClient {
   readonly #pending = new Map<number, Pending>()
@@ -3107,7 +3909,8 @@ export class RpcClient {
       if (!pending) return
       this.#pending.delete(response.id)
       if (response.error) {
-        const detail = typeof response.error.data === 'string' ? response.error.data : response.error.message
+        const detail =
+          typeof response.error.data === 'string' ? response.error.data : response.error.message
         pending.reject(new Error(detail))
       } else {
         pending.resolve(response.result)
@@ -3126,13 +3929,14 @@ export class RpcClient {
   effect<A>(method: string, params?: unknown): Effect.Effect<A, Error> {
     return Effect.tryPromise({
       try: () => this.call(method, params) as Promise<A>,
-      catch: (e) => (e instanceof Error ? e : new Error(String(e)))
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })
   }
 }
 ```
 
 `src/renderer/src/layers/desktop-layers.ts`:
+
 ```ts
 import { Effect, Layer, Option } from 'effect'
 import {
@@ -3141,7 +3945,7 @@ import {
   WorkspaceService,
   defaultUiConfig,
   type CoreServices,
-  type UiConfig
+  type UiConfig,
 } from '@morphir/ui'
 import type { RpcClient } from './rpc-client.ts'
 
@@ -3150,26 +3954,27 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
     Layer.succeed(AppInfoService, {
       version: rpc.effect<{ version: string }>('morphir/shell/appVersion').pipe(
         Effect.map((r) => r.version),
-        Effect.orDie
-      )
+        Effect.orDie,
+      ),
     }),
     // INTERIM in-memory config — replaced by MORPHIR_HOME TOML over RPC in Task 11.
     Layer.sync(ConfigService, () => {
       let config: UiConfig = defaultUiConfig
       return {
         load: Effect.sync(() => config),
-        save: (c: UiConfig) => Effect.sync(() => void (config = c))
+        save: (c: UiConfig) => Effect.sync(() => void (config = c)),
       }
     }),
     // INTERIM no-op workspace — replaced by native dialogs over RPC in Task 12.
     Layer.succeed(WorkspaceService, {
       pickAndRead: Effect.succeed(Option.none()),
-      read: Option.none()
-    })
+      read: Option.none(),
+    }),
   )
 ```
 
 `src/renderer/src/main.ts`:
+
 ```ts
 import '@morphir/ui/theme.css'
 import { mount } from 'svelte'
@@ -3189,14 +3994,15 @@ mount(MorphirApp, {
     badge: 'DESKTOP',
     version,
     initialConfig,
-    macChrome: window.morphirIpc.platform === 'darwin'
-  }
+    macChrome: window.morphirIpc.platform === 'darwin',
+  },
 })
 
 if (new URLSearchParams(location.search).get('smoke') === '1') {
   void rpc.call('morphir/shell/smokeReport', { ok: true })
 }
 ```
+
 (The smoke report only fires after `makeAppServices`, `version`, `loadConfig` and `mount` all succeeded — it IS the round-trip proof.)
 
 - [ ] **Step 5: Run tests + build + smoke, verify**
@@ -3204,6 +4010,7 @@ if (new URLSearchParams(location.search).get('smoke') === '1') {
 ```bash
 bun test && bun run typecheck && bun run build && MORPHIR_HOME=$(mktemp -d) bun run smoke
 ```
+
 Expected: tests PASS, build produces `out/`, smoke prints `SMOKE OK` and exits 0. On a headless machine prefix with `xvfb-run -a`.
 
 - [ ] **Step 6: Commit**
@@ -3217,11 +4024,13 @@ git add -A && git commit -m "feat(desktop): electron scaffold with rpc bridge, p
 ### Task 11: morphir-desktop — ConfigService over MORPHIR_HOME TOML
 
 **Files:**
+
 - Create: `apps/morphir-desktop/src/main/config.ts`
 - Modify: `apps/morphir-desktop/src/main/index.ts` (register handlers), `src/renderer/src/layers/desktop-layers.ts` (replace INTERIM config layer)
 - Test: `apps/morphir-desktop/test/config.test.ts`
 
 **Interfaces:**
+
 - Consumes: `decodeUiConfig`, `defaultUiConfig`, `UiConfig` via the pure subpath `@morphir/ui/config` (no Svelte imports in the main process).
 - Produces:
   - `morphirHome(env?): string` — `$MORPHIR_HOME` or `~/.morphir`
@@ -3232,6 +4041,7 @@ git add -A && git commit -m "feat(desktop): electron scaffold with rpc bridge, p
 - [ ] **Step 1: Write the failing tests**
 
 `apps/morphir-desktop/test/config.test.ts`:
+
 ```ts
 import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
@@ -3269,7 +4079,11 @@ describe('config file round-trip', () => {
     const config = {
       ...defaultUiConfig,
       appearance: { colorScheme: 'light' as const, animations: false },
-      workspace: { recent: ['/a/morphir-ir.json'], reopenOnLaunch: false, active: '/a/morphir-ir.json' }
+      workspace: {
+        recent: ['/a/morphir-ir.json'],
+        reopenOnLaunch: false,
+        active: '/a/morphir-ir.json',
+      },
     }
     await saveConfigFile(config, path)
     expect(await loadConfigFile(path)).toEqual(config)
@@ -3289,6 +4103,7 @@ describe('config file round-trip', () => {
 - [ ] **Step 3: Implement**
 
 `src/main/config.ts`:
+
 ```ts
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -3297,7 +4112,9 @@ import { parse, stringify } from 'smol-toml'
 import { decodeUiConfig, defaultUiConfig, type UiConfig } from '@morphir/ui/config'
 
 export const morphirHome = (env: Record<string, string | undefined> = process.env): string =>
-  env['MORPHIR_HOME'] && env['MORPHIR_HOME'].length > 0 ? env['MORPHIR_HOME'] : join(homedir(), '.morphir')
+  env['MORPHIR_HOME'] && env['MORPHIR_HOME'].length > 0
+    ? env['MORPHIR_HOME']
+    : join(homedir(), '.morphir')
 
 export const uiConfigPath = (env?: Record<string, string | undefined>): string =>
   join(morphirHome(env), 'ui', 'config.toml')
@@ -3310,7 +4127,10 @@ export async function loadConfigFile(path: string = uiConfigPath()): Promise<UiC
   }
 }
 
-export async function saveConfigFile(config: UiConfig, path: string = uiConfigPath()): Promise<void> {
+export async function saveConfigFile(
+  config: UiConfig,
+  path: string = uiConfigPath(),
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   const tmp = `${path}.tmp`
   await writeFile(tmp, stringify(config), 'utf8')
@@ -3322,6 +4142,7 @@ The `"./config"` subpath export already exists in `packages/morphir-ui/package.j
 **Import boundary rule:** `src/main/**` may import ONLY `@morphir/ui/config` and `@morphir/ui/token` (pure TS) — never `@morphir/ui` root (it pulls Svelte components into the main bundle).
 
 In `src/main/index.ts` register (next to the shell handlers):
+
 ```ts
 import { loadConfigFile, saveConfigFile } from './config.ts'
 import { decodeUiConfig } from '@morphir/ui/config'
@@ -3335,11 +4156,14 @@ registry.register('morphir/config/save', async (params) => {
 ```
 
 Replace the INTERIM config layer in `src/renderer/src/layers/desktop-layers.ts`:
+
 ```ts
 Layer.succeed(ConfigService, {
-  load: rpc.effect<UiConfig>('morphir/config/load').pipe(Effect.orElseSucceed(() => defaultUiConfig)),
+  load: rpc
+    .effect<UiConfig>('morphir/config/load')
+    .pipe(Effect.orElseSucceed(() => defaultUiConfig)),
   save: (config: UiConfig) =>
-    rpc.effect('morphir/config/save', { config }).pipe(Effect.asVoid, Effect.orDie)
+    rpc.effect('morphir/config/save', { config }).pipe(Effect.asVoid, Effect.orDie),
 })
 ```
 
@@ -3348,6 +4172,7 @@ Layer.succeed(ConfigService, {
 ```bash
 bun test && bun run typecheck && MORPHIR_HOME=$(mktemp -d) bun run smoke
 ```
+
 Expected: PASS; smoke green proves the renderer now boots through the real config RPC (its boot chain calls `loadConfig`).
 
 - [ ] **Step 5: Commit**
@@ -3361,11 +4186,13 @@ git add -A && git commit -m "feat(desktop): persist ui config as TOML under MORP
 ### Task 12: morphir-desktop — WorkspaceService with native dialogs
 
 **Files:**
+
 - Create: `apps/morphir-desktop/src/main/workspace.ts`
 - Modify: `apps/morphir-desktop/src/main/index.ts`, `src/renderer/src/layers/desktop-layers.ts` (replace INTERIM workspace layer)
 - Test: `apps/morphir-desktop/test/workspace.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `readWorkspaceFile(path: string): Promise<string>` — throws `Error('workspace not found: <path>')` on any read failure (message mirrors scala `UiServiceError.WorkspaceNotFound`)
   - RPC: `morphir/workspace/pick` → `{ path: string } | null` (native open dialog filtered to JSON); `morphir/workspace/read` `{ path }` → `{ content: string }`
@@ -3374,6 +4201,7 @@ git add -A && git commit -m "feat(desktop): persist ui config as TOML under MORP
 - [ ] **Step 1: Write the failing tests**
 
 `apps/morphir-desktop/test/workspace.test.ts`:
+
 ```ts
 import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
@@ -3391,7 +4219,7 @@ describe('readWorkspaceFile', () => {
 
   test('maps missing files to the workspace-not-found contract', async () => {
     await expect(readWorkspaceFile('/nope/morphir-ir.json')).rejects.toThrow(
-      'workspace not found: /nope/morphir-ir.json'
+      'workspace not found: /nope/morphir-ir.json',
     )
   })
 })
@@ -3400,6 +4228,7 @@ describe('readWorkspaceFile', () => {
 - [ ] **Step 2: Run to verify failure**, then implement.
 
 `src/main/workspace.ts`:
+
 ```ts
 import { readFile } from 'node:fs/promises'
 
@@ -3413,6 +4242,7 @@ export async function readWorkspaceFile(path: string): Promise<string> {
 ```
 
 In `src/main/index.ts` register:
+
 ```ts
 import { dialog } from 'electron'
 import { readWorkspaceFile } from './workspace.ts'
@@ -3421,7 +4251,7 @@ registry.register('morphir/workspace/pick', async () => {
   const result = await dialog.showOpenDialog({
     title: 'Open Morphir workspace',
     filters: [{ name: 'Morphir IR', extensions: ['json'] }],
-    properties: ['openFile']
+    properties: ['openFile'],
   })
   return result.canceled || result.filePaths.length === 0 ? null : { path: result.filePaths[0] }
 })
@@ -3433,6 +4263,7 @@ registry.register('morphir/workspace/read', async (params) => {
 ```
 
 Replace the INTERIM workspace layer in `desktop-layers.ts`:
+
 ```ts
 Layer.succeed(WorkspaceService, {
   pickAndRead: rpc.effect<{ path: string } | null>('morphir/workspace/pick').pipe(
@@ -3442,18 +4273,19 @@ Layer.succeed(WorkspaceService, {
         ? Effect.succeed(Option.none())
         : rpc.effect<{ content: string }>('morphir/workspace/read', { path: picked.path }).pipe(
             Effect.mapError((e) => new WorkspaceError({ message: e.message })),
-            Effect.map((r) => Option.some({ ref: { path: picked.path }, content: r.content }))
-          )
-    )
+            Effect.map((r) => Option.some({ ref: { path: picked.path }, content: r.content })),
+          ),
+    ),
   ),
   read: Option.some((ref) =>
     rpc.effect<{ content: string }>('morphir/workspace/read', { path: ref.path }).pipe(
       Effect.mapError((e) => new WorkspaceError({ message: e.message })),
-      Effect.map((r) => r.content)
-    )
-  )
+      Effect.map((r) => r.content),
+    ),
+  ),
 })
 ```
+
 (Add `WorkspaceError` to the `@morphir/ui` imports in that file.)
 
 - [ ] **Step 3: Run tests + smoke** — `bun test && bun run typecheck && MORPHIR_HOME=$(mktemp -d) bun run smoke` → PASS / `SMOKE OK`.
@@ -3469,11 +4301,13 @@ git add -A && git commit -m "feat(desktop): native workspace pick and read with 
 ### Task 13: morphir-desktop — SecretStore (safeStorage) and GitHub token services
 
 **Files:**
+
 - Create: `apps/morphir-desktop/src/main/secrets.ts`, `src/main/github.ts`
 - Modify: `apps/morphir-desktop/src/main/index.ts` (register handlers), `src/renderer/src/layers/desktop-layers.ts` (add `desktopGitHub`), `src/renderer/src/main.ts` (pass the github layer)
 - Test: `apps/morphir-desktop/test/secrets.test.ts`, `test/github.test.ts`
 
 **Interfaces:**
+
 - Consumes: `redactToken`, `Token` from `@morphir/ui/token`; config load/save from Task 11.
 - Produces:
   - `interface SecretCrypto { isAvailable(): boolean; encryptString(plain: string): Buffer; decryptString(blob: Buffer): string }` (prod impl = Electron `safeStorage`)
@@ -3487,6 +4321,7 @@ git add -A && git commit -m "feat(desktop): native workspace pick and read with 
 - [ ] **Step 1: Write the failing tests**
 
 `apps/morphir-desktop/test/secrets.test.ts`:
+
 ```ts
 import { describe, expect, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
@@ -3497,7 +4332,7 @@ import { SecretStore, type SecretCrypto } from '../src/main/secrets.ts'
 const fakeCrypto = (available = true): SecretCrypto => ({
   isAvailable: () => available,
   encryptString: (plain) => Buffer.from([...Buffer.from(plain, 'utf8')].reverse()),
-  decryptString: (blob) => Buffer.from([...blob].reverse()).toString('utf8')
+  decryptString: (blob) => Buffer.from([...blob].reverse()).toString('utf8'),
 })
 
 const tempFile = () => join(mkdtempSync(join(tmpdir(), 'morphir-secrets-')), 'secrets.json')
@@ -3528,6 +4363,7 @@ describe('SecretStore', () => {
 ```
 
 `apps/morphir-desktop/test/github.test.ts`:
+
 ```ts
 import { describe, expect, test } from 'bun:test'
 import { ghCliToken, verifyGitHubToken } from '../src/main/github.ts'
@@ -3544,7 +4380,9 @@ describe('verifyGitHubToken', () => {
 
   test('maps failure statuses to a friendly error', async () => {
     const fakeFetch = (async () => new Response('bad', { status: 401 })) as typeof fetch
-    await expect(verifyGitHubToken('ghp_abc', fakeFetch)).rejects.toThrow('GitHub verification failed (401)')
+    await expect(verifyGitHubToken('ghp_abc', fakeFetch)).rejects.toThrow(
+      'GitHub verification failed (401)',
+    )
   })
 })
 
@@ -3564,6 +4402,7 @@ describe('ghCliToken', () => {
 - [ ] **Step 2: Run to verify failure**, then implement.
 
 `src/main/secrets.ts`:
+
 ```ts
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
@@ -3579,7 +4418,7 @@ export const GH_SECRET_KEY = 'github'
 export class SecretStore {
   constructor(
     private readonly file: string,
-    private readonly crypto: SecretCrypto
+    private readonly crypto: SecretCrypto,
   ) {}
 
   async #read(): Promise<Record<string, string>> {
@@ -3607,7 +4446,8 @@ export class SecretStore {
   }
 
   async set(key: string, value: string): Promise<void> {
-    if (!this.crypto.isAvailable()) throw new Error('secure storage is not available on this system')
+    if (!this.crypto.isAvailable())
+      throw new Error('secure storage is not available on this system')
     const blobs = await this.#read()
     blobs[key] = this.crypto.encryptString(value).toString('base64')
     await this.#write(blobs)
@@ -3622,13 +4462,17 @@ export class SecretStore {
 ```
 
 `src/main/github.ts`:
+
 ```ts
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
 type Exec = (file?: string, args?: string[]) => Promise<{ stdout: string; stderr: string }>
 const defaultExec: Exec = (file = 'gh', args = ['auth', 'token']) =>
-  promisify(execFile)(file, args).then(({ stdout, stderr }) => ({ stdout: String(stdout), stderr: String(stderr) }))
+  promisify(execFile)(file, args).then(({ stdout, stderr }) => ({
+    stdout: String(stdout),
+    stderr: String(stderr),
+  }))
 
 export async function ghCliToken(exec: Exec = defaultExec): Promise<string> {
   try {
@@ -3643,14 +4487,14 @@ export async function ghCliToken(exec: Exec = defaultExec): Promise<string> {
 
 export async function verifyGitHubToken(
   token: string,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
 ): Promise<{ login: string }> {
   const response = await fetchImpl('https://api.github.com/user', {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/vnd.github+json',
-      'User-Agent': 'morphir-desktop'
-    }
+      'User-Agent': 'morphir-desktop',
+    },
   })
   if (!response.ok) throw new Error(`GitHub verification failed (${response.status})`)
   const body = (await response.json()) as { login?: string }
@@ -3660,6 +4504,7 @@ export async function verifyGitHubToken(
 ```
 
 In `src/main/index.ts`, wire up (after `app.whenReady()` — `safeStorage` requires a ready app):
+
 ```ts
 import { app, safeStorage } from 'electron'
 import { redactToken, Token } from '@morphir/ui/token'
@@ -3709,35 +4554,37 @@ registry.register('morphir/github/verify', async () => {
 ```
 
 Add to `src/renderer/src/layers/desktop-layers.ts`:
+
 ```ts
 import { GitHubError, GitHubService, type GitHubStatus } from '@morphir/ui'
 
 export const desktopGitHub = (rpc: RpcClient): Layer.Layer<GitHubService> =>
   Layer.succeed(GitHubService, {
-    status: rpc.effect<GitHubStatus>('morphir/github/status').pipe(
-      Effect.mapError((e) => new GitHubError({ message: e.message }))
-    ),
+    status: rpc
+      .effect<GitHubStatus>('morphir/github/status')
+      .pipe(Effect.mapError((e) => new GitHubError({ message: e.message }))),
     setSource: (source) =>
       rpc.effect('morphir/github/setSource', { source }).pipe(
         Effect.asVoid,
-        Effect.mapError((e) => new GitHubError({ message: e.message }))
+        Effect.mapError((e) => new GitHubError({ message: e.message })),
       ),
     savePat: (raw) =>
       rpc.effect('morphir/github/setToken', { token: raw }).pipe(
         Effect.asVoid,
-        Effect.mapError((e) => new GitHubError({ message: e.message }))
+        Effect.mapError((e) => new GitHubError({ message: e.message })),
       ),
     clearPat: rpc.effect('morphir/github/clearToken').pipe(
       Effect.asVoid,
-      Effect.mapError((e) => new GitHubError({ message: e.message }))
+      Effect.mapError((e) => new GitHubError({ message: e.message })),
     ),
-    verify: rpc.effect<{ login: string }>('morphir/github/verify').pipe(
-      Effect.mapError((e) => new GitHubError({ message: e.message }))
-    )
+    verify: rpc
+      .effect<{ login: string }>('morphir/github/verify')
+      .pipe(Effect.mapError((e) => new GitHubError({ message: e.message }))),
   })
 ```
 
 In `src/renderer/src/main.ts` change the services line:
+
 ```ts
 import { desktopCore, desktopGitHub } from './layers/desktop-layers.ts'
 
@@ -3757,11 +4604,13 @@ git add -A && git commit -m "feat(desktop): safeStorage-backed secret store and 
 ### Task 14: @morphir/ui — Settings surface (General, Appearance, GitHub, About)
 
 **Files:**
+
 - Create: `packages/morphir-ui/src/views/settings/SettingsView.svelte`, `SettingsSidebar.svelte`, `SettingsRow.svelte`, `Toggle.svelte`, `SchemePicker.svelte`, `GeneralSection.svelte`, `AppearanceSection.svelte`, `GitHubSection.svelte`, `AboutSection.svelte`
 - Modify: `packages/morphir-ui/src/shell/MorphirApp.svelte` (replace the Task 8 settings stub), `src/index.ts`
 - Test: `packages/morphir-ui/test/settings.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ShellState` (`route.section`, `selectSettingsSection`, `closeSettings`, `selectColorScheme`, `toggleAnimations`), `WorkspaceState`, `AppServices`, `SCHEME_LABELS`/`SCHEME_CLASSES`, icons.
 - Produces:
   - `SettingsView.svelte` props: `{ services: AppServices; shell: ShellState; workspace: WorkspaceState; version: string }` — full-surface settings: left `SettingsSidebar` (Back row + sections; `github` only when `services.capabilities.github`), right = active section.
@@ -3772,6 +4621,7 @@ git add -A && git commit -m "feat(desktop): safeStorage-backed secret store and 
 - [ ] **Step 1: Write the failing tests**
 
 `packages/morphir-ui/test/settings.test.ts`:
+
 ```ts
 import { render, screen } from '@testing-library/svelte'
 import { userEvent } from '@testing-library/user-event'
@@ -3787,7 +4637,7 @@ const setup = async (opts?: { github?: boolean }) => {
   const shell = new ShellState()
   shell.openSettings()
   render(SettingsView, {
-    props: { services, shell, workspace: new WorkspaceState(services), version: '1.2.3' }
+    props: { services, shell, workspace: new WorkspaceState(services), version: '1.2.3' },
   })
   return { services, shell, store }
 }
@@ -3846,13 +4696,14 @@ describe('SettingsView', () => {
 - [ ] **Step 2: Run to verify failure**, then implement.
 
 `src/views/settings/SettingsRow.svelte`:
+
 ```svelte
 <script lang="ts">
   import type { Snippet } from 'svelte'
   let {
     label,
     description = '',
-    trailing
+    trailing,
   }: { label: string; description?: string; trailing?: Snippet } = $props()
 </script>
 
@@ -3861,24 +4712,49 @@ describe('SettingsView', () => {
     <div class="row-label">{label}</div>
     {#if description}<div class="row-desc">{description}</div>{/if}
   </div>
-  <div class="row-trailing">{#if trailing}{@render trailing()}{/if}</div>
+  <div class="row-trailing">
+    {#if trailing}{@render trailing()}{/if}
+  </div>
 </div>
 
 <style>
   .settings-row {
-    display: flex; align-items: center; justify-content: space-between; gap: 16px;
-    padding: 12px 0; border-bottom: 1px solid var(--row-edge);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--row-edge);
   }
-  .row-label { font-weight: 500; color: var(--text); }
-  .row-desc { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
-  .row-trailing { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 12.5px; color: var(--accent-text); }
+  .row-label {
+    font-weight: 500;
+    color: var(--text);
+  }
+  .row-desc {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .row-trailing {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--accent-text);
+  }
 </style>
 ```
 
 `src/views/settings/Toggle.svelte`:
+
 ```svelte
 <script lang="ts">
-  let { checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string } = $props()
+  let {
+    checked,
+    onChange,
+    label,
+  }: { checked: boolean; onChange: (value: boolean) => void; label: string } = $props()
 </script>
 
 <button
@@ -3894,23 +4770,45 @@ describe('SettingsView', () => {
 
 <style>
   .toggle {
-    width: 34px; height: 20px; border-radius: 999px; border: none; cursor: pointer;
-    background: var(--dot); position: relative; transition: background 160ms ease;
+    width: 34px;
+    height: 20px;
+    border-radius: 999px;
+    border: none;
+    cursor: pointer;
+    background: var(--dot);
+    position: relative;
+    transition: background 160ms ease;
   }
-  .toggle.on { background: var(--accent); }
+  .toggle.on {
+    background: var(--accent);
+  }
   .knob {
-    position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
-    background: var(--knob); transition: transform 160ms ease;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--knob);
+    transition: transform 160ms ease;
   }
-  .toggle.on .knob { transform: translateX(14px); }
+  .toggle.on .knob {
+    transform: translateX(14px);
+  }
 </style>
 ```
 
 `src/views/settings/SchemePicker.svelte`:
+
 ```svelte
 <script lang="ts">
-  import { SCHEME_CLASSES, SCHEME_LABELS, type ColorScheme } from '../../state/shell-state.svelte.ts'
-  let { value, onSelect }: { value: ColorScheme; onSelect: (scheme: ColorScheme) => void } = $props()
+  import {
+    SCHEME_CLASSES,
+    SCHEME_LABELS,
+    type ColorScheme,
+  } from '../../state/shell-state.svelte.ts'
+  let { value, onSelect }: { value: ColorScheme; onSelect: (scheme: ColorScheme) => void } =
+    $props()
   const SCHEMES: ColorScheme[] = ['system', 'light', 'dark']
 </script>
 
@@ -3919,7 +4817,9 @@ describe('SettingsView', () => {
     <button class="scheme-card" class:active={scheme === value} onclick={() => onSelect(scheme)}>
       <span class="preview {SCHEME_CLASSES[scheme]}">
         <span class="mini-top"></span>
-        <span class="mini-body"><span class="mini-rail"></span><span class="mini-accent"></span></span>
+        <span class="mini-body"
+          ><span class="mini-rail"></span><span class="mini-accent"></span></span
+        >
       </span>
       {SCHEME_LABELS[scheme]}
     </button>
@@ -3927,26 +4827,64 @@ describe('SettingsView', () => {
 </div>
 
 <style>
-  .schemes { display: flex; gap: 12px; }
+  .schemes {
+    display: flex;
+    gap: 12px;
+  }
   .scheme-card {
-    display: flex; flex-direction: column; gap: 6px; align-items: center; padding: 8px;
-    border-radius: 10px; border: 1px solid var(--panel-edge); background: none;
-    color: var(--muted); font-size: 12.5px; cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+    padding: 8px;
+    border-radius: 10px;
+    border: 1px solid var(--panel-edge);
+    background: none;
+    color: var(--muted);
+    font-size: 12.5px;
+    cursor: pointer;
   }
-  .scheme-card.active { border-color: var(--accent); color: var(--text); }
+  .scheme-card.active {
+    border-color: var(--accent);
+    color: var(--text);
+  }
   .preview {
-    display: flex; flex-direction: column; width: 108px; height: 64px; border-radius: 8px;
-    overflow: hidden; background: var(--bg); border: 1px solid var(--edge);
+    display: flex;
+    flex-direction: column;
+    width: 108px;
+    height: 64px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg);
+    border: 1px solid var(--edge);
   }
-  .mini-top { height: 12px; background: var(--surface); border-bottom: 1px solid var(--edge); }
-  .mini-body { flex: 1; display: flex; }
-  .mini-rail { width: 24px; background: var(--rail); border-right: 1px solid var(--edge); }
-  .mini-accent { align-self: flex-end; margin: 6px; width: 28px; height: 6px; border-radius: 3px;
-    background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .mini-top {
+    height: 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--edge);
+  }
+  .mini-body {
+    flex: 1;
+    display: flex;
+  }
+  .mini-rail {
+    width: 24px;
+    background: var(--rail);
+    border-right: 1px solid var(--edge);
+  }
+  .mini-accent {
+    align-self: flex-end;
+    margin: 6px;
+    width: 28px;
+    height: 6px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+  }
 </style>
 ```
 
 `src/views/settings/GeneralSection.svelte`:
+
 ```svelte
 <script lang="ts">
   import SettingsRow from './SettingsRow.svelte'
@@ -3970,14 +4908,21 @@ describe('SettingsView', () => {
   {#snippet trailing()}<span>{workspace.current?.ref.path ?? '—'}</span>{/snippet}
 </SettingsRow>
 <SettingsRow label="Reopen on launch" description="Reopen the last workspace when the app starts.">
-  {#snippet trailing()}<Toggle checked={reopenOnLaunch} onChange={setReopen} label="Reopen on launch" />{/snippet}
+  {#snippet trailing()}<Toggle
+      checked={reopenOnLaunch}
+      onChange={setReopen}
+      label="Reopen on launch"
+    />{/snippet}
 </SettingsRow>
 <SettingsRow label="Recent workspaces" description="Workspaces you opened recently.">
-  {#snippet trailing()}<span>{workspace.recents.length === 0 ? '—' : workspace.recents.join(' · ')}</span>{/snippet}
+  {#snippet trailing()}<span
+      >{workspace.recents.length === 0 ? '—' : workspace.recents.join(' · ')}</span
+    >{/snippet}
 </SettingsRow>
 ```
 
 `src/views/settings/AppearanceSection.svelte`:
+
 ```svelte
 <script lang="ts">
   import SettingsRow from './SettingsRow.svelte'
@@ -3994,12 +4939,17 @@ describe('SettingsView', () => {
 </SettingsRow>
 <SettingsRow label="Panel animations" description="Slide shell regions when they open and close.">
   {#snippet trailing()}
-    <Toggle checked={shell.animations} onChange={() => shell.toggleAnimations()} label="Panel animations" />
+    <Toggle
+      checked={shell.animations}
+      onChange={() => shell.toggleAnimations()}
+      label="Panel animations"
+    />
   {/snippet}
 </SettingsRow>
 ```
 
 `src/views/settings/GitHubSection.svelte`:
+
 ```svelte
 <script lang="ts">
   import SettingsRow from './SettingsRow.svelte'
@@ -4023,38 +4973,79 @@ describe('SettingsView', () => {
     error = null
     verifyResult = null
     patSelected = false
-    try { await github.setSource(source); await refresh() } catch (e) { error = message(e) }
+    try {
+      await github.setSource(source)
+      await refresh()
+    } catch (e) {
+      error = message(e)
+    }
   }
   async function saveToken() {
     error = null
-    try { await github.savePat(pat); pat = ''; await refresh() } catch (e) { error = message(e) }
+    try {
+      await github.savePat(pat)
+      pat = ''
+      await refresh()
+    } catch (e) {
+      error = message(e)
+    }
   }
   async function verify() {
     error = null
-    try { verifyResult = `Authenticated as ${(await github.verify()).login}` } catch (e) { error = message(e) }
+    try {
+      verifyResult = `Authenticated as ${(await github.verify()).login}`
+    } catch (e) {
+      error = message(e)
+    }
   }
   async function remove() {
     error = null
     verifyResult = null
-    try { await github.clearPat(); await refresh() } catch (e) { error = message(e) }
+    try {
+      await github.clearPat()
+      await refresh()
+    } catch (e) {
+      error = message(e)
+    }
   }
 </script>
 
 <SettingsRow label="Token source" description="Exactly one source is active — no fallback chain.">
   {#snippet trailing()}
-    <label><input type="radio" checked={status?.source === 'none' && !patSelected} onchange={() => selectSource('none')} /> None</label>
-    <label><input type="radio" checked={status?.source === 'gh-cli'} onchange={() => selectSource('gh-cli')} /> gh CLI</label>
+    <label
+      ><input
+        type="radio"
+        checked={status?.source === 'none' && !patSelected}
+        onchange={() => selectSource('none')}
+      /> None</label
+    >
+    <label
+      ><input
+        type="radio"
+        checked={status?.source === 'gh-cli'}
+        onchange={() => selectSource('gh-cli')}
+      /> gh CLI</label
+    >
     <label aria-label="Personal access token">
-      <input type="radio" checked={status?.source === 'pat' || patSelected} onchange={() => (patSelected = true)} /> Personal access token
+      <input
+        type="radio"
+        checked={status?.source === 'pat' || patSelected}
+        onchange={() => (patSelected = true)}
+      /> Personal access token
     </label>
   {/snippet}
 </SettingsRow>
 
 {#if patSelected || status?.source === 'pat'}
-  <SettingsRow label="Personal access token" description="Stored encrypted in the OS keychain. Never written to config or logs.">
+  <SettingsRow
+    label="Personal access token"
+    description="Stored encrypted in the OS keychain. Never written to config or logs."
+  >
     {#snippet trailing()}
       <input class="pat" type="password" placeholder="ghp_… or github_pat_…" bind:value={pat} />
-      <button class="action" onclick={saveToken} disabled={pat.trim().length === 0}>Save token</button>
+      <button class="action" onclick={saveToken} disabled={pat.trim().length === 0}
+        >Save token</button
+      >
     {/snippet}
   </SettingsRow>
 {/if}
@@ -4078,22 +5069,50 @@ describe('SettingsView', () => {
 
 <style>
   .pat {
-    width: 260px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--panel-edge);
-    background: var(--code-bg); color: var(--text); font-family: var(--mono); font-size: 12.5px;
+    width: 260px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--panel-edge);
+    background: var(--code-bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12.5px;
   }
   .action {
-    padding: 5px 12px; border-radius: 8px; border: 1px solid var(--panel-edge);
-    background: var(--hover-soft); color: var(--text); cursor: pointer; font-size: 12.5px;
+    padding: 5px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--panel-edge);
+    background: var(--hover-soft);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 12.5px;
   }
-  .action:hover { background: var(--hover); }
-  .action:disabled { opacity: 0.5; cursor: default; }
-  label { display: flex; align-items: center; gap: 5px; color: var(--text); font-family: var(--sans, inherit); font-size: 13px; }
-  .ok { color: var(--accent2); }
-  .err { color: var(--accent); }
+  .action:hover {
+    background: var(--hover);
+  }
+  .action:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text);
+    font-family: var(--sans, inherit);
+    font-size: 13px;
+  }
+  .ok {
+    color: var(--accent2);
+  }
+  .err {
+    color: var(--accent);
+  }
 </style>
 ```
 
 `src/views/settings/AboutSection.svelte`:
+
 ```svelte
 <script lang="ts">
   import SettingsRow from './SettingsRow.svelte'
@@ -4109,6 +5128,7 @@ describe('SettingsView', () => {
 ```
 
 `src/views/settings/SettingsSidebar.svelte`:
+
 ```svelte
 <script lang="ts">
   import Icon from '../../icons/Icon.svelte'
@@ -4117,7 +5137,7 @@ describe('SettingsView', () => {
     sections,
     active,
     onSelect,
-    onBack
+    onBack,
   }: {
     sections: ReadonlyArray<{ key: SettingsSection; label: string }>
     active: SettingsSection
@@ -4129,32 +5149,68 @@ describe('SettingsView', () => {
 <div class="settings-side">
   <button class="back" onclick={onBack}><Icon name="back" /> Back</button>
   {#each sections as section (section.key)}
-    <button class="section" class:active={section.key === active} onclick={() => onSelect(section.key)}>
+    <button
+      class="section"
+      class:active={section.key === active}
+      onclick={() => onSelect(section.key)}
+    >
       {section.label}
     </button>
   {/each}
 </div>
 
 <style>
-  .settings-side { display: flex; flex-direction: column; gap: 2px; width: 180px; flex-shrink: 0; }
+  .settings-side {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 180px;
+    flex-shrink: 0;
+  }
   .back {
-    display: flex; align-items: center; gap: 7px; padding: 8px 10px; margin-bottom: 10px;
-    border-radius: 8px; background: none; border: none; color: var(--muted); cursor: pointer; text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 8px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    text-align: left;
   }
-  .back:hover { background: var(--hover); color: var(--text); }
+  .back:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
   .section {
-    padding: 8px 10px; border-radius: 8px; background: none; border: none; text-align: left;
-    color: var(--nav); font-weight: 500; cursor: pointer;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: none;
+    border: none;
+    text-align: left;
+    color: var(--nav);
+    font-weight: 500;
+    cursor: pointer;
   }
-  .section:hover { background: var(--hover-soft); color: var(--text); }
+  .section:hover {
+    background: var(--hover-soft);
+    color: var(--text);
+  }
   .section.active {
-    background: linear-gradient(to right, rgba(214, 64, 159, 0.16) 0%, rgba(139, 92, 246, 0.1) 100%);
+    background: linear-gradient(
+      to right,
+      rgba(214, 64, 159, 0.16) 0%,
+      rgba(139, 92, 246, 0.1) 100%
+    );
     color: var(--text-strong);
   }
 </style>
 ```
 
 `src/views/settings/SettingsView.svelte`:
+
 ```svelte
 <script lang="ts">
   import SettingsSidebar from './SettingsSidebar.svelte'
@@ -4170,17 +5226,16 @@ describe('SettingsView', () => {
     services,
     shell,
     workspace,
-    version
-  }: { services: AppServices; shell: ShellState; workspace: WorkspaceState; version: string } = $props()
+    version,
+  }: { services: AppServices; shell: ShellState; workspace: WorkspaceState; version: string } =
+    $props()
 
-  const sections = $derived(
-    ([
-      { key: 'general', label: 'General' },
-      { key: 'appearance', label: 'Appearance' },
-      ...(services.capabilities.github ? [{ key: 'github', label: 'GitHub' }] : []),
-      { key: 'about', label: 'About' }
-    ] as ReadonlyArray<{ key: SettingsSection; label: string }>)
-  )
+  const sections = $derived([
+    { key: 'general', label: 'General' },
+    { key: 'appearance', label: 'Appearance' },
+    ...(services.capabilities.github ? [{ key: 'github', label: 'GitHub' }] : []),
+    { key: 'about', label: 'About' },
+  ] as ReadonlyArray<{ key: SettingsSection; label: string }>)
   const active = $derived(shell.route.kind === 'settings' ? shell.route.section : 'general')
 </script>
 
@@ -4200,20 +5255,29 @@ describe('SettingsView', () => {
 </div>
 
 <style>
-  .settings { display: flex; gap: 22px; }
-  .settings-body { flex: 1; min-width: 0; }
+  .settings {
+    display: flex;
+    gap: 22px;
+  }
+  .settings-body {
+    flex: 1;
+    min-width: 0;
+  }
 </style>
 ```
 
 In `MorphirApp.svelte`, replace the Task 8 stub:
+
 ```svelte
 {#if shell.isSettings}
   <SettingsView {services} {shell} {workspace} {version} />
 {:else if activeNav === 'overview'}
 ```
+
 and add `import SettingsView from '../views/settings/SettingsView.svelte'`.
 
 Add to `src/index.ts`:
+
 ```ts
 export { default as SettingsView } from './views/settings/SettingsView.svelte'
 ```
@@ -4231,15 +5295,18 @@ git add -A && git commit -m "feat(ui): settings surface with scheme picker, gene
 ### Task 15: morphir-desktop — electron-builder packaging
 
 **Files:**
+
 - Create: `apps/morphir-desktop/electron-builder.yml`, `apps/morphir-desktop/build/.gitkeep`
 - Modify: `apps/morphir-desktop/package.json` (add `package` script), `apps/morphir-desktop/moon.yml` (package task)
 
 **Interfaces:**
+
 - Produces: `moon run morphir-desktop:package` → unsigned installers/archives under `apps/morphir-desktop/release/`.
 
 - [ ] **Step 1: Port electron-builder.yml (from morphir-scala, files list adapted to electron-vite output)**
 
 `apps/morphir-desktop/electron-builder.yml`:
+
 ```yaml
 appId: org.finos.morphir.desktop
 productName: Morphir Desktop
@@ -4270,11 +5337,13 @@ linux:
 ```
 
 Add to `apps/morphir-desktop/package.json` scripts:
+
 ```json
 "package": "electron-vite build && electron-builder --publish=never"
 ```
 
 Add to `apps/morphir-desktop/moon.yml`:
+
 ```yaml
 tasks:
   package:
@@ -4288,6 +5357,7 @@ tasks:
 cd apps/morphir-desktop && bun run build && bunx electron-builder --linux tar.gz --publish=never
 ls release/
 ```
+
 Expected: `morphir-desktop-0.1.0-linux-x64.tar.gz` (per artifactName) in `release/`.
 
 - [ ] **Step 3: Commit**
@@ -4301,14 +5371,17 @@ git add -A && git commit -m "feat(desktop): electron-builder packaging for mac, 
 ### Task 16: CI workflow
 
 **Files:**
+
 - Create: `.github/workflows/ci.yml`
 
 **Interfaces:**
+
 - Consumes: the moon task contract (Task 1), desktop smoke (Task 10), package script (Task 15).
 
 - [ ] **Step 1: Write the workflow**
 
 `.github/workflows/ci.yml`:
+
 ```yaml
 name: CI
 
@@ -4370,6 +5443,7 @@ jobs:
 ```bash
 mise exec -- moon run :lint :typecheck :test :build
 ```
+
 Expected: all green (this is exactly what the `check` job runs).
 
 - [ ] **Step 3: Commit**
@@ -4392,6 +5466,7 @@ mise exec -- bun install --frozen-lockfile
 mise exec -- moon run :lint :typecheck :test :build
 cd apps/morphir-desktop && MORPHIR_HOME=$(mktemp -d) bun run smoke && cd ../..
 ```
+
 Expected: every task green; smoke prints `SMOKE OK`. Walk the spec's Success criteria list (§Success criteria) and confirm each has a passing test or a demonstrated behavior; record any gap instead of hand-waving it.
 
 - [ ] **Step 2: Review history for authorship compliance**
@@ -4399,6 +5474,7 @@ Expected: every task green; smoke prints `SMOKE OK`. Walk the spec's Success cri
 ```bash
 git log --format='%an %ae%n%b' | grep -iE 'claude|anthropic|co-authored' || echo CLEAN
 ```
+
 Expected: `CLEAN`. If anything matches, STOP and rewrite history before pushing (EasyCLA).
 
 - [ ] **Step 3: Push and open the PR**
@@ -4430,6 +5506,7 @@ Bootstraps morphir-ui as the single home for Morphir UI development:
 BODY
 )"
 ```
+
 (NO AI attribution in the PR body — Global Constraints.)
 
 - [ ] **Step 4: Report** — PR URL, CI status, and any degrees of freedom exercised (version pairs adjusted, schema fixes) back to the user.

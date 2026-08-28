@@ -18,14 +18,14 @@ This cycle delivers the repository scaffold and morphir-scala shell parity, afte
 
 ## Decisions
 
-| Decision | Choice |
-| --- | --- |
-| First cycle scope | Scaffold + morphir-scala shell parity |
-| Backend story | Self-contained UI (no CLI dependency); UI↔CLI hosting protocol designed in a later cycle |
-| Token capture | PAT paste + `gh` CLI source; OS-keychain-backed storage |
-| Config location | `$MORPHIR_HOME/ui/` (defaults to `~/.morphir/ui/`), aligned with the Morphir CLI home convention |
-| Explorer data | Opens and decodes real `morphir-ir.json` files |
-| Delivery | Feature branch + PR to finos/morphir-ui (EasyCLA-compliant, human sole author) |
+| Decision                 | Choice                                                                                                                      |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| First cycle scope        | Scaffold + morphir-scala shell parity                                                                                       |
+| Backend story            | Self-contained UI (no CLI dependency); UI↔CLI hosting protocol designed in a later cycle                                    |
+| Token capture            | PAT paste + `gh` CLI source; OS-keychain-backed storage                                                                     |
+| Config location          | `$MORPHIR_HOME/ui/` (defaults to `~/.morphir/ui/`), aligned with the Morphir CLI home convention                            |
+| Explorer data            | Opens and decodes real `morphir-ir.json` files                                                                              |
+| Delivery                 | Feature branch + PR to finos/morphir-ui (EasyCLA-compliant, human sole author)                                              |
 | morphir-scala retirement | After parity ships, morphir-scala removes its Electron UI modules only; the repo continues as a library/capability provider |
 
 ## Tech stack
@@ -58,7 +58,7 @@ morphir-ui/
 
 Internal package names are `@morphir/ui`, `@morphir/ir`, `@morphir/desktop`, `@morphir/web`. Publishing (registry, scope) is deferred.
 
-**Architecture: fat shared app, thin platform hosts.** `@morphir/ui` contains the entire Svelte application — shell chrome, routes, views, theme and design tokens, state — plus Effect service *interfaces*. The apps are thin hosts that supply Effect `Layer` implementations of those interfaces. Uniform look and feel is structural, not aspirational: there is exactly one shell.
+**Architecture: fat shared app, thin platform hosts.** `@morphir/ui` contains the entire Svelte application — shell chrome, routes, views, theme and design tokens, state — plus Effect service _interfaces_. The apps are thin hosts that supply Effect `Layer` implementations of those interfaces. Uniform look and feel is structural, not aspirational: there is exactly one shell.
 
 **Extension principle (architectural invariant):** any service interface may later be re-backed by a WASM or JS binding — e.g. morphir-scala's markdown→HTML (ScalaJS/WASM) or future morphir-rust WASM bindings — as just another Effect Layer. The UI never knows what language implements a service. Nothing WASM-related is built this cycle; the boundary is the design.
 
@@ -80,13 +80,13 @@ UI state lives in Svelte runes. A `shell-state` module owns region sizes/visibil
 
 Service interfaces (Effect) live in `@morphir/ui`; each app provides Layers:
 
-| Service | Desktop Layer | Web Layer |
-| --- | --- | --- |
-| `ConfigService` | TOML at `$MORPHIR_HOME/ui/config.toml` via IPC | localStorage |
-| `WorkspaceService` | native folder/file dialog, real filesystem, real recents | file picker / drag-drop of `morphir-ir.json` |
-| `IrService` | shared isomorphic impl from `@morphir/ir` | same |
-| `SecretService` | Electron `safeStorage` (OS-keychain-backed); encrypted blob in Electron `userData` (machine-local — keychain-encrypted blobs must not relocate with `MORPHIR_HOME`) | absent |
-| `GitHubTokenService` | `paste` (PAT) and `ghCli` (`gh auth token`) sources | absent |
+| Service              | Desktop Layer                                                                                                                                                       | Web Layer                                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `ConfigService`      | TOML at `$MORPHIR_HOME/ui/config.toml` via IPC                                                                                                                      | localStorage                                 |
+| `WorkspaceService`   | native folder/file dialog, real filesystem, real recents                                                                                                            | file picker / drag-drop of `morphir-ir.json` |
+| `IrService`          | shared isomorphic impl from `@morphir/ir`                                                                                                                           | same                                         |
+| `SecretService`      | Electron `safeStorage` (OS-keychain-backed); encrypted blob in Electron `userData` (machine-local — keychain-encrypted blobs must not relocate with `MORPHIR_HOME`) | absent                                       |
+| `GitHubTokenService` | `paste` (PAT) and `ghCli` (`gh auth token`) sources                                                                                                                 | absent                                       |
 
 Capabilities absent on a platform hide their UI via capability checks on the provided Layers — no platform `if`s scattered through views.
 

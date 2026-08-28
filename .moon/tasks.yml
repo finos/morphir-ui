@@ -1,0 +1,10 @@
+$schema: 'https://moonrepo.dev/schemas/tasks.json'
+tasks:
+  lint:
+    command: 'bun run lint'
+  typecheck:
+    command: 'bun run typecheck'
+  test:
+    command: 'bun run test'
+  build:
+    command: 'bun run build'
