@@ -2,33 +2,49 @@
   import XRayNode from './XRayNode.svelte'
   let { node, label = '' }: { node: unknown; label?: string } = $props()
 
-  const isAstNode = (v: unknown): v is Record<string, unknown> & { kind: string } =>
-    typeof v === 'object' && v !== null && 'kind' in v
+  const scalar = (v: unknown) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
+
+  // Plain records cover both AST nodes (tagged with `kind`) and the untagged pair-wrappers
+  // the decoder produces for pattern-match cases, record/update-record fields, let-recursion
+  // definitions, and the nested ValueDef under let-definition.definition. Both need to be
+  // browsable — only the summary rendering (whether a `kind` badge is shown) differs.
+  const isRecord = (v: unknown): v is Record<string, unknown> =>
+    typeof v === 'object' && v !== null && !Array.isArray(v)
+
+  const isAstNode = (v: unknown): v is Record<string, unknown> & { kind: string } => isRecord(v) && 'kind' in v
+
+  // Name is string[]; Path is Name[] (i.e. string[][]). Both should keep rendering inline
+  // rather than exploding into a disclosure tree of single-string leaves.
+  const isPrimitiveArray = (v: unknown): boolean =>
+    Array.isArray(v) && v.every((el) => scalar(el) || isPrimitiveArray(el))
 
   const children = $derived.by(() => {
-    if (!isAstNode(node)) return []
+    if (!isRecord(node)) return []
     const out: { label: string; value: unknown }[] = []
     for (const [key, value] of Object.entries(node)) {
       if (key === 'kind' || key === 'attr' || key === 'raw' || key === 'tag') continue
-      if (Array.isArray(value)) value.forEach((v, i) => out.push({ label: `${key}[${i}]`, value: v }))
-      else if (isAstNode(value)) out.push({ label: key, value })
-      else out.push({ label: key, value })
+      if (Array.isArray(value) && !isPrimitiveArray(value)) {
+        value.forEach((v, i) => out.push({ label: `${key}[${i}]`, value: v }))
+      } else {
+        out.push({ label: key, value })
+      }
     }
     return out
   })
-  const scalar = (v: unknown) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
 </script>
 
-{#if isAstNode(node)}
+{#if isRecord(node)}
   <details open class="xray-node">
     <summary>
       {#if label}<span class="label">{label}:</span>{/if}
-      <span class="kind" class:unknown={node.kind === 'unknown'}>{node.kind}</span>
-      {#if node.kind === 'unknown'}<span class="tag">{String(node['tag'])}</span><span class="raw-marker">raw unavailable in xray</span>{/if}
+      {#if isAstNode(node)}
+        <span class="kind" class:unknown={node.kind === 'unknown'}>{node.kind}</span>
+        {#if node.kind === 'unknown'}<span class="tag">{String(node['tag'])}</span><span class="raw-marker">raw unavailable in xray</span>{/if}
+      {/if}
     </summary>
     <div class="children">
       {#each children as child (child.label)}
-        {#if scalar(child.value) || Array.isArray(child.value)}
+        {#if scalar(child.value) || isPrimitiveArray(child.value)}
           <div class="scalar"><span class="label">{child.label}:</span> <span class="value">{JSON.stringify(child.value)}</span></div>
         {:else}
           <XRayNode node={child.value} label={child.label} />

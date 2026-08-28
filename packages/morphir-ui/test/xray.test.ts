@@ -46,4 +46,34 @@ describe('XRayView', () => {
     render(XRayView, { props: { def: null } })
     expect(screen.getByText(/could not be decoded/i)).toBeTruthy()
   })
+
+  // Regression for the pair-wrapper blind spot: pattern-match cases (`{pattern, body}`) have
+  // no `kind` of their own, so before the fix they fell through to a single-line
+  // JSON.stringify blob instead of being browsable. Each case's pattern/body should now show
+  // up as its own disclosure node, with the leaf kinds visible in the rendered text.
+  test('a pattern-match case renders its pattern and body as browsable nodes, not a JSON blob', async () => {
+    const { container } = render(XRayView, { props: { def: await defByName('maybeCase') } })
+    expect(screen.getByText('pattern-match')).toBeTruthy()
+    expect(screen.getAllByText('constructor-pattern').length).toBeGreaterThan(0)
+    // Just x -> x
+    expect(screen.getAllByText('variable').length).toBeGreaterThan(0)
+    // Nothing -> 0
+    expect(screen.getAllByText('literal').length).toBeGreaterThan(0)
+    expect(container.textContent).not.toMatch(/\{"kind":/)
+  })
+
+  test('value-record fields render as browsable name/value nodes, not a JSON blob', async () => {
+    const { container } = render(XRayView, { props: { def: await defByName('personRecord') } })
+    expect(screen.getByText('value-record')).toBeTruthy()
+    expect(screen.getAllByText('literal').length).toBeGreaterThan(0)
+    expect(screen.getByText('string')).toBeTruthy()
+    expect(screen.getByText('whole-number')).toBeTruthy()
+    expect(container.textContent).not.toMatch(/\{"kind":/)
+  })
+
+  test("letBound's nested let-definition ValueDef is browsable, not a JSON blob", async () => {
+    const { container } = render(XRayView, { props: { def: await defByName('letBound') } })
+    expect(screen.getAllByText('let-definition').length).toBeGreaterThan(0)
+    expect(container.textContent).not.toMatch(/\{"kind":/)
+  })
 })
