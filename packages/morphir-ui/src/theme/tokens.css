@@ -1,0 +1,37 @@
+/* Design tokens — values ported verbatim from morphir-scala Tokens.scala. */
+:root {
+  color-scheme: dark;
+
+  --bg: light-dark(#f6f4fa, #0f0d14);
+  --surface: light-dark(#ffffff, #16131d);
+  --panel: light-dark(#ffffff, #1a1622);
+  --panel-edge: light-dark(#e4dff0, #2a2438);
+  --rail: light-dark(#f0edf7, #121017);
+  --edge: light-dark(#e0daee, #241f30);
+  --row-edge: light-dark(#ebe6f4, #221d2e);
+  --head-edge: light-dark(#e4dff0, #1d1828);
+  --hover: light-dark(#eae5f5, #1f1a29);
+  --hover-soft: light-dark(#f0ecf8, #1a1622);
+  --code-bg: light-dark(#f4f1fa, #131019);
+  --text: light-dark(#1c1726, #e8e4f1);
+  --text-strong: light-dark(#0f0d14, #ffffff);
+  --muted: light-dark(#6c6484, #8d849e);
+  --muted2: light-dark(#847c9c, #6f6785);
+  --nav: light-dark(#4a4360, #a89fbe);
+  --dot: light-dark(#c9c1de, #3d3550);
+  --accent: light-dark(#c02e8c, #d6409f);
+  --accent2: light-dark(#7c4ddb, #8b5cf6);
+  --accent-text: light-dark(#9c2f77, #f2b7dd);
+
+  --knob: #ffffff;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --sans: -apple-system, 'Segoe UI', system-ui, sans-serif;
+
+  /* Tokens.slideMs / Tokens.trafficLightInset */
+  --slide-ms: 320ms;
+  --traffic-light-inset: 78px;
+}
+
+.theme-dark { color-scheme: dark; }
+.theme-light { color-scheme: light; }
+.theme-system { color-scheme: light dark; }

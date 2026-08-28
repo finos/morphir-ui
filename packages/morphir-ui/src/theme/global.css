@@ -1,0 +1,19 @@
+/* Motion kill-switch: must beat every scoped transition, hence global + !important. */
+.no-motion *,
+.no-motion *::before,
+.no-motion *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* Cursor stability while a pointer drag outruns the 5px resize strip. */
+body.resizing-col,
+body.resizing-col * {
+  cursor: col-resize;
+  user-select: none;
+}
+body.resizing-row,
+body.resizing-row * {
+  cursor: row-resize;
+  user-select: none;
+}

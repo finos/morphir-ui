@@ -1,0 +1,27 @@
+{
+  "name": "@morphir/web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint src test",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "build": "vite build",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "@morphir/ir": "workspace:*",
+    "@morphir/ui": "workspace:*",
+    "effect": "^3.22.1",
+    "svelte": "^5.56.10"
+  },
+  "devDependencies": {
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11",
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "svelte-check": "^4.7.6",
+    "typescript": "^5.9.0",
+    "happy-dom": "^20.11.12"
+  }
+}

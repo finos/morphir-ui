@@ -1,0 +1,4 @@
+[tools]
+bun = "1.4.0"
+node = "24"
+"aqua:moonrepo/moon" = "2.5.3"

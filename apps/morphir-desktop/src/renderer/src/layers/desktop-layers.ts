@@ -1,0 +1,75 @@
+import { Effect, Layer, Option } from 'effect'
+import {
+  AppInfoService,
+  ConfigService,
+  GitHubError,
+  GitHubService,
+  WorkspaceError,
+  WorkspaceService,
+  defaultUiConfig,
+  type CoreServices,
+  type GitHubStatus,
+  type UiConfig,
+  type WorkspaceRef,
+} from '@morphir/ui'
+import type { RpcClient } from './rpc-client.ts'
+
+export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
+  Layer.mergeAll(
+    Layer.succeed(AppInfoService, {
+      version: rpc.effect<{ version: string }>('morphir/shell/appVersion').pipe(
+        Effect.map((r) => r.version),
+        Effect.orDie,
+      ),
+    }),
+    Layer.succeed(ConfigService, {
+      load: rpc
+        .effect<UiConfig>('morphir/config/load')
+        .pipe(Effect.orElseSucceed(() => defaultUiConfig)),
+      save: (config: UiConfig) =>
+        rpc.effect('morphir/config/save', { config }).pipe(Effect.asVoid, Effect.orDie),
+    }),
+    Layer.succeed(WorkspaceService, {
+      pickAndRead: rpc.effect<{ path: string } | null>('morphir/workspace/pick').pipe(
+        Effect.mapError((e) => new WorkspaceError({ message: e.message })),
+        Effect.flatMap((picked) =>
+          picked === null
+            ? Effect.succeed(Option.none())
+            : rpc.effect<{ content: string }>('morphir/workspace/read', { path: picked.path }).pipe(
+                Effect.mapError((e) => new WorkspaceError({ message: e.message })),
+                Effect.map((r) => Option.some({ ref: { path: picked.path }, content: r.content })),
+              ),
+        ),
+      ),
+      read: Option.some((ref: WorkspaceRef) =>
+        rpc.effect<{ content: string }>('morphir/workspace/read', { path: ref.path }).pipe(
+          Effect.mapError((e) => new WorkspaceError({ message: e.message })),
+          Effect.map((r) => r.content),
+        ),
+      ),
+    }),
+  )
+
+export const desktopGitHub = (rpc: RpcClient): Layer.Layer<GitHubService> =>
+  Layer.succeed(GitHubService, {
+    status: rpc
+      .effect<GitHubStatus>('morphir/github/status')
+      .pipe(Effect.mapError((e) => new GitHubError({ message: e.message }))),
+    setSource: (source) =>
+      rpc.effect('morphir/github/setSource', { source }).pipe(
+        Effect.asVoid,
+        Effect.mapError((e) => new GitHubError({ message: e.message })),
+      ),
+    savePat: (raw) =>
+      rpc.effect('morphir/github/setToken', { token: raw }).pipe(
+        Effect.asVoid,
+        Effect.mapError((e) => new GitHubError({ message: e.message })),
+      ),
+    clearPat: rpc.effect('morphir/github/clearToken').pipe(
+      Effect.asVoid,
+      Effect.mapError((e) => new GitHubError({ message: e.message })),
+    ),
+    verify: rpc
+      .effect<{ login: string }>('morphir/github/verify')
+      .pipe(Effect.mapError((e) => new GitHubError({ message: e.message }))),
+  })

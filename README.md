@@ -4,7 +4,58 @@
 
 Morphir UI is the FINOS repository for user-interface work in the [Morphir](https://github.com/finos/morphir) project. Morphir captures business logic as data so it can be shared, stored, translated, and visualized across technologies.
 
-This repository does not yet contain an implementation. Use [GitHub issues](https://github.com/finos/morphir-ui/issues) to discuss the scope and proposed work before submitting code.
+This repository is the single home for Morphir UI development: **morphir-desktop** (an Electron app) and **morphir-web** (a browser app), sharing one Svelte 5 + Effect application so the two experiences never diverge.
+
+## Layout
+
+```
+apps/
+├── morphir-desktop/   # Electron main + preload, electron-vite, electron-builder
+└── morphir-web/       # Vite static host
+packages/
+├── morphir-ui/        # the shared Svelte app: shell, views, theme, state, service interfaces
+└── morphir-ir/        # IR model + Effect Schema decoding of morphir-ir.json (no UI deps)
+```
+
+## Getting started
+
+Prerequisites: [mise](https://mise.jdx.dev/) for tool acquisition (bun, node, moon).
+
+```sh
+mise install
+bun install
+moon run :lint :typecheck :test :build
+```
+
+Run the web app in development:
+
+```sh
+cd apps/morphir-web
+bun run dev
+```
+
+Run the desktop app in development:
+
+```sh
+cd apps/morphir-desktop
+bun run dev
+```
+
+Run the headless desktop smoke check:
+
+```sh
+cd apps/morphir-desktop
+bun run smoke
+```
+
+Build installers:
+
+```sh
+cd apps/morphir-desktop
+bun run package
+```
+
+For design history and the current cycle's scope, see [docs/specs/](docs/specs/) and [docs/plans/](docs/plans/).
 
 ## Project resources
 
