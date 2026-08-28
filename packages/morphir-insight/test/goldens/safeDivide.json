@@ -1,0 +1,28 @@
+{
+  "kind": "v-fraction",
+  "numerator": {
+    "kind": "v-variable",
+    "name": "n"
+  },
+  "denominator": {
+    "kind": "v-arith-chain",
+    "op": "+",
+    "items": [
+      {
+        "node": {
+          "kind": "v-variable",
+          "name": "d"
+        },
+        "grouped": false
+      },
+      {
+        "node": {
+          "kind": "v-literal",
+          "text": "1",
+          "literalKind": "float"
+        },
+        "grouped": false
+      }
+    ]
+  }
+}

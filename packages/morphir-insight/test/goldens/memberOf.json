@@ -1,0 +1,19 @@
+{
+  "kind": "v-member-of",
+  "item": {
+    "kind": "v-variable",
+    "name": "c"
+  },
+  "options": [
+    {
+      "kind": "v-constructor",
+      "name": "Red",
+      "args": []
+    },
+    {
+      "kind": "v-constructor",
+      "name": "Blue",
+      "args": []
+    }
+  ]
+}

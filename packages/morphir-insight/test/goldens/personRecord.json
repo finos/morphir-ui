@@ -1,0 +1,21 @@
+{
+  "kind": "v-record",
+  "fields": [
+    {
+      "name": "age",
+      "value": {
+        "kind": "v-literal",
+        "text": "36",
+        "literalKind": "whole-number"
+      }
+    },
+    {
+      "name": "name",
+      "value": {
+        "kind": "v-literal",
+        "text": "\"Ada\"",
+        "literalKind": "string"
+      }
+    }
+  ]
+}

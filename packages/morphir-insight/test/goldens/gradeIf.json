@@ -1,0 +1,76 @@
+{
+  "kind": "v-if-tree",
+  "branches": [
+    {
+      "condition": {
+        "kind": "v-binary-op",
+        "symbol": ">=",
+        "left": {
+          "kind": "v-variable",
+          "name": "score"
+        },
+        "right": {
+          "kind": "v-literal",
+          "text": "90",
+          "literalKind": "whole-number"
+        }
+      },
+      "thenLabel": "Yes",
+      "elseLabel": "No",
+      "result": {
+        "kind": "v-literal",
+        "text": "\"A\"",
+        "literalKind": "string"
+      }
+    },
+    {
+      "condition": {
+        "kind": "v-binary-op",
+        "symbol": ">=",
+        "left": {
+          "kind": "v-variable",
+          "name": "score"
+        },
+        "right": {
+          "kind": "v-literal",
+          "text": "80",
+          "literalKind": "whole-number"
+        }
+      },
+      "thenLabel": "Yes",
+      "elseLabel": "No",
+      "result": {
+        "kind": "v-literal",
+        "text": "\"B\"",
+        "literalKind": "string"
+      }
+    },
+    {
+      "condition": {
+        "kind": "v-binary-op",
+        "symbol": ">=",
+        "left": {
+          "kind": "v-variable",
+          "name": "score"
+        },
+        "right": {
+          "kind": "v-literal",
+          "text": "70",
+          "literalKind": "whole-number"
+        }
+      },
+      "thenLabel": "Yes",
+      "elseLabel": "No",
+      "result": {
+        "kind": "v-literal",
+        "text": "\"C\"",
+        "literalKind": "string"
+      }
+    }
+  ],
+  "fallback": {
+    "kind": "v-literal",
+    "text": "\"F\"",
+    "literalKind": "string"
+  }
+}

@@ -16,6 +16,7 @@
     "build": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
+    "@morphir/insight": "workspace:*",
     "@morphir/ir": "workspace:*",
     "effect": "^3.22.1"
   },

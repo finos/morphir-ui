@@ -1,0 +1,21 @@
+{
+  "kind": "v-arith-chain",
+  "op": "+",
+  "items": [
+    {
+      "node": {
+        "kind": "v-variable",
+        "name": "x"
+      },
+      "grouped": false
+    },
+    {
+      "node": {
+        "kind": "v-literal",
+        "text": "1",
+        "literalKind": "whole-number"
+      },
+      "grouped": false
+    }
+  ]
+}

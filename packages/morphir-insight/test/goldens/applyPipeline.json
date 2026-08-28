@@ -1,0 +1,57 @@
+{
+  "kind": "v-pipeline",
+  "input": {
+    "kind": "v-variable",
+    "name": "xs"
+  },
+  "stages": [
+    {
+      "label": "filter",
+      "arg": {
+        "kind": "v-lambda",
+        "pattern": "x",
+        "body": {
+          "kind": "v-binary-op",
+          "symbol": ">",
+          "left": {
+            "kind": "v-variable",
+            "name": "x"
+          },
+          "right": {
+            "kind": "v-literal",
+            "text": "0",
+            "literalKind": "whole-number"
+          }
+        }
+      }
+    },
+    {
+      "label": "map",
+      "arg": {
+        "kind": "v-lambda",
+        "pattern": "x",
+        "body": {
+          "kind": "v-arith-chain",
+          "op": "+",
+          "items": [
+            {
+              "node": {
+                "kind": "v-variable",
+                "name": "x"
+              },
+              "grouped": false
+            },
+            {
+              "node": {
+                "kind": "v-literal",
+                "text": "1",
+                "literalKind": "whole-number"
+              },
+              "grouped": false
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

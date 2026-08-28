@@ -1,0 +1,77 @@
+{
+  "kind": "v-if-tree",
+  "branches": [
+    {
+      "condition": {
+        "kind": "v-binary-op",
+        "symbol": "<=",
+        "left": {
+          "kind": "v-variable",
+          "name": "n"
+        },
+        "right": {
+          "kind": "v-literal",
+          "text": "0",
+          "literalKind": "whole-number"
+        }
+      },
+      "thenLabel": "Yes",
+      "elseLabel": "No",
+      "result": {
+        "kind": "v-literal",
+        "text": "0",
+        "literalKind": "whole-number"
+      }
+    }
+  ],
+  "fallback": {
+    "kind": "v-reference",
+    "fqn": {
+      "pkg": [
+        [
+          "morphir"
+        ],
+        [
+          "ui"
+        ],
+        [
+          "fixtures"
+        ]
+      ],
+      "module": [
+        [
+          "insight"
+        ]
+      ],
+      "local": [
+        "self",
+        "recursive"
+      ]
+    },
+    "display": "selfRecursive",
+    "expandable": true,
+    "args": [
+      {
+        "kind": "v-arith-chain",
+        "op": "-",
+        "items": [
+          {
+            "node": {
+              "kind": "v-variable",
+              "name": "n"
+            },
+            "grouped": false
+          },
+          {
+            "node": {
+              "kind": "v-literal",
+              "text": "1",
+              "literalKind": "whole-number"
+            },
+            "grouped": false
+          }
+        ]
+      }
+    ]
+  }
+}

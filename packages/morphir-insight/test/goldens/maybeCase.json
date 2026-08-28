@@ -1,0 +1,22 @@
+{
+  "kind": "v-if-tree",
+  "branches": [
+    {
+      "condition": {
+        "kind": "v-variable",
+        "name": "m"
+      },
+      "thenLabel": "set",
+      "elseLabel": "not set",
+      "result": {
+        "kind": "v-variable",
+        "name": "x"
+      }
+    }
+  ],
+  "fallback": {
+    "kind": "v-literal",
+    "text": "0",
+    "literalKind": "whole-number"
+  }
+}

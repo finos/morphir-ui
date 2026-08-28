@@ -1,0 +1,54 @@
+{
+  "kind": "v-decision-table",
+  "columns": [
+    {
+      "kind": "v-variable",
+      "name": "color"
+    }
+  ],
+  "rows": [
+    {
+      "cells": [
+        {
+          "kind": "cell-pattern",
+          "text": "Red"
+        }
+      ],
+      "result": {
+        "kind": "v-if-tree",
+        "branches": [
+          {
+            "condition": {
+              "kind": "v-variable",
+              "name": "m"
+            },
+            "thenLabel": "set",
+            "elseLabel": "not set",
+            "result": {
+              "kind": "v-literal",
+              "text": "\"red-some\"",
+              "literalKind": "string"
+            }
+          }
+        ],
+        "fallback": {
+          "kind": "v-literal",
+          "text": "\"red-none\"",
+          "literalKind": "string"
+        }
+      }
+    },
+    {
+      "cells": [
+        {
+          "kind": "cell-wildcard"
+        }
+      ],
+      "result": {
+        "kind": "v-literal",
+        "text": "\"not-red\"",
+        "literalKind": "string"
+      }
+    }
+  ]
+}

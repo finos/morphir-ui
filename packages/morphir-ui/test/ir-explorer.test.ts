@@ -56,4 +56,17 @@ describe('IrExplorerView', () => {
     expect(screen.queryByText('WindDirection')).toBeNull()
     expect(screen.getByText('listExample')).toBeTruthy()
   })
+
+  test('clicking a definition opens the detail surface, defaulting to the Insight tab', async () => {
+    render(IrExplorerView, { props: { workspace: await openWorkspace() } })
+    await userEvent.click(screen.getByText('listExample'))
+    expect(screen.getByText('Insight')).toBeTruthy()
+    expect(screen.getByText('XRay')).toBeTruthy()
+    // The XRay tab's raw-AST view isn't the default any more (see DefinitionDetail.svelte) —
+    // switch to it explicitly before asserting on its node-kind labels.
+    await userEvent.click(screen.getByText('XRay'))
+    expect(screen.getAllByText('value-list').length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByText('Back'))
+    expect(screen.getByPlaceholderText('Filter definitions')).toBeTruthy()
+  })
 })
