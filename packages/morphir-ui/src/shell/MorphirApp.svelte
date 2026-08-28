@@ -52,6 +52,8 @@
     saveTimer = setTimeout(() => {
       void services.loadConfig().then((cfg) => services.saveConfig(withSnapshot(cfg, snap)))
     }, 200)
+    // pending save is cancelled on unmount — acceptable: layout deltas <200ms before teardown are droppable
+    return () => clearTimeout(saveTimer)
   })
 
   onMount(() => {
