@@ -139,7 +139,9 @@ Everything else stays: `connector/github` (headless token plumbing), `langkit-ma
 
 ## Later cycles (out of scope, recorded for continuity)
 
+**Standing technology decision — code display and editing:** when migrated experiences need syntax highlighting or code editing, use **CodeMirror 6** for editable surfaces (TOML config editing, expression/argument editors, playgrounds; Lezer grammars for Morphir-specific syntax) and **Shiki** for read-only rendering (IR JSON, source snippets, docs — pure-JS regex engine, not the WASM Oniguruma engine, so the strict CSP holds; themed via our CSS tokens). Monaco is explicitly rejected: it was a Dioxus-era workaround in morphir-live and does not fit the bundle, CSP, or Svelte integration story. Both arrive as leaf components (`CodeBlock`, `CodeEditor`) — no architectural preparation is required this cycle.
+
 1. **morphir-elm visualization migration** — insight view, decision tables, value editor, XRay, dependency graph, as views in the shared shell.
-2. **Morphir Live experiences** — workspace/project/model management and TOML settings editing from finos/morphir.
+2. **Morphir Live experiences** — workspace/project/model management and TOML settings editing from finos/morphir (settings editor via CodeMirror 6, per the standing decision above).
 3. **CLI hosting integration** — the UI↔CLI protocol once the Morphir CLI extension/hosting story lands; the self-contained Layers become one implementation among several.
 4. **Capability bindings** — WASM/ScalaJS-backed Layers (markdown rendering, IR operations) from morphir-scala / morphir-rust.
