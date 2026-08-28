@@ -1,10 +1,15 @@
 import { describe, expect, test } from 'vitest'
+import { Effect, Layer, Option } from 'effect'
 import {
+  AppInfoService,
+  ConfigService,
+  WorkspaceService,
   decodeUiConfig,
   defaultUiConfig,
   makeAppServices,
   withSnapshot,
   configToSnapshot,
+  type UiConfig,
 } from '../src/index.ts'
 import { makeFakeCore, makeFakeGitHub } from './support/fake-services.ts'
 
@@ -56,6 +61,35 @@ describe('makeAppServices', () => {
     expect(picked!.content).toBe('{"formatVersion":3}')
     expect(services.capabilities.reopenWorkspaces).toBe(true)
     expect(await services.readWorkspace!(picked!.ref)).toBe('{"formatVersion":3}')
+  })
+  test('updateConfig serializes concurrent read-modify-write calls', async () => {
+    // A ConfigService whose load/save each take a beat, so two concurrent updateConfig calls
+    // would interleave (and drop one mutation) if the facade did not serialize them.
+    const store: { config: UiConfig } = { config: defaultUiConfig }
+    const core = Layer.mergeAll(
+      Layer.succeed(ConfigService, {
+        load: Effect.sleep('5 millis').pipe(Effect.andThen(() => Effect.sync(() => store.config))),
+        save: (c) =>
+          Effect.sleep('5 millis').pipe(
+            Effect.andThen(() => Effect.sync(() => void (store.config = c))),
+          ),
+      }),
+      Layer.succeed(WorkspaceService, {
+        pickAndRead: Effect.succeed(Option.none()),
+        read: Option.none(),
+      }),
+      Layer.succeed(AppInfoService, { version: Effect.succeed('0.0.0-test') }),
+    )
+    const services = await makeAppServices({ core })
+    await Promise.all([
+      services.updateConfig((cfg) => ({ ...cfg, github: { source: 'gh-cli' } })),
+      services.updateConfig((cfg) => ({
+        ...cfg,
+        workspace: { ...cfg.workspace, reopenOnLaunch: false },
+      })),
+    ])
+    expect(store.config.github.source).toBe('gh-cli')
+    expect(store.config.workspace.reopenOnLaunch).toBe(false)
   })
   test('github facade appears when the layer is provided', async () => {
     const { core } = makeFakeCore()

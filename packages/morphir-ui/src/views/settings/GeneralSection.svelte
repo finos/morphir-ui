@@ -17,8 +17,10 @@
   async function setReopen(value: boolean) {
     touched = true
     reopenOnLaunch = value
-    const cfg = await services.loadConfig()
-    await services.saveConfig({ ...cfg, workspace: { ...cfg.workspace, reopenOnLaunch: value } })
+    await services.updateConfig((cfg) => ({
+      ...cfg,
+      workspace: { ...cfg.workspace, reopenOnLaunch: value },
+    }))
   }
 </script>
 

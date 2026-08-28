@@ -63,6 +63,13 @@ export interface AppServices {
   version(): Promise<string>
   loadConfig(): Promise<UiConfig>
   saveConfig(config: UiConfig): Promise<void>
+  /**
+   * Serializes a load -> mutate -> save cycle relative to other `updateConfig` calls, so
+   * concurrent callers cannot interleave and clobber each other's writes. Prefer this over a
+   * manual loadConfig/saveConfig pair whenever the write is a partial update rather than a
+   * full-object replace.
+   */
+  updateConfig(mutate: (config: UiConfig) => UiConfig): Promise<void>
   pickWorkspace(): Promise<PickedWorkspace | null>
   readonly readWorkspace: ((ref: WorkspaceRef) => Promise<string>) | null
   readonly github: {
@@ -82,11 +89,25 @@ const buildFacade = async (
   const workspace = await runtime.runPromise(WorkspaceService)
   const appInfo = await runtime.runPromise(AppInfoService)
   const read = Option.getOrNull(workspace.read)
+  // Serializes updateConfig's load -> mutate -> save cycles: each call is chained onto the
+  // tail of the queue (whether the prior one succeeded or failed), so concurrent callers never
+  // interleave their read-modify-write.
+  let queue: Promise<unknown> = Promise.resolve()
+  const chain = <T>(op: () => Promise<T>): Promise<T> => {
+    const result = queue.then(op, op)
+    queue = result.catch(() => undefined)
+    return result
+  }
   return {
     capabilities: { github: github !== null, reopenWorkspaces: read !== null },
     version: () => runtime.runPromise(appInfo.version),
     loadConfig: () => runtime.runPromise(config.load),
     saveConfig: (c) => runtime.runPromise(config.save(c)),
+    updateConfig: (mutate) =>
+      chain(async () => {
+        const current = await runtime.runPromise(config.load)
+        await runtime.runPromise(config.save(mutate(current)))
+      }),
     pickWorkspace: () => runtime.runPromise(workspace.pickAndRead).then(Option.getOrNull),
     readWorkspace: read ? (ref) => runtime.runPromise(read(ref)) : null,
     github: github

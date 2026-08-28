@@ -51,7 +51,7 @@
     const snap = shell.snapshot()
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
-      void services.loadConfig().then((cfg) => services.saveConfig(withSnapshot(cfg, snap)))
+      void services.updateConfig((cfg) => withSnapshot(cfg, snap))
     }, 200)
     // pending save is cancelled on unmount — acceptable: layout deltas <200ms before teardown are droppable
     return () => clearTimeout(saveTimer)

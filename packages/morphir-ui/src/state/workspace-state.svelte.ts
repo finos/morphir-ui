@@ -50,11 +50,10 @@ export class WorkspaceState {
       this.current = { ref, ir: toWorkspaceIr(exit.value) }
       this.error = null
       this.recents = [ref.path, ...this.recents.filter((p) => p !== ref.path)].slice(0, MAX_RECENTS)
-      const cfg = await this.#services.loadConfig()
-      await this.#services.saveConfig({
+      await this.#services.updateConfig((cfg) => ({
         ...cfg,
         workspace: { ...cfg.workspace, recent: this.recents, active: ref.path },
-      })
+      }))
     } else {
       this.current = null
       const failure = Cause.failureOption(exit.cause)
