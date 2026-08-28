@@ -14,6 +14,7 @@ export interface RawDefEntry {
   readonly name: Name
   readonly access: Access
   readonly doc: string | null
+  readonly rawDefinition: unknown
 }
 export interface RawModule {
   readonly path: Path
@@ -43,7 +44,11 @@ function readDefEntry(entry: unknown, section: string): RawDefEntry {
     documented && typeof documented === 'object' && typeof documented['doc'] === 'string'
       ? documented['doc']
       : null
-  return { name: entry[0], access: ac['access'], doc }
+  const rawDefinition =
+    documented && typeof documented === 'object' && 'value' in documented
+      ? (documented as { value: unknown }).value
+      : undefined
+  return { name: entry[0], access: ac['access'], doc, rawDefinition }
 }
 
 function readModule(entry: unknown): RawModule {
