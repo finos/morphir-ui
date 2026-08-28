@@ -22,6 +22,11 @@ jobs:
       - run: moon run :lint :typecheck :test :build
       - name: Install xvfb
         run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Allow unprivileged user namespaces (Electron sandbox)
+        # Ubuntu 24.04 runners restrict unprivileged userns via AppArmor, which
+        # forces Electron onto the SUID chrome-sandbox (not setuid under bun's
+        # store) and crashes on launch. Re-enabling userns keeps sandboxing on.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Desktop smoke
         working-directory: apps/morphir-desktop
         env:
