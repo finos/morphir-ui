@@ -24,7 +24,8 @@ Source material referenced from sibling checkouts:
 - **Package names:** `@morphir/ui`, `@morphir/ir`, `@morphir/desktop`, `@morphir/web`. Private (no publishing this cycle).
 - **Versions (exact unless stated):** typescript `7.0.2` (root), typescript `^5.9.0` (svelte packages, local devDep so svelte-check resolves it), svelte `^5.56.10`, effect `^3.22.1`, electron `^44.0.0`, electron-builder `^26.15.3`, electron-vite `^5.0.0`, vite `^8.2.2` (web) / the version electron-vite 5 requires (desktop), `@sveltejs/vite-plugin-svelte` `^7.3.0`, vitest `^4.1.11`, svelte-check `^4.7.6`, happy-dom `^20.11.12`, `@testing-library/svelte` `^5.4.2`, smol-toml `^1.8.0`, eslint `^10.9.1`, eslint-plugin-svelte `^3.23.0`, typescript-eslint `^8.68.0`, prettier `^3.9.6`, prettier-plugin-svelte `^4.1.1`, `@moonrepo/cli 2.5.3`, bun `1.4.0`, node `24`. **Degree of freedom:** if a peer-dependency range rejects a pairing (e.g. vite-plugin-svelte vs the vite that electron-vite wants), choose the newest satisfying pair and record it in the commit message; do not downgrade Svelte, Effect, Electron, or TypeScript majors.
 - **Typecheck split:** pure-TS packages run `tsc --noEmit` on TS 7; Svelte packages run `svelte-check` (which needs its local TS 5). Both run in CI.
-- **Design fidelity:** token values, CSS, redaction rules, IPC posture, and copy strings in this plan were extracted verbatim from morphir-scala — port them exactly; do not "improve" values (e.g. the `restore` icon is 15×15 while the others are 16×16 — keep it).
+- **Design fidelity:** token values, CSS values, redaction rules, IPC posture, and copy strings in this plan were extracted verbatim from morphir-scala — port the VALUES exactly; do not "improve" them (e.g. the `restore` icon is 15×15 while the others are 16×16 — keep it). The *organization* of styles is deliberately NOT a port — see the next bullet.
+- **Styling rules (Svelte-idiomatic):** NO inline `style` attributes anywhere. Dynamic geometry passes CSS custom properties via Svelte `style:` directives (values only — never rules). All rules live in component `<style>` blocks; global CSS is limited to tokens, base resets, the `.no-motion` kill switch, and `body.resizing-*` cursor rules. Tokens are hand-written CSS using `color-scheme` + `light-dark()` — one definition per token, no generated stylesheets. Styles co-locate with the component that owns the markup.
 - **IR support:** `formatVersion: 3` only. v1/v2/missing produce the exact friendly errors specified in Task 2.
 - **Secrets:** raw tokens never touch config files, logs, or the DOM after capture; only `safeStorage`-encrypted blobs on disk; renderer never holds the raw token after save.
 
@@ -49,8 +50,8 @@ morphir-ui/
 │   └── morphir-ui/                   # THE shared app (vitest)
 │       ├── package.json  moon.yml  tsconfig.json  vite.config.ts
 │       ├── src/index.ts
-│       ├── src/theme/tokens.ts  src/theme/theme.css
-│       ├── src/icons/icons.ts  src/icons/Icon.svelte
+│       ├── src/theme/index.css  tokens.css  base.css  global.css
+│       ├── src/icons/Icon.svelte
 │       ├── src/state/shell-state.svelte.ts  src/state/workspace-state.svelte.ts
 │       ├── src/services/token.ts  src/services/config.ts  src/services/services.ts
 │       ├── src/shell/AppShell.svelte  Titlebar.svelte  Sidebar.svelte
@@ -679,19 +680,19 @@ git add -A && git commit -m "feat(ir): explorer model with morphir name formatti
 
 ---
 
-### Task 4: @morphir/ui — package scaffold, design tokens, generated theme.css
+### Task 4: @morphir/ui — package scaffold and theme stylesheets
 
 **Files:**
 - Create: `packages/morphir-ui/package.json`, `moon.yml`, `tsconfig.json`, `vite.config.ts`
-- Create: `packages/morphir-ui/src/theme/tokens.ts`, `src/theme/generate.ts`, `src/theme/theme.css` (generated), `src/index.ts`, `scripts/gen-theme.ts`
+- Create: `packages/morphir-ui/src/theme/tokens.css`, `src/theme/base.css`, `src/theme/global.css`, `src/theme/index.css`, `src/index.ts`
 - Test: `packages/morphir-ui/test/theme.test.ts`
 
 **Interfaces:**
 - Produces:
-  - `darkTokens` / `lightTokens`: `ReadonlyArray<readonly [string, string]>` (ordered pairs, verbatim below)
-  - `MONO_FONT`, `SANS_FONT`, `TRAFFIC_LIGHT_INSET = 78`, `SLIDE_MS = 320`
-  - `renderThemeCss(): string`; `@morphir/ui/theme.css` export consumed by both apps
-  - Task contract: `bun run gen:theme` regenerates `theme.css`; the test fails on drift.
+  - `@morphir/ui/theme.css` export (→ `src/theme/index.css`) consumed once by each app's entry.
+  - The CSS custom-property contract every component builds on: the 20 palette tokens (`--bg --surface --panel --panel-edge --rail --edge --row-edge --head-edge --hover --hover-soft --code-bg --text --text-strong --muted --muted2 --nav --dot --accent --accent2 --accent-text`), plus `--knob`, `--mono`, `--sans`, `--slide-ms: 320ms`, `--traffic-light-inset: 78px`.
+  - Scheme classes `theme-dark` / `theme-light` / `theme-system` — they only flip `color-scheme`; every token is a single `light-dark(light, dark)` definition (values verbatim from scala; the generator approach is deliberately NOT ported).
+  - No theme constants are exported from TypeScript — components consume tokens via `var(--…)` in scoped styles only.
 
 - [ ] **Step 1: Package scaffold**
 
@@ -704,7 +705,7 @@ git add -A && git commit -m "feat(ir): explorer model with morphir name formatti
   "svelte": "./src/index.ts",
   "exports": {
     ".": { "svelte": "./src/index.ts", "default": "./src/index.ts" },
-    "./theme.css": "./src/theme/theme.css",
+    "./theme.css": "./src/theme/index.css",
     "./token": "./src/services/token.ts",
     "./config": "./src/services/config.ts"
   },
@@ -712,8 +713,7 @@ git add -A && git commit -m "feat(ir): explorer model with morphir name formatti
     "lint": "eslint src test",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
-    "build": "svelte-check --tsconfig ./tsconfig.json",
-    "gen:theme": "bun scripts/gen-theme.ts"
+    "build": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
     "@morphir/ir": "workspace:*",
@@ -746,7 +746,7 @@ language: 'typescript'
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "types": ["svelte", "vite/client"], "noEmit": true },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "test/**/*.ts", "scripts/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "test/**/*.ts"]
 }
 ```
 
@@ -764,49 +764,80 @@ export default defineConfig({
 
 - [ ] **Step 2: Write the failing test**
 
-`packages/morphir-ui/test/theme.test.ts`:
+`packages/morphir-ui/test/theme.test.ts` (the token pairs live in the TEST as the fidelity oracle — the shipped artifact is plain CSS):
 ```ts
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
-import { darkTokens, lightTokens, renderThemeCss, SLIDE_MS, TRAFFIC_LIGHT_INSET } from '../src/index.ts'
 
-const themeCss = readFileSync(new URL('../src/theme/theme.css', import.meta.url), 'utf8')
+const css = (name: string) => readFileSync(new URL(`../src/theme/${name}`, import.meta.url), 'utf8')
+const tokens = css('tokens.css')
 
-describe('theme', () => {
-  test('theme.css is exactly the generator output (no drift)', () => {
-    expect(themeCss).toBe(renderThemeCss())
-  })
+/** Verbatim palette pairs from morphir-scala Tokens.scala: [name, light, dark]. */
+const PALETTE: ReadonlyArray<readonly [string, string, string]> = [
+  ['bg', '#f6f4fa', '#0f0d14'],
+  ['surface', '#ffffff', '#16131d'],
+  ['panel', '#ffffff', '#1a1622'],
+  ['panel-edge', '#e4dff0', '#2a2438'],
+  ['rail', '#f0edf7', '#121017'],
+  ['edge', '#e0daee', '#241f30'],
+  ['row-edge', '#ebe6f4', '#221d2e'],
+  ['head-edge', '#e4dff0', '#1d1828'],
+  ['hover', '#eae5f5', '#1f1a29'],
+  ['hover-soft', '#f0ecf8', '#1a1622'],
+  ['code-bg', '#f4f1fa', '#131019'],
+  ['text', '#1c1726', '#e8e4f1'],
+  ['text-strong', '#0f0d14', '#ffffff'],
+  ['muted', '#6c6484', '#8d849e'],
+  ['muted2', '#847c9c', '#6f6785'],
+  ['nav', '#4a4360', '#a89fbe'],
+  ['dot', '#c9c1de', '#3d3550'],
+  ['accent', '#c02e8c', '#d6409f'],
+  ['accent2', '#7c4ddb', '#8b5cf6'],
+  ['accent-text', '#9c2f77', '#f2b7dd']
+]
 
-  test('every dark token is emitted at :root and .theme-dark', () => {
-    for (const [name, value] of darkTokens) {
-      expect(themeCss).toContain(`--${name}: ${value};`)
+describe('theme stylesheets', () => {
+  test('every palette token is defined exactly once as light-dark(light, dark)', () => {
+    for (const [name, light, dark] of PALETTE) {
+      const definitions = tokens.match(new RegExp(`--${name}:`, 'g')) ?? []
+      expect(definitions, `--${name} defined once`).toHaveLength(1)
+      expect(tokens).toContain(`--${name}: light-dark(${light}, ${dark});`)
     }
-    expect(themeCss).toContain(':root {')
-    expect(themeCss).toContain('.theme-dark {')
   })
 
-  test('every light token is emitted for .theme-light and .theme-system', () => {
-    for (const [name, value] of lightTokens) {
-      expect(themeCss).toContain(`--${name}: ${value};`)
-    }
-    expect(themeCss).toContain('.theme-light {')
-    expect(themeCss).toContain('@media (prefers-color-scheme: dark)')
+  test('scheme classes only flip color-scheme', () => {
+    expect(tokens).toContain('.theme-dark { color-scheme: dark; }')
+    expect(tokens).toContain('.theme-light { color-scheme: light; }')
+    expect(tokens).toContain('.theme-system { color-scheme: light dark; }')
+    expect(tokens).toMatch(/:root\s*\{\s*color-scheme:\s*dark/)
   })
 
-  test('palettes cover the same token names', () => {
-    expect(darkTokens.map(([n]) => n)).toEqual(lightTokens.map(([n]) => n))
+  test('non-color constants match morphir-scala', () => {
+    expect(tokens).toContain('--knob: #ffffff;')
+    expect(tokens).toContain("--mono: ui-monospace, 'SF Mono', Menlo, monospace;")
+    expect(tokens).toContain('--slide-ms: 320ms;')
+    expect(tokens).toContain('--traffic-light-inset: 78px;')
   })
 
-  test('quarantine rules survive generation', () => {
-    expect(themeCss).toContain('-webkit-app-region: drag')
-    expect(themeCss).toContain('.no-motion *')
-    expect(themeCss).toContain('background-clip: text')
-    expect(themeCss).toContain('box-shadow: inset 2px 0 0 var(--accent)')
+  test('global css holds only true globals', () => {
+    const global = css('global.css')
+    expect(global).toContain('.no-motion *')
+    expect(global).toContain('body.resizing-col')
+    expect(global).toContain('body.resizing-row')
+    expect(global).not.toContain('app-region')
+    expect(global).not.toContain('.titlebar')
   })
 
-  test('constants match morphir-scala', () => {
-    expect(TRAFFIC_LIGHT_INSET).toBe(78)
-    expect(SLIDE_MS).toBe(320)
+  test('base css carries the reset and body typography', () => {
+    const base = css('base.css')
+    expect(base).toContain('box-sizing: border-box')
+    expect(base).toContain('font-family: var(--sans)')
+    expect(base).toContain('::selection')
+  })
+
+  test('index.css aggregates the three sheets', () => {
+    const index = css('index.css')
+    for (const name of ['tokens.css', 'base.css', 'global.css']) expect(index).toContain(name)
   })
 })
 ```
@@ -816,147 +847,96 @@ describe('theme', () => {
 ```bash
 cd packages/morphir-ui && bun install && bun run test
 ```
-Expected: FAIL — module `../src/index.ts` missing.
+Expected: FAIL — the `src/theme/*.css` files do not exist yet.
 
-- [ ] **Step 4: Implement tokens (VERBATIM from morphir-scala `Tokens.scala`)**
+- [ ] **Step 4: Write the stylesheets (token VALUES verbatim from morphir-scala `Tokens.scala`)**
 
-`src/theme/tokens.ts`:
-```ts
-export const MONO_FONT = 'ui-monospace, "SF Mono", Menlo, monospace'
-export const SANS_FONT = '-apple-system, "Segoe UI", system-ui, sans-serif'
+`src/theme/tokens.css` — each token defined ONCE; `light-dark(light, dark)`; scheme classes only flip `color-scheme` (default is dark, matching `ShellDefaults.colorScheme`):
+```css
+/* Design tokens — values ported verbatim from morphir-scala Tokens.scala. */
+:root {
+  color-scheme: dark;
 
-/** Clearance for the macOS traffic lights (px). */
-export const TRAFFIC_LIGHT_INSET = 78
+  --bg: light-dark(#f6f4fa, #0f0d14);
+  --surface: light-dark(#ffffff, #16131d);
+  --panel: light-dark(#ffffff, #1a1622);
+  --panel-edge: light-dark(#e4dff0, #2a2438);
+  --rail: light-dark(#f0edf7, #121017);
+  --edge: light-dark(#e0daee, #241f30);
+  --row-edge: light-dark(#ebe6f4, #221d2e);
+  --head-edge: light-dark(#e4dff0, #1d1828);
+  --hover: light-dark(#eae5f5, #1f1a29);
+  --hover-soft: light-dark(#f0ecf8, #1a1622);
+  --code-bg: light-dark(#f4f1fa, #131019);
+  --text: light-dark(#1c1726, #e8e4f1);
+  --text-strong: light-dark(#0f0d14, #ffffff);
+  --muted: light-dark(#6c6484, #8d849e);
+  --muted2: light-dark(#847c9c, #6f6785);
+  --nav: light-dark(#4a4360, #a89fbe);
+  --dot: light-dark(#c9c1de, #3d3550);
+  --accent: light-dark(#c02e8c, #d6409f);
+  --accent2: light-dark(#7c4ddb, #8b5cf6);
+  --accent-text: light-dark(#9c2f77, #f2b7dd);
 
-/** How long a shell region takes to slide in or out (ms). */
-export const SLIDE_MS = 320
+  --knob: #ffffff;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --sans: -apple-system, 'Segoe UI', system-ui, sans-serif;
 
-type TokenPairs = ReadonlyArray<readonly [string, string]>
+  /* Tokens.slideMs / Tokens.trafficLightInset */
+  --slide-ms: 320ms;
+  --traffic-light-inset: 78px;
+}
 
-export const darkTokens: TokenPairs = [
-  ['bg', '#0f0d14'],
-  ['surface', '#16131d'],
-  ['panel', '#1a1622'],
-  ['panel-edge', '#2a2438'],
-  ['rail', '#121017'],
-  ['edge', '#241f30'],
-  ['row-edge', '#221d2e'],
-  ['head-edge', '#1d1828'],
-  ['hover', '#1f1a29'],
-  ['hover-soft', '#1a1622'],
-  ['code-bg', '#131019'],
-  ['text', '#e8e4f1'],
-  ['text-strong', '#ffffff'],
-  ['muted', '#8d849e'],
-  ['muted2', '#6f6785'],
-  ['nav', '#a89fbe'],
-  ['dot', '#3d3550'],
-  ['accent', '#d6409f'],
-  ['accent2', '#8b5cf6'],
-  ['accent-text', '#f2b7dd'],
-  ['knob', '#ffffff'],
-  ['mono', MONO_FONT]
-]
-
-export const lightTokens: TokenPairs = [
-  ['bg', '#f6f4fa'],
-  ['surface', '#ffffff'],
-  ['panel', '#ffffff'],
-  ['panel-edge', '#e4dff0'],
-  ['rail', '#f0edf7'],
-  ['edge', '#e0daee'],
-  ['row-edge', '#ebe6f4'],
-  ['head-edge', '#e4dff0'],
-  ['hover', '#eae5f5'],
-  ['hover-soft', '#f0ecf8'],
-  ['code-bg', '#f4f1fa'],
-  ['text', '#1c1726'],
-  ['text-strong', '#0f0d14'],
-  ['muted', '#6c6484'],
-  ['muted2', '#847c9c'],
-  ['nav', '#4a4360'],
-  ['dot', '#c9c1de'],
-  ['accent', '#c02e8c'],
-  ['accent2', '#7c4ddb'],
-  ['accent-text', '#9c2f77'],
-  ['knob', '#ffffff'],
-  ['mono', MONO_FONT]
-]
+.theme-dark { color-scheme: dark; }
+.theme-light { color-scheme: light; }
+.theme-system { color-scheme: light dark; }
 ```
 
-`src/theme/generate.ts` (base + quarantine CSS verbatim from `Base.scala` / `Theme.scala`; scheme emission mirrors `Tokens.sheet`: dark at `:root`, dark on `.theme-dark`, light on `.theme-light`, light as `.theme-system` base with a dark media override):
-```ts
-import { darkTokens, lightTokens, SANS_FONT } from './tokens.ts'
-
-const block = (selector: string, pairs: typeof darkTokens, indent = '') =>
-  `${indent}${selector} {\n${pairs.map(([n, v]) => `${indent}  --${n}: ${v};`).join('\n')}\n${indent}}`
-
-const BASE_CSS = `/* Global resets (ported from morphir-scala theme/Base.scala). */
+`src/theme/base.css` (reset + body typography, ported from `theme/Base.scala`):
+```css
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
 body {
   -webkit-font-smoothing: antialiased;
-  background: var(--bg); color: var(--text);
-  font-size: 14px; line-height: 1.55;
-  font-family: ${SANS_FONT};
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+  font-family: var(--sans);
 }
 ::selection { background: rgba(214, 64, 159, 0.35); }
 ::-webkit-scrollbar { width: 10px; }
-::-webkit-scrollbar-thumb { background: #2a2438; border-radius: 5px; }`
-
-const QUARANTINE_CSS = `/* Quarantine CSS (ported from morphir-scala Theme.scala). */
-.titlebar { -webkit-app-region: drag; }
-.icon-btn, .nav-item, .chip { -webkit-app-region: no-drag; }
-.content {
-  flex: 1; overflow: auto; padding: 22px;
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px;
-  align-content: start;
-}
-.content.content-settings { grid-template-columns: minmax(0, 1fr); gap: 0; }
-.no-motion *, .no-motion *::before, .no-motion *::after {
-  transition: none !important; animation: none !important;
-}
-.resize-vertical { cursor: col-resize; }
-.resize-horizontal { cursor: row-resize; }
-body.resizing-col, body.resizing-col * { cursor: col-resize; user-select: none; }
-body.resizing-row, body.resizing-row * { cursor: row-resize; user-select: none; }
-.nav-item.active { box-shadow: inset 2px 0 0 var(--accent); }
-.brand-mark {
-  background: linear-gradient(120deg, var(--accent), var(--accent2));
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}`
-
-export const renderThemeCss = (): string =>
-  [
-    '/* GENERATED by `bun run gen:theme` — edit tokens.ts / generate.ts, not this file. */',
-    block(':root', darkTokens),
-    block('.theme-dark', darkTokens),
-    block('.theme-light', lightTokens),
-    block('.theme-system', lightTokens),
-    `@media (prefers-color-scheme: dark) {\n${block('.theme-system', darkTokens, '  ')}\n}`,
-    BASE_CSS,
-    QUARANTINE_CSS,
-    ''
-  ].join('\n\n')
+::-webkit-scrollbar-thumb { background: var(--panel-edge); border-radius: 5px; }
 ```
 
-`scripts/gen-theme.ts`:
-```ts
-import { renderThemeCss } from '../src/theme/generate.ts'
-await Bun.write(new URL('../src/theme/theme.css', import.meta.url), renderThemeCss())
-console.log('theme.css regenerated')
+`src/theme/global.css` — ONLY rules that genuinely need global reach; everything else lives in component `<style>` blocks:
+```css
+/* Motion kill-switch: must beat every scoped transition, hence global + !important. */
+.no-motion *,
+.no-motion *::before,
+.no-motion *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* Cursor stability while a pointer drag outruns the 5px resize strip. */
+body.resizing-col, body.resizing-col * { cursor: col-resize; user-select: none; }
+body.resizing-row, body.resizing-row * { cursor: row-resize; user-select: none; }
+```
+
+`src/theme/index.css`:
+```css
+@import './tokens.css';
+@import './base.css';
+@import './global.css';
 ```
 
 `src/index.ts` (grows in later tasks):
 ```ts
-export * from './theme/tokens.ts'
-export { renderThemeCss } from './theme/generate.ts'
+// Public API of @morphir/ui — exports accumulate as modules land.
+export {}
 ```
 
-Generate the file:
-```bash
-bun run gen:theme
-```
 
 - [ ] **Step 5: Run tests, verify pass**
 
@@ -968,7 +948,7 @@ Expected: PASS. (First `svelte-check` run validates the TS-5-local resolution �
 - [ ] **Step 6: Commit**
 
 ```bash
-git add -A && git commit -m "feat(ui): port morphir-scala design tokens and generated theme stylesheet"
+git add -A && git commit -m "feat(ui): port morphir-scala design tokens as light-dark theme stylesheets"
 ```
 
 ---
@@ -980,7 +960,6 @@ git add -A && git commit -m "feat(ui): port morphir-scala design tokens and gene
 - Test: `packages/morphir-ui/test/shell-state.test.ts`
 
 **Interfaces:**
-- Consumes: `SLIDE_MS` (Task 4).
 - Produces:
   - `type ColorScheme = 'system' | 'light' | 'dark'`; `SCHEME_CLASSES: Record<ColorScheme, string>` → `theme-system|theme-light|theme-dark`; `SCHEME_LABELS` → `System|Light|Dark`
   - `type SettingsSection = 'general' | 'appearance' | 'github' | 'about'`
@@ -1212,57 +1191,64 @@ git add -A && git commit -m "feat(ui): shell state with panel bounds, routing, s
 ### Task 6: @morphir/ui — shell chrome components
 
 **Files:**
-- Create: `packages/morphir-ui/src/icons/icons.ts`, `src/icons/Icon.svelte`, `src/shell/Titlebar.svelte`, `src/shell/Sidebar.svelte`, `src/shell/RegionPanel.svelte`, `src/shell/ResizeHandle.svelte`, `src/shell/AppShell.svelte`; extend `src/index.ts`
+- Create: `packages/morphir-ui/src/icons/Icon.svelte`, `src/shell/Titlebar.svelte`, `src/shell/Sidebar.svelte`, `src/shell/RegionPanel.svelte`, `src/shell/ResizeHandle.svelte`, `src/shell/AppShell.svelte`; extend `src/index.ts`
 - Test: `packages/morphir-ui/test/app-shell.test.ts`
 
 **Interfaces:**
-- Consumes: `ShellState`, `SLIDE_MS`, `TRAFFIC_LIGHT_INSET`.
+- Consumes: `ShellState` (Task 5); the CSS custom properties `--slide-ms` and `--traffic-light-inset` from `tokens.css` (Task 4).
 - Produces:
   - `interface NavItem { id: string; label: string }`
-  - `icons: Record<'sidebar'|'panelRight'|'panelBottom'|'gear'|'back'|'restore', string>` (raw SVG strings)
-  - `Icon.svelte` props: `{ name: keyof typeof icons }`
+  - `Icon.svelte` — literal `<svg>` markup per icon (no `{@html}`); module-script export `type IconName = 'sidebar' | 'panelRight' | 'panelBottom' | 'gear' | 'back' | 'restore'`; props `{ name: IconName }`
+  - Styling contract: NO inline `style` attributes; `RegionPanel` passes only the CSS custom property `--region-extent` via a `style:` directive, and every rule lives in scoped `<style>` blocks (drag regions, gradients and grids included — they are owned by their components, not by global CSS)
   - `AppShell.svelte` props: `{ shell: ShellState; badge: string; version: string; crumbTitle: string; navItems: NavItem[]; activeNav: string; onNavSelect: (id: string) => void; onOpenSettings: () => void; center?: Snippet; inspector?: Snippet; log?: Snippet }`
   - Element ids preserved from scala: `titlebar`, `sidebar-toggle`, `bottom-toggle`, `right-toggle`, `app-version`, `restore-defaults`, `settings-button`
 
-- [ ] **Step 1: Write icons (VERBATIM geometry from `Icons.scala`)**
+- [ ] **Step 1: Write the icon component (VERBATIM geometry from `Icons.scala`)**
 
-`src/icons/icons.ts`:
-```ts
-const rect = '<rect fill="none" stroke="currentColor" stroke-width="1.6" x="3" y="3" width="18" height="18" rx="3"/>'
-const line = (x1: number, y1: number, x2: number, y2: number) =>
-  `<line stroke="currentColor" stroke-width="1.6" stroke-linecap="round" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`
-const svg = (size: number, body: string) =>
-  `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">${body}</svg>`
-
-export const icons = {
-  sidebar: svg(16, rect + line(9.5, 3, 9.5, 21) + line(5.5, 8, 7, 8) + line(5.5, 12, 7, 12)),
-  panelRight: svg(16, rect + line(14.5, 3, 14.5, 21)),
-  panelBottom: svg(16, rect + line(3, 14.5, 21, 14.5)),
-  gear: svg(
-    16,
-    '<path fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round" d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle fill="none" stroke="currentColor" stroke-width="2.0" cx="12" cy="12" r="3"/>'
-  ),
-  back: svg(
-    16,
-    line(19, 12, 5, 12) +
-      '<path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M12 19l-7-7 7-7"/>'
-  ),
-  // NOTE: restore renders at 15×15 in morphir-scala — keep it.
-  restore: `<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M3 3v5h5"/></svg>`
-} as const
-
-export type IconName = keyof typeof icons
-```
-
-`src/icons/Icon.svelte`:
+`src/icons/Icon.svelte` — literal `<svg>` markup (no `{@html}`, no string building); the name union is exported from the module script:
 ```svelte
+<script lang="ts" module>
+  export type IconName = 'sidebar' | 'panelRight' | 'panelBottom' | 'gear' | 'back' | 'restore'
+</script>
+
 <script lang="ts">
-  import { icons, type IconName } from './icons.ts'
   let { name }: { name: IconName } = $props()
 </script>
 
-<!-- eslint-disable-next-line svelte/no-at-html-tags -- static, package-internal SVG strings -->
-{@html icons[name]}
+{#if name === 'sidebar'}
+  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+    <rect fill="none" stroke="currentColor" stroke-width="1.6" x="3" y="3" width="18" height="18" rx="3" />
+    <line stroke="currentColor" stroke-width="1.6" stroke-linecap="round" x1="9.5" y1="3" x2="9.5" y2="21" />
+    <line stroke="currentColor" stroke-width="1.6" stroke-linecap="round" x1="5.5" y1="8" x2="7" y2="8" />
+    <line stroke="currentColor" stroke-width="1.6" stroke-linecap="round" x1="5.5" y1="12" x2="7" y2="12" />
+  </svg>
+{:else if name === 'panelRight'}
+  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+    <rect fill="none" stroke="currentColor" stroke-width="1.6" x="3" y="3" width="18" height="18" rx="3" />
+    <line stroke="currentColor" stroke-width="1.6" stroke-linecap="round" x1="14.5" y1="3" x2="14.5" y2="21" />
+  </svg>
+{:else if name === 'panelBottom'}
+  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+    <rect fill="none" stroke="currentColor" stroke-width="1.6" x="3" y="3" width="18" height="18" rx="3" />
+    <line stroke="currentColor" stroke-width="1.6" stroke-linecap="round" x1="3" y1="14.5" x2="21" y2="14.5" />
+  </svg>
+{:else if name === 'gear'}
+  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+    <path fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round" d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+    <circle fill="none" stroke="currentColor" stroke-width="2.0" cx="12" cy="12" r="3" />
+  </svg>
+{:else if name === 'back'}
+  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+    <line stroke="currentColor" stroke-width="1.6" stroke-linecap="round" x1="19" y1="12" x2="5" y2="12" />
+    <path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M12 19l-7-7 7-7" />
+  </svg>
+{:else}
+  <!-- restore renders at 15×15 in morphir-scala — keep it. -->
+  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+    <path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+    <path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M3 3v5h5" />
+  </svg>
+{/if}
 ```
 
 - [ ] **Step 2: Write the failing component tests**
@@ -1327,7 +1313,8 @@ describe('AppShell chrome', () => {
     await userEvent.click(document.getElementById('sidebar-toggle')!)
     expect(shell.leftVisible).toBe(false)
     const left = container.querySelector('[data-region="left"]') as HTMLElement
-    expect(left.style.width).toBe('0px')
+    expect(left.getAttribute('style')).not.toMatch(/width\s*:/) // no inline rules — custom property only
+    expect(left.style.getPropertyValue('--region-extent')).toBe('0px')
   })
 
   test('settings route swaps panel toggles for Restore defaults and Settings crumb', async () => {
@@ -1387,33 +1374,43 @@ Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event"
 
 <style>
   .resize-handle { flex: 0 0 5px; align-self: stretch; }
+  .resize-vertical { cursor: col-resize; }
+  .resize-horizontal { cursor: row-resize; }
   .resize-handle:hover { background: var(--edge); }
 </style>
 ```
 
-`src/shell/RegionPanel.svelte` — animated extent; collapse animates to 0 without unmounting:
+`src/shell/RegionPanel.svelte` — animated extent; collapse animates to 0 without unmounting. NO inline styles: the only dynamic value crosses as a CSS custom property via the `style:` directive; every rule is scoped:
 ```svelte
 <script lang="ts">
   import type { Snippet } from 'svelte'
-  import { SLIDE_MS } from '../theme/tokens.ts'
   let {
     region,
     extent,
     children
   }: { region: 'left' | 'right' | 'bottom'; extent: number; children: Snippet } = $props()
-  const horizontal = region !== 'bottom'
 </script>
 
-<div
-  class="region region-{region}"
-  data-region={region}
-  style="{horizontal ? 'width' : 'height'}: {extent}px; transition: all {SLIDE_MS}ms ease-in-out;"
->
+<div class="region region-{region}" data-region={region} style:--region-extent="{extent}px">
   {@render children()}
 </div>
 
 <style>
-  .region { overflow: hidden; flex-shrink: 0; display: flex; }
+  .region {
+    overflow: hidden;
+    flex-shrink: 0;
+    display: flex;
+    transition:
+      width var(--slide-ms) ease-in-out,
+      height var(--slide-ms) ease-in-out;
+  }
+  .region-left,
+  .region-right {
+    width: var(--region-extent);
+  }
+  .region-bottom {
+    height: var(--region-extent);
+  }
   .region-left { border-right: 1px solid var(--edge); background: var(--rail); }
   .region-right { border-left: 1px solid var(--edge); background: var(--panel); }
   .region-bottom { border-top: 1px solid var(--edge); background: var(--panel); }
@@ -1481,18 +1478,30 @@ Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event"
     display: flex; align-items: stretch; height: 52px;
     background: var(--surface); border-bottom: 1px solid var(--edge);
     flex-shrink: 0;
+    -webkit-app-region: drag; /* frameless-window drag region — owned here, not in global CSS */
+  }
+  .icon-btn,
+  .chip,
+  .titlebar-action {
+    -webkit-app-region: no-drag;
   }
   .brand-zone {
     display: flex; align-items: center; gap: 8px; width: 224px; padding: 0 12px;
     background: var(--rail); border-right: 1px solid var(--edge); flex-shrink: 0;
   }
-  .brand-zone.lights-inset { padding: 0 12px 0 78px; }
+  .brand-zone.lights-inset { padding: 0 12px 0 var(--traffic-light-inset); }
   .brand-zone.lights-inset .brand-sub { display: none; }
   .titlebar-rest { flex: 1; display: flex; align-items: center; justify-content: space-between; padding: 0 22px; }
   .titlebar-left { display: flex; align-items: center; gap: 12px; padding: 0 0 0 22px; }
-  .titlebar-left.lights-inset { padding: 0 0 0 78px; }
+  .titlebar-left.lights-inset { padding: 0 0 0 var(--traffic-light-inset); }
   .titlebar-right { display: flex; align-items: center; gap: 8px; padding: 0 22px 0 0; }
   .brand { display: flex; align-items: baseline; gap: 8px; padding: 0 10px; font-weight: 700; font-size: 17px; letter-spacing: -0.01em; }
+  .brand-mark {
+    background: linear-gradient(120deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
   .brand-sub { font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: 0.22em; color: var(--muted2); }
   .topbar-title { display: flex; gap: 4px; font-weight: 600; font-size: 14px; color: var(--text); }
   .topbar-title .crumb { color: var(--muted2); font-weight: 400; }
@@ -1559,11 +1568,13 @@ Add devDep to `packages/morphir-ui/package.json`: `"@testing-library/user-event"
     display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin: 1px 0;
     border-radius: 8px; color: var(--nav); font-weight: 500; font-size: 14px;
     background: none; border: none; text-align: left; width: 100%;
+    -webkit-app-region: no-drag;
   }
   .nav-item:hover { background: var(--hover-soft); color: var(--text); }
   .nav-item.active {
     background: linear-gradient(to right, rgba(214, 64, 159, 0.16) 0%, rgba(139, 92, 246, 0.1) 100%);
     color: var(--text-strong);
+    box-shadow: inset 2px 0 0 var(--accent);
   }
   .nav-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dot); flex-shrink: 0; }
   .nav-item.active .nav-dot { background: var(--accent); }
@@ -1657,6 +1668,16 @@ export interface NavItem { readonly id: string; readonly label: string }
   .shell-body { flex: 1; display: flex; min-height: 0; }
   .shell-center { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .shell-main { flex: 1; display: flex; min-height: 0; }
+  .content {
+    flex: 1;
+    overflow: auto;
+    padding: 22px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    gap: 16px;
+    align-content: start;
+  }
+  .content.content-settings { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .panel-body { padding: 14px; flex: 1; overflow: auto; }
   .panel-title {
     font-family: var(--mono); font-size: 10px; font-weight: 600;
@@ -1667,8 +1688,7 @@ export interface NavItem { readonly id: string; readonly label: string }
 
 Add to `src/index.ts`:
 ```ts
-export { icons, type IconName } from './icons/icons.ts'
-export { default as Icon } from './icons/Icon.svelte'
+export { default as Icon, type IconName } from './icons/Icon.svelte'
 export { default as AppShell } from './shell/AppShell.svelte'
 export { default as Titlebar } from './shell/Titlebar.svelte'
 export { default as Sidebar } from './shell/Sidebar.svelte'
