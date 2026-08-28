@@ -1,0 +1,10 @@
+{
+  "kind": "v-prefix-call",
+  "label": "-",
+  "args": [
+    {
+      "kind": "v-variable",
+      "name": "x"
+    }
+  ]
+}

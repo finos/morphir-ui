@@ -1,0 +1,37 @@
+{
+  "kind": "v-update-record",
+  "subject": {
+    "kind": "v-variable",
+    "name": "p"
+  },
+  "fields": [
+    {
+      "name": "age",
+      "value": {
+        "kind": "v-arith-chain",
+        "op": "+",
+        "items": [
+          {
+            "node": {
+              "kind": "v-field-access",
+              "subject": {
+                "kind": "v-variable",
+                "name": "p"
+              },
+              "field": "age"
+            },
+            "grouped": false
+          },
+          {
+            "node": {
+              "kind": "v-literal",
+              "text": "1",
+              "literalKind": "whole-number"
+            },
+            "grouped": false
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "kind": "v-power",
+  "base": {
+    "kind": "v-variable",
+    "name": "x"
+  },
+  "exponent": {
+    "kind": "v-literal",
+    "text": "2",
+    "literalKind": "float"
+  }
+}

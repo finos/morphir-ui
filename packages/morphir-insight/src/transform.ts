@@ -6,6 +6,7 @@ import type { InsightContext } from './context.ts'
 import { isSdkFqn } from './context.ts'
 import { literalText, patternToText } from './pattern-text.ts'
 import type { ViewNode } from './view-node.ts'
+import { routeSpecial } from './chains.ts'
 
 export const toViewTree = (def: ValueDef, ctx: InsightContext): ViewNode => viewExpr(def.body, ctx)
 
@@ -71,8 +72,10 @@ export const referenceNode = (fqn: Parameters<typeof isSdkFqn>[0], args: ViewNod
   args
 })
 
-// Task 6 implements operator/chain routing here; structurally it returns null (no special handling).
-export const viewSpecial = (_e: ValueExpr, _ctx: InsightContext): ViewNode | null => null
+// Task 6 implements the real router in chains.ts; this delegates to it. The transform↔chains
+// import cycle is intentional and safe: each module only calls the other's functions at
+// runtime (inside function bodies), never at module-init time.
+export const viewSpecial = (e: ValueExpr, ctx: InsightContext): ViewNode | null => routeSpecial(e, ctx)
 
 // Task 7 implements if-trees and decision tables; interim: readable fallbacks.
 export const viewBranching = (e: ValueExpr, ctx: InsightContext): ViewNode => {

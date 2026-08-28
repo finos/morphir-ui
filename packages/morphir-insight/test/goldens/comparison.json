@@ -1,0 +1,12 @@
+{
+  "kind": "v-binary-op",
+  "symbol": "<=",
+  "left": {
+    "kind": "v-variable",
+    "name": "a"
+  },
+  "right": {
+    "kind": "v-variable",
+    "name": "b"
+  }
+}

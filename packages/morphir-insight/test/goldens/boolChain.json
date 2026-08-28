@@ -1,0 +1,34 @@
+{
+  "kind": "v-logic-chain",
+  "op": "OR",
+  "items": [
+    {
+      "kind": "v-logic-chain",
+      "op": "AND",
+      "items": [
+        {
+          "kind": "v-variable",
+          "name": "p"
+        },
+        {
+          "kind": "v-variable",
+          "name": "q"
+        },
+        {
+          "kind": "v-variable",
+          "name": "r"
+        }
+      ]
+    },
+    {
+      "kind": "v-prefix-call",
+      "label": "not",
+      "args": [
+        {
+          "kind": "v-variable",
+          "name": "p"
+        }
+      ]
+    }
+  ]
+}

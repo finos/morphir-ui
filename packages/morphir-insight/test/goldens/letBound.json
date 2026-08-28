@@ -1,0 +1,57 @@
+{
+  "kind": "v-let-group",
+  "bindings": [
+    {
+      "name": "doubled",
+      "value": {
+        "kind": "v-arith-chain",
+        "op": "*",
+        "items": [
+          {
+            "node": {
+              "kind": "v-variable",
+              "name": "x"
+            },
+            "grouped": false
+          },
+          {
+            "node": {
+              "kind": "v-literal",
+              "text": "2",
+              "literalKind": "whole-number"
+            },
+            "grouped": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "offset",
+      "value": {
+        "kind": "v-arith-chain",
+        "op": "+",
+        "items": [
+          {
+            "node": {
+              "kind": "v-variable",
+              "name": "doubled"
+            },
+            "grouped": false
+          },
+          {
+            "node": {
+              "kind": "v-literal",
+              "text": "1",
+              "literalKind": "whole-number"
+            },
+            "grouped": false
+          }
+        ]
+      }
+    }
+  ],
+  "body": {
+    "kind": "v-variable",
+    "name": "offset"
+  }
+}
