@@ -34,4 +34,14 @@ describe('SecretStore', () => {
     const store = new SecretStore(tempFile(), fakeCrypto(false))
     await expect(store.set('github', 'x')).rejects.toThrow('secure storage is not available')
   })
+
+  test('concurrent set operations are serialized', async () => {
+    const store = new SecretStore(tempFile(), fakeCrypto())
+    await Promise.all([
+      store.set('a', 'va'),
+      store.set('b', 'vb'),
+    ])
+    expect(await store.get('a')).toBe('va')
+    expect(await store.get('b')).toBe('vb')
+  })
 })

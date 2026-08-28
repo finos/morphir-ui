@@ -10,6 +10,8 @@ export interface SecretCrypto {
 export const GH_SECRET_KEY = 'github'
 
 export class SecretStore {
+  #queue: Promise<unknown> = Promise.resolve()
+
   constructor(
     private readonly file: string,
     private readonly crypto: SecretCrypto,
@@ -28,28 +30,40 @@ export class SecretStore {
     await writeFile(this.file, JSON.stringify(blobs), 'utf8')
   }
 
+  #serialize<T>(op: () => Promise<T>): Promise<T> {
+    const result = this.#queue.then(op, op)
+    this.#queue = result.catch(() => undefined)
+    return result
+  }
+
   async get(key: string): Promise<string | null> {
-    const blobs = await this.#read()
-    const blob = blobs[key]
-    if (!blob) return null
-    try {
-      return this.crypto.decryptString(Buffer.from(blob, 'base64'))
-    } catch {
-      return null
-    }
+    return this.#serialize(async () => {
+      const blobs = await this.#read()
+      const blob = blobs[key]
+      if (!blob) return null
+      try {
+        return this.crypto.decryptString(Buffer.from(blob, 'base64'))
+      } catch {
+        return null
+      }
+    })
   }
 
   async set(key: string, value: string): Promise<void> {
-    if (!this.crypto.isAvailable())
-      throw new Error('secure storage is not available on this system')
-    const blobs = await this.#read()
-    blobs[key] = this.crypto.encryptString(value).toString('base64')
-    await this.#write(blobs)
+    return this.#serialize(async () => {
+      if (!this.crypto.isAvailable())
+        throw new Error('secure storage is not available on this system')
+      const blobs = await this.#read()
+      blobs[key] = this.crypto.encryptString(value).toString('base64')
+      await this.#write(blobs)
+    })
   }
 
   async delete(key: string): Promise<void> {
-    const blobs = await this.#read()
-    delete blobs[key]
-    await this.#write(blobs)
+    return this.#serialize(async () => {
+      const blobs = await this.#read()
+      delete blobs[key]
+      await this.#write(blobs)
+    })
   }
 }

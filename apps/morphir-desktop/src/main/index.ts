@@ -66,9 +66,11 @@ function createWindow(): BrowserWindow {
 }
 
 void app.whenReady().then(() => {
-  // safeStorage implements SecretCrypto at runtime; type definition may be incomplete
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const secrets = new SecretStore(join(app.getPath('userData'), 'secrets.json'), safeStorage as any)
+  const secrets = new SecretStore(join(app.getPath('userData'), 'secrets.json'), {
+    isAvailable: () => safeStorage.isEncryptionAvailable(),
+    encryptString: (plain) => safeStorage.encryptString(plain),
+    decryptString: (blob) => safeStorage.decryptString(blob),
+  })
 
   registry.register('morphir/github/status', async () => {
     const config = await loadConfigFile()
