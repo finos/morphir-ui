@@ -1,11 +1,11 @@
 import '@morphir/ui/theme.css'
 import { mount } from 'svelte'
 import { MorphirApp, makeAppServices } from '@morphir/ui'
-import { desktopCore } from './layers/desktop-layers.ts'
+import { desktopCore, desktopGitHub } from './layers/desktop-layers.ts'
 import { RpcClient } from './layers/rpc-client.ts'
 
 const rpc = new RpcClient()
-const services = await makeAppServices({ core: desktopCore(rpc) })
+const services = await makeAppServices({ core: desktopCore(rpc), github: desktopGitHub(rpc) })
 const version = await services.version()
 const initialConfig = await services.loadConfig()
 

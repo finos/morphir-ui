@@ -1,9 +1,12 @@
-import { BrowserWindow, app, dialog, ipcMain } from 'electron'
+import { BrowserWindow, app, dialog, ipcMain, safeStorage } from 'electron'
 import { join } from 'node:path'
+import { redactToken, Token } from '@morphir/ui/token'
 import { RPC_CHANNEL, RpcRegistry } from './rpc.ts'
 import { loadConfigFile, saveConfigFile } from './config.ts'
 import { readWorkspaceFile } from './workspace.ts'
 import { decodeUiConfig } from '@morphir/ui/config'
+import { GH_SECRET_KEY, SecretStore } from './secrets.ts'
+import { ghCliToken, verifyGitHubToken } from './github.ts'
 
 const smoke = process.env['MORPHIR_SMOKE'] === '1'
 const registry = new RpcRegistry()
@@ -63,6 +66,48 @@ function createWindow(): BrowserWindow {
 }
 
 void app.whenReady().then(() => {
+  // safeStorage implements SecretCrypto at runtime; type definition may be incomplete
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const secrets = new SecretStore(join(app.getPath('userData'), 'secrets.json'), safeStorage as any)
+
+  registry.register('morphir/github/status', async () => {
+    const config = await loadConfigFile()
+    const stored = config.github.source === 'pat' ? await secrets.get(GH_SECRET_KEY) : null
+    return { source: config.github.source, tokenDisplay: stored ? redactToken(stored) : null }
+  })
+  registry.register('morphir/github/setSource', async (params) => {
+    const source = (params as { source?: string })?.source
+    if (source !== 'none' && source !== 'gh-cli') throw new Error(`invalid source: ${String(source)}`)
+    const config = await loadConfigFile()
+    await saveConfigFile({ ...config, github: { source } })
+    return {}
+  })
+  registry.register('morphir/github/setToken', async (params) => {
+    const token = Token.parse(String((params as { token?: string })?.token ?? ''))
+    if (!token) throw new Error('token must not be empty')
+    await secrets.set(GH_SECRET_KEY, token.unsafeReveal())
+    const config = await loadConfigFile()
+    await saveConfigFile({ ...config, github: { source: 'pat' } })
+    return {}
+  })
+  registry.register('morphir/github/clearToken', async () => {
+    await secrets.delete(GH_SECRET_KEY)
+    const config = await loadConfigFile()
+    await saveConfigFile({ ...config, github: { source: 'none' } })
+    return {}
+  })
+  registry.register('morphir/github/verify', async () => {
+    const config = await loadConfigFile()
+    const token =
+      config.github.source === 'pat'
+        ? await secrets.get(GH_SECRET_KEY)
+        : config.github.source === 'gh-cli'
+          ? await ghCliToken()
+          : null
+    if (!token) throw new Error('no token source configured')
+    return verifyGitHubToken(token)
+  })
+
   ipcMain.on(RPC_CHANNEL, (event, message) => {
     void registry.dispatch(message).then((response) => event.sender.send(RPC_CHANNEL, response))
   })

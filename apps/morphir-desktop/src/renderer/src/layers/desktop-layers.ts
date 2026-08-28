@@ -2,10 +2,13 @@ import { Effect, Layer, Option } from 'effect'
 import {
   AppInfoService,
   ConfigService,
+  GitHubError,
+  GitHubService,
   WorkspaceError,
   WorkspaceService,
   defaultUiConfig,
   type CoreServices,
+  type GitHubStatus,
   type UiConfig,
   type WorkspaceRef,
 } from '@morphir/ui'
@@ -46,3 +49,27 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
       ),
     }),
   )
+
+export const desktopGitHub = (rpc: RpcClient): Layer.Layer<GitHubService> =>
+  Layer.succeed(GitHubService, {
+    status: rpc
+      .effect<GitHubStatus>('morphir/github/status')
+      .pipe(Effect.mapError((e) => new GitHubError({ message: e.message }))),
+    setSource: (source) =>
+      rpc.effect('morphir/github/setSource', { source }).pipe(
+        Effect.asVoid,
+        Effect.mapError((e) => new GitHubError({ message: e.message })),
+      ),
+    savePat: (raw) =>
+      rpc.effect('morphir/github/setToken', { token: raw }).pipe(
+        Effect.asVoid,
+        Effect.mapError((e) => new GitHubError({ message: e.message })),
+      ),
+    clearPat: rpc.effect('morphir/github/clearToken').pipe(
+      Effect.asVoid,
+      Effect.mapError((e) => new GitHubError({ message: e.message })),
+    ),
+    verify: rpc
+      .effect<{ login: string }>('morphir/github/verify')
+      .pipe(Effect.mapError((e) => new GitHubError({ message: e.message }))),
+  })
