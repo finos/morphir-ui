@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { Effect } from 'effect'
 import {
   decodeMorphirIr, decodeEntryValueDef, decodeValueExpr, uncurryApply,
-  nameToCamel, type RawDefEntry, type ValueExpr
+  nameToCamel, type RawDefEntry
 } from '../src/index.ts'
 
 const loadFixture = async () => {
@@ -13,19 +13,21 @@ const loadFixture = async () => {
   return values
 }
 
-const walkForUnknown = (e: ValueExpr, found: string[]): void => {
-  if (e.kind === 'unknown') { found.push(e.tag); return }
-  for (const v of Object.values(e)) {
-    if (Array.isArray(v)) v.forEach((x) => walkMaybe(x, found))
-    else walkMaybe(v, found)
+const collectUnknownTags = (node: unknown, found: string[] = []): string[] => {
+  if (Array.isArray(node)) {
+    for (const item of node) collectUnknownTags(item, found)
+    return found
   }
-}
-const walkMaybe = (v: unknown, found: string[]): void => {
-  if (typeof v === 'object' && v !== null && 'kind' in v) {
-    const k = (v as { kind: string }).kind
-    if (k === 'unknown' && 'tag' in v) found.push((v as { tag: string }).tag)
-    else if (!k.startsWith('type-')) walkForUnknown(v as ValueExpr, found)
+  if (typeof node === 'object' && node !== null) {
+    const rec = node as Record<string, unknown>
+    if (rec['kind'] === 'unknown' && typeof rec['tag'] === 'string') found.push(rec['tag'])
+    for (const [key, value] of Object.entries(rec)) {
+      if (key === 'raw') continue // UnknownNode.raw holds the original JSON; not part of the decoded tree
+      collectUnknownTags(value, found)
+    }
+    return found
   }
+  return found
 }
 
 describe('decodeValueExpr against unit snippets', () => {
@@ -56,8 +58,7 @@ describe('decoding the insight fixture', () => {
     for (const [name, entry] of values) {
       const def = decodeEntryValueDef(entry)
       expect(def, name).not.toBeNull()
-      const found: string[] = []
-      walkForUnknown(def!.body, found)
+      const found = collectUnknownTags(def)
       expect(found, `${name} contains unknown tags: ${found.join(',')}`).toEqual([])
     }
   })
@@ -101,5 +102,14 @@ describe('decoding the insight fixture', () => {
     const def = decodeEntryValueDef(values.get('updatedPerson')!)!
     expect(def.body.kind).toBe('update-record')
     if (def.body.kind === 'update-record') expect(def.body.fields[0]!.name).toEqual(['age'])
+  })
+
+  test('the unknown-walker traverses pair wrappers and nested definitions', () => {
+    const planted = { kind: 'unknown', tag: 'Planted', raw: null }
+    expect(collectUnknownTags({ kind: 'value-record', attr: {}, fields: [{ name: ['f'], value: planted }] })).toEqual(['Planted'])
+    expect(collectUnknownTags({ kind: 'pattern-match', attr: {}, subject: { kind: 'value-unit', attr: {} }, cases: [{ pattern: { kind: 'wildcard' }, body: planted }] })).toEqual(['Planted'])
+    expect(collectUnknownTags({ kind: 'let-definition', attr: {}, name: ['x'], definition: { inputs: [], output: { kind: 'type-unit' }, body: planted }, inValue: { kind: 'value-unit', attr: {} } })).toEqual(['Planted'])
+    expect(collectUnknownTags({ kind: 'let-recursion', attr: {}, definitions: [{ name: ['f'], definition: { inputs: [], output: { kind: 'type-unit' }, body: planted } }], inValue: { kind: 'value-unit', attr: {} } })).toEqual(['Planted'])
+    expect(collectUnknownTags({ kind: 'update-record', attr: {}, subject: { kind: 'value-unit', attr: {} }, fields: [{ name: ['f'], value: planted }] })).toEqual(['Planted'])
   })
 })
