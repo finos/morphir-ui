@@ -13,6 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # moon resolves changed files against the default branch; a shallow
+          # clone has no 'main' ref and fails with git exit code 128.
+          fetch-depth: 0
       - uses: jdx/mise-action@v3
       - run: bun install --frozen-lockfile
       - run: moon run :lint :typecheck :test :build
