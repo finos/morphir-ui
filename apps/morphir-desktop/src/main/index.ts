@@ -1,7 +1,8 @@
-import { BrowserWindow, app, ipcMain } from 'electron'
+import { BrowserWindow, app, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { RPC_CHANNEL, RpcRegistry } from './rpc.ts'
 import { loadConfigFile, saveConfigFile } from './config.ts'
+import { readWorkspaceFile } from './workspace.ts'
 import { decodeUiConfig } from '@morphir/ui/config'
 
 const smoke = process.env['MORPHIR_SMOKE'] === '1'
@@ -20,6 +21,19 @@ registry.register('morphir/config/save', async (params) => {
   const config = decodeUiConfig((params as { config?: unknown })?.config)
   await saveConfigFile(config)
   return {}
+})
+registry.register('morphir/workspace/pick', async () => {
+  const result = await dialog.showOpenDialog({
+    title: 'Open Morphir workspace',
+    filters: [{ name: 'Morphir IR', extensions: ['json'] }],
+    properties: ['openFile'],
+  })
+  return result.canceled || result.filePaths.length === 0 ? null : { path: result.filePaths[0] }
+})
+registry.register('morphir/workspace/read', async (params) => {
+  const path = (params as { path?: string })?.path
+  if (typeof path !== 'string') throw new Error('workspace not found: <missing path>')
+  return { content: await readWorkspaceFile(path) }
 })
 
 function createWindow(): BrowserWindow {
