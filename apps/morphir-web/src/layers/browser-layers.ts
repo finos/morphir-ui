@@ -39,6 +39,10 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> =>
         }
         input.oncancel = () => resume(Effect.succeed(Option.none()))
         input.click()
+        return Effect.sync(() => {
+          input.onchange = null
+          input.oncancel = null
+        })
       }),
       read: Option.none(),
     }),
