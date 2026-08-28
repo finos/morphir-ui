@@ -1,0 +1,27 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  -webkit-font-smoothing: antialiased;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+  font-family: var(--sans);
+}
+::selection {
+  background: rgba(214, 64, 159, 0.35);
+}
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--panel-edge);
+  border-radius: 5px;
+}
