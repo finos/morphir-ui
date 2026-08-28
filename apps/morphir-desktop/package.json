@@ -2,6 +2,12 @@
   "name": "@morphir/desktop",
   "private": true,
   "version": "0.1.0",
+  "description": "Morphir desktop application built with Electron",
+  "homepage": "https://github.com/finos/morphir-ui",
+  "author": {
+    "name": "FINOS",
+    "email": "support@finos.org"
+  },
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
