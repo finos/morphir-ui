@@ -22,6 +22,7 @@ This cycle migrates the **static** portion natively — no Elm artifacts, no eva
 | Placement          | Definition detail inside the existing IR Explorer: tabs **Insight \| XRay** (values), **Type \| XRay** (types)     |
 | Unknown IR nodes   | Decode to `UnknownNode` carrying the raw tag; render a fallback — never crash                                      |
 | Test oracle        | Golden display-tree JSON snapshots against v3 fixtures; new fixtures generated from morphir-elm tutorial sources   |
+| IR format scope    | v3 only this cycle. v4 was evaluated (2026-08-28) and deliberately deferred: the draft is self-inconsistent (schema ≠ Rust encoder ≠ committed examples; classic→v4 migration unimplemented; nothing validates v4 in CI). The AST unions are format-agnostic, so v4 later arrives as a sibling decoder feeding the same `ViewNode` pipeline — tracked as a gated follow-up. |
 
 ## 1. Modules & boundaries
 
