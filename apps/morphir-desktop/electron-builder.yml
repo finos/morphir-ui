@@ -1,0 +1,26 @@
+appId: org.finos.morphir.desktop
+productName: Morphir Desktop
+copyright: Copyright © FINOS
+artifactName: ${name}-${version}-${os}-${arch}.${ext}
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+mac:
+  target:
+    - zip
+    - dmg
+  category: public.app-category.developer-tools
+  notarize: false
+win:
+  target:
+    - zip
+    - nsis
+linux:
+  target:
+    - tar.gz
+    - AppImage
+    - deb
+  category: Development

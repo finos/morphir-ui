@@ -11,7 +11,8 @@
     "test": "bun test",
     "build": "electron-vite build",
     "dev": "electron-vite dev",
-    "smoke": "electron-vite build && MORPHIR_SMOKE=1 electron ."
+    "smoke": "electron-vite build && MORPHIR_SMOKE=1 electron .",
+    "package": "electron-vite build && electron-builder --publish=never"
   },
   "dependencies": {
     "@morphir/ir": "workspace:*",
