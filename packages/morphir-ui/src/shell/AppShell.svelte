@@ -6,6 +6,7 @@
   import ResizeHandle from './ResizeHandle.svelte'
   import type { ShellState } from '../state/shell-state.svelte.ts'
   import type { WorkbenchStore } from '../workbench/workbench-store.svelte.ts'
+  import { PANEL_BOUNDS } from '../state/shell-constants.ts'
 
   let {
     shell,
@@ -42,6 +43,8 @@
       <ResizeHandle
         edge="left"
         label="Resize Workbench rail"
+        min={PANEL_BOUNDS.left.min}
+        max={PANEL_BOUNDS.left.max}
         currentSize={shell.leftWidth}
         onResize={(px) => shell.resizeLeft(px)}
       />
@@ -55,6 +58,8 @@
           <ResizeHandle
             edge="right"
             label="Resize Inspector"
+            min={PANEL_BOUNDS.right.min}
+            max={PANEL_BOUNDS.right.max}
             currentSize={shell.rightWidth}
             onResize={(px) => shell.resizeRight(px)}
           />
@@ -70,6 +75,8 @@
         <ResizeHandle
           edge="bottom"
           label="Resize Log"
+          min={PANEL_BOUNDS.bottom.min}
+          max={PANEL_BOUNDS.bottom.max}
           currentSize={shell.bottomHeight}
           onResize={(px) => shell.resizeBottom(px)}
         />

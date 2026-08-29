@@ -232,12 +232,28 @@ describe('ModelTreePane', () => {
     }
 
     const unhandled = new KeyboardEvent('keydown', {
-      key: 'Home',
+      key: 'PageDown',
       bubbles: true,
       cancelable: true,
     })
     account.dispatchEvent(unhandled)
     expect(unhandled.defaultPrevented).toBe(false)
+  })
+
+  test('Home and End focus the first and last visible tree rows', async () => {
+    render(ModelTreePane, { props: { ir: IR } })
+    const account = treeItem('Account')
+    account.focus()
+
+    const end = new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true })
+    account.dispatchEvent(end)
+    expect(end.defaultPrevented).toBe(true)
+    await waitFor(() => expect(document.activeElement).toBe(treeItem('Payments')))
+
+    const home = new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true })
+    treeItem('Payments').dispatchEvent(home)
+    expect(home.defaultPrevented).toBe(true)
+    await waitFor(() => expect(document.activeElement).toBe(treeItem('Acme')))
   })
 
   test('collapses to and expands from a labeled vertical rail', async () => {
@@ -251,9 +267,10 @@ describe('ModelTreePane', () => {
     const label = within(expand).getByText('Model')
     expect(rail).toBeTruthy()
     expect({
-      width: rail.style.width,
+      hasDirectWidth: rail.style.width !== '',
+      hasDirectStyle: rail.hasAttribute('style'),
       verticalLabel: label.classList.contains('vertical-label'),
-    }).toEqual({ width: '32px', verticalLabel: true })
+    }).toEqual({ hasDirectWidth: false, hasDirectStyle: false, verticalLabel: true })
     expect(label.getAttribute('aria-hidden')).toBe('true')
     expect(document.activeElement).toBe(expand)
 
@@ -286,18 +303,24 @@ describe('ModelTreePane', () => {
       )
     }
 
-    expect(pane.style.width).toBe('280px')
+    expect(pane.style.width).toBe('')
+    expect(pane.style.getPropertyValue('--tree-pane-width')).toBe('280px')
+    expect(getComputedStyle(pane).getPropertyValue('--tree-pane-width')).toBe('280px')
+    expect(separator.getAttribute('tabindex')).toBe('0')
+    expect(separator.getAttribute('aria-valuemin')).toBe('220')
+    expect(separator.getAttribute('aria-valuemax')).toBe('420')
+    expect(separator.getAttribute('aria-valuenow')).toBe('280')
 
     dispatchPointer('pointerdown', 100)
     dispatchPointer('pointermove', -1000)
     await Promise.resolve()
-    expect(pane.style.width).toBe('220px')
+    expect(pane.style.getPropertyValue('--tree-pane-width')).toBe('220px')
     dispatchPointer('pointerup', -1000)
 
     dispatchPointer('pointerdown', 100)
     dispatchPointer('pointermove', 1000)
     await Promise.resolve()
-    expect(pane.style.width).toBe('420px')
+    expect(pane.style.getPropertyValue('--tree-pane-width')).toBe('420px')
     dispatchPointer('pointerup', 1000)
   })
 

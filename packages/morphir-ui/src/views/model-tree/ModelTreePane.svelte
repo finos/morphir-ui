@@ -5,6 +5,7 @@
   import ResizeHandle from '../../shell/ResizeHandle.svelte'
   import {
     TREE_PANE_DEFAULT_WIDTH,
+    TREE_PANE_BOUNDS,
     clampTreePaneWidth,
     defaultExpandedIds,
     effectiveExpandedIds,
@@ -132,7 +133,13 @@
     const node = row.node
     let handled = false
 
-    if (event.key === 'ArrowUp' && visibleRows[index - 1]) {
+    if (event.key === 'Home' && visibleRows[0]) {
+      handled = true
+      void focusRow(visibleRows[0].node.id)
+    } else if (event.key === 'End' && visibleRows.at(-1)) {
+      handled = true
+      void focusRow(visibleRows.at(-1)!.node.id)
+    } else if (event.key === 'ArrowUp' && visibleRows[index - 1]) {
       handled = true
       void focusRow(visibleRows[index - 1]!.node.id)
     } else if (event.key === 'ArrowDown' && visibleRows[index + 1]) {
@@ -194,7 +201,7 @@
 
 {#if expanded}
   <div class="model-tree-frame">
-    <aside class="model-tree-pane" style:width={`${paneWidth}px`}>
+    <aside class="model-tree-pane" style:--tree-pane-width={`${paneWidth}px`}>
       <header>
         <h2>Model hierarchy</h2>
         <button
@@ -294,12 +301,14 @@
     <ResizeHandle
       edge="left"
       label="Resize model hierarchy"
+      min={TREE_PANE_BOUNDS.min}
+      max={TREE_PANE_BOUNDS.max}
       currentSize={paneWidth}
       onResize={(width) => (paneWidth = clampTreePaneWidth(width))}
     />
   </div>
 {:else}
-  <aside class="collapsed-rail" style="width: 32px">
+  <aside class="collapsed-rail">
     <button
       bind:this={expandButton}
       type="button"
@@ -321,6 +330,7 @@
   }
   .model-tree-pane {
     flex: 0 0 auto;
+    width: var(--tree-pane-width);
     min-width: 0;
     height: 100%;
     display: flex;

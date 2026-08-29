@@ -1,9 +1,15 @@
 import { cleanup, render, screen } from '@testing-library/svelte'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { userEvent } from '@testing-library/user-event'
 import AppShell from '../src/shell/AppShell.svelte'
 import ResizeHandle from '../src/shell/ResizeHandle.svelte'
-import { ShellState, WorkbenchStore, defaultUiConfig, makeAppServices } from '../src/index.ts'
+import {
+  PANEL_BOUNDS,
+  ShellState,
+  WorkbenchStore,
+  defaultUiConfig,
+  makeAppServices,
+} from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
 
 // `@testing-library/svelte`'s auto-cleanup only self-registers when
@@ -79,22 +85,125 @@ describe('AppShell chrome', () => {
   test('names every panel resize separator', async () => {
     await renderShell()
 
-    expect(screen.getByRole('separator', { name: 'Resize Workbench rail' })).toBeTruthy()
-    expect(screen.getByRole('separator', { name: 'Resize Inspector' })).toBeTruthy()
-    expect(screen.getByRole('separator', { name: 'Resize Log' })).toBeTruthy()
+    for (const [name, bounds, now] of [
+      ['Resize Workbench rail', PANEL_BOUNDS.left, 320],
+      ['Resize Inspector', PANEL_BOUNDS.right, 300],
+      ['Resize Log', PANEL_BOUNDS.bottom, 180],
+    ] as const) {
+      const separator = screen.getByRole('separator', { name })
+      expect(separator.getAttribute('aria-valuemin')).toBe(String(bounds.min))
+      expect(separator.getAttribute('aria-valuemax')).toBe(String(bounds.max))
+      expect(separator.getAttribute('aria-valuenow')).toBe(String(now))
+    }
   })
 
   test('gives a standalone resize separator a default accessible name', () => {
     render(ResizeHandle, {
-      props: { edge: 'left', currentSize: 280, onResize: () => {} },
+      props: { edge: 'left', currentSize: 280, min: 220, max: 420, onResize: () => {} },
     })
 
     expect(screen.getByRole('separator', { name: 'Resize panel' })).toBeTruthy()
   })
 
+  test('exposes a focusable bounded value and resizes from handled keyboard keys', () => {
+    const onResize = vi.fn()
+    render(ResizeHandle, {
+      props: { edge: 'left', currentSize: 418, min: 220, max: 420, onResize },
+    })
+    const separator = screen.getByRole('separator', { name: 'Resize panel' })
+
+    expect(separator.getAttribute('tabindex')).toBe('0')
+    expect(separator.getAttribute('aria-valuemin')).toBe('220')
+    expect(separator.getAttribute('aria-valuemax')).toBe('420')
+    expect(separator.getAttribute('aria-valuenow')).toBe('418')
+    separator.focus()
+    expect(document.activeElement).toBe(separator)
+
+    const handledKeys = ['ArrowLeft', 'ArrowRight', 'Home', 'End']
+    const events = handledKeys.map((key) => {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      separator.dispatchEvent(event)
+      return event
+    })
+
+    expect(events.every((event) => event.defaultPrevented)).toBe(true)
+    expect(onResize.mock.calls.map(([size]) => size)).toEqual([408, 420, 220, 420])
+
+    for (const key of ['ArrowUp', 'ArrowDown', 'PageDown']) {
+      const unhandled = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      separator.dispatchEvent(unhandled)
+      expect(unhandled.defaultPrevented).toBe(false)
+    }
+    expect(onResize).toHaveBeenCalledTimes(4)
+  })
+
+  test('moves a right-edge separator physically and ignores vertical arrows', () => {
+    const onResize = vi.fn()
+    render(ResizeHandle, {
+      props: { edge: 'right', currentSize: 300, min: 220, max: 560, onResize },
+    })
+    const separator = screen.getByRole('separator', { name: 'Resize panel' })
+
+    const left = new KeyboardEvent('keydown', {
+      key: 'ArrowLeft',
+      bubbles: true,
+      cancelable: true,
+    })
+    const right = new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      bubbles: true,
+      cancelable: true,
+    })
+    separator.dispatchEvent(left)
+    separator.dispatchEvent(right)
+
+    expect(left.defaultPrevented).toBe(true)
+    expect(right.defaultPrevented).toBe(true)
+    expect(onResize.mock.calls.map(([size]) => size)).toEqual([310, 290])
+
+    for (const key of ['ArrowUp', 'ArrowDown']) {
+      const orthogonal = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      separator.dispatchEvent(orthogonal)
+      expect(orthogonal.defaultPrevented).toBe(false)
+    }
+    expect(onResize).toHaveBeenCalledTimes(2)
+  })
+
+  test('moves a bottom-edge separator physically and ignores horizontal arrows', () => {
+    const onResize = vi.fn()
+    render(ResizeHandle, {
+      props: { edge: 'bottom', currentSize: 180, min: 120, max: 460, onResize },
+    })
+    const separator = screen.getByRole('separator', { name: 'Resize panel' })
+
+    const up = new KeyboardEvent('keydown', {
+      key: 'ArrowUp',
+      bubbles: true,
+      cancelable: true,
+    })
+    const down = new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      bubbles: true,
+      cancelable: true,
+    })
+    separator.dispatchEvent(up)
+    separator.dispatchEvent(down)
+
+    expect(up.defaultPrevented).toBe(true)
+    expect(down.defaultPrevented).toBe(true)
+    expect(onResize.mock.calls.map(([size]) => size)).toEqual([190, 170])
+
+    for (const key of ['ArrowLeft', 'ArrowRight']) {
+      const orthogonal = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      separator.dispatchEvent(orthogonal)
+      expect(orthogonal.defaultPrevented).toBe(false)
+    }
+    expect(onResize).toHaveBeenCalledTimes(2)
+  })
+
   test('cleans the body resize class on pointerup and pointercancel', () => {
     render(ResizeHandle, {
-      props: { edge: 'left', currentSize: 280, onResize: () => {} },
+      props: { edge: 'left', currentSize: 280, min: 220, max: 420, onResize: () => {} },
     })
     const separator = screen.getByRole('separator', { name: 'Resize panel' })
     const pointer = preparePointerCapture(separator)
@@ -111,7 +220,7 @@ describe('AppShell chrome', () => {
 
   test('cleans the body resize class when pointer capture is lost', () => {
     render(ResizeHandle, {
-      props: { edge: 'left', currentSize: 280, onResize: () => {} },
+      props: { edge: 'left', currentSize: 280, min: 220, max: 420, onResize: () => {} },
     })
     const separator = screen.getByRole('separator', { name: 'Resize panel' })
     const pointer = preparePointerCapture(separator)
@@ -125,7 +234,7 @@ describe('AppShell chrome', () => {
 
   test('cleans the body resize class when unmounted during a drag', () => {
     const view = render(ResizeHandle, {
-      props: { edge: 'left', currentSize: 280, onResize: () => {} },
+      props: { edge: 'left', currentSize: 280, min: 220, max: 420, onResize: () => {} },
     })
     const separator = screen.getByRole('separator', { name: 'Resize panel' })
     const pointer = preparePointerCapture(separator)
