@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/svelte'
+import { cleanup, render, screen, within } from '@testing-library/svelte'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, test } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -31,38 +31,116 @@ const openModel = async (): Promise<ModelWorkbenchData> => {
 }
 
 describe('IrExplorerView', () => {
-  test('renders package, modules and definitions', async () => {
+  test('renders the model hierarchy instead of the old explorer columns', async () => {
     render(IrExplorerView, { props: { model: await openModel() } })
-    expect(screen.getByText('Morphir.Example.App')).toBeTruthy()
-    expect(screen.getByText('Forecast')).toBeTruthy()
-    expect(screen.getByText('listExample')).toBeTruthy()
-    expect(screen.getByText('WindDirection')).toBeTruthy()
+    const tree = screen.getByRole('tree', { name: 'Model hierarchy' })
+
+    expect(within(tree).getByRole('treeitem', { name: 'Morphir.Example.App' })).toBeTruthy()
+    expect(within(tree).getByRole('treeitem', { name: 'Forecast' })).toBeTruthy()
+    expect(within(tree).getByRole('treeitem', { name: 'listExample' })).toBeTruthy()
+    expect(within(tree).getByRole('treeitem', { name: 'WindDirection' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Package' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Modules' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Definitions' })).toBeNull()
+    expect(screen.getByText('Select a definition')).toBeTruthy()
+    expect(screen.getByText('Choose a type or value from the model hierarchy.')).toBeTruthy()
   })
 
-  test('search filter narrows definitions', async () => {
+  test('keeps the hierarchy visible when a definition opens beside it', async () => {
     render(IrExplorerView, { props: { model: await openModel() } })
-    await userEvent.type(screen.getByPlaceholderText('Filter definitions'), 'listEx')
-    expect(screen.queryByText('WindDirection')).toBeNull()
-    expect(screen.getByText('listExample')).toBeTruthy()
-  })
+    await userEvent.click(screen.getByRole('treeitem', { name: 'listExample' }))
 
-  test('kind toggles hide types or values', async () => {
-    render(IrExplorerView, { props: { model: await openModel() } })
-    await userEvent.click(screen.getByRole('button', { name: 'Types' }))
-    expect(screen.queryByText('WindDirection')).toBeNull()
-    expect(screen.getByText('listExample')).toBeTruthy()
-  })
-
-  test('clicking a definition opens the detail surface, defaulting to the Insight tab', async () => {
-    render(IrExplorerView, { props: { model: await openModel() } })
-    await userEvent.click(screen.getByText('listExample'))
+    expect(screen.getByRole('tree', { name: 'Model hierarchy' })).toBeTruthy()
     expect(screen.getByText('Insight')).toBeTruthy()
     expect(screen.getByText('XRay')).toBeTruthy()
-    // The XRay tab's raw-AST view isn't the default any more (see DefinitionDetail.svelte) —
-    // switch to it explicitly before asserting on its node-kind labels.
+    expect(screen.queryByText('Back')).toBeNull()
+  })
+
+  test('keeps selected detail when a kind filter hides its tree leaf', async () => {
+    render(IrExplorerView, { props: { model: await openModel() } })
+    await userEvent.click(screen.getByRole('treeitem', { name: 'WindDirection' }))
+    expect(
+      screen.getByText('WindDirection', { selector: '.local' }).closest('.fqn')?.textContent,
+    ).toBe('Morphir.Example.App.Forecast.WindDirection')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Types' }))
+
+    expect(screen.queryByRole('treeitem', { name: 'WindDirection' })).toBeNull()
+    expect(
+      screen.getByText('WindDirection', { selector: '.local' }).closest('.fqn')?.textContent,
+    ).toBe('Morphir.Example.App.Forecast.WindDirection')
+  })
+
+  test('keeps selected detail when search hides its tree leaf', async () => {
+    render(IrExplorerView, { props: { model: await openModel() } })
+    await userEvent.click(screen.getByRole('treeitem', { name: 'WindDirection' }))
+
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search model' }), 'list')
+
+    expect(screen.queryByRole('treeitem', { name: 'WindDirection' })).toBeNull()
+    expect(screen.getByText('WindDirection', { selector: '.local' })).toBeTruthy()
+  })
+
+  test('reports an unresolved tree definition without disabling navigation', async () => {
+    const model = await openModel()
+    if (!model.ir) throw new Error('expected decoded IR')
+    const firstModule = model.ir.modules[0]
+    if (!firstModule) throw new Error('expected first module')
+    const missing = {
+      ref: {
+        packageName: firstModule.packageName,
+        moduleName: firstModule.name,
+        localName: 'MissingDefinition',
+      },
+      kind: 'type' as const,
+      access: 'Public' as const,
+      doc: null,
+    }
+    const inconsistent = {
+      ...model,
+      ir: { ...model.ir, definitions: [...model.ir.definitions, missing] },
+    }
+
+    render(IrExplorerView, { props: { model: inconsistent } })
+    await userEvent.click(screen.getByRole('treeitem', { name: 'MissingDefinition' }))
+
+    expect(screen.getByRole('tree', { name: 'Model hierarchy' })).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toContain(
+      `${firstModule.packageName}.${firstModule.name}.MissingDefinition`,
+    )
+    expect(screen.queryByText('Select a definition')).toBeNull()
+  })
+
+  test('does not resolve a definition from a different package', async () => {
+    const model = await openModel()
+    if (!model.ir) throw new Error('expected decoded IR')
+    const packageName = 'Other.Package'
+    const inconsistent = {
+      ...model,
+      ir: {
+        ...model.ir,
+        package: { ...model.ir.package, name: packageName },
+        modules: model.ir.modules.map((module) => ({ ...module, packageName })),
+        definitions: model.ir.definitions.map((definition) => ({
+          ...definition,
+          ref: { ...definition.ref, packageName },
+        })),
+      },
+    }
+
+    render(IrExplorerView, { props: { model: inconsistent } })
+    await userEvent.click(screen.getByRole('treeitem', { name: 'listExample' }))
+
+    expect(screen.getByRole('alert').textContent).toContain('Other.Package.Forecast.listExample')
+    expect(screen.queryByText('Insight')).toBeNull()
+  })
+
+  test('opens the selected value in XRay', async () => {
+    render(IrExplorerView, { props: { model: await openModel() } })
+    await userEvent.click(screen.getByRole('treeitem', { name: 'listExample' }))
+    expect(screen.getByText('Insight')).toBeTruthy()
+    expect(screen.getByText('XRay')).toBeTruthy()
     await userEvent.click(screen.getByText('XRay'))
     expect(screen.getAllByText('value-list').length).toBeGreaterThan(0)
-    await userEvent.click(screen.getByText('Back'))
-    expect(screen.getByPlaceholderText('Filter definitions')).toBeTruthy()
   })
 })

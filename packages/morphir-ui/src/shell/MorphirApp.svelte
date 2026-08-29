@@ -49,6 +49,16 @@
       ? SECTION_LABELS[shell.route.section]
       : (workbenches.active?.descriptor.name ?? 'Workbenches'),
   )
+  const explorerActive = $derived.by(() => {
+    const active = workbenches.active
+    return (
+      active?.status === 'ready' &&
+      active.descriptor.kind === 'model' &&
+      active.data.kind === 'model' &&
+      active.descriptor.route === 'explorer' &&
+      active.data.ir !== null
+    )
+  })
 
   let saveTimer: ReturnType<typeof setTimeout> | undefined
   $effect(() => {
@@ -102,7 +112,7 @@
     {:else if workbenches.active}
       <div class="workbench-content">
         <WorkbenchTabs entry={workbenches.active} store={workbenches} />
-        <div class="workbench-view">
+        <div class="workbench-view" class:workbench-view-explorer={explorerActive}>
           <WorkbenchView
             entry={workbenches.active}
             store={workbenches}
@@ -142,14 +152,27 @@
   .workbench-content {
     display: flex;
     flex-direction: column;
-    min-height: 100%;
+    height: calc(100% + 44px);
+    min-width: 0;
+    min-height: 0;
     margin: -22px;
   }
   .workbench-view {
+    flex: 1;
+    min-height: 0;
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    align-content: start;
     gap: 16px;
     padding: 22px;
+    overflow: auto;
+  }
+  .workbench-view-explorer {
+    display: flex;
+    grid-template-columns: none;
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
   }
   .welcome {
     grid-column: 1 / -1;
