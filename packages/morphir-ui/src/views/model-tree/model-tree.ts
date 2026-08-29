@@ -49,22 +49,32 @@ export const isTreeBranch = (node: ModelTreeNode): node is ModelTreeBranch =>
 
 export const projectModelTree = (ir: WorkspaceIr): ReadonlyArray<PackageTreeNode> => {
   const packageId = packageNodeId(ir.package.name)
+  const definitionsByPackageAndModule = new Map<string, Map<string, Array<DefinitionInfo>>>()
+
+  for (const definition of ir.definitions) {
+    let definitionsByModule = definitionsByPackageAndModule.get(definition.ref.packageName)
+    if (!definitionsByModule) {
+      definitionsByModule = new Map()
+      definitionsByPackageAndModule.set(definition.ref.packageName, definitionsByModule)
+    }
+
+    const moduleDefinitions = definitionsByModule.get(definition.ref.moduleName)
+    if (moduleDefinitions) moduleDefinitions.push(definition)
+    else definitionsByModule.set(definition.ref.moduleName, [definition])
+  }
+
   const modules = ir.modules.map((module): ModuleTreeNode => {
     const id = moduleNodeId(module.packageName, module.name)
-    const children = ir.definitions
-      .filter(
-        (definition) =>
-          definition.ref.packageName === module.packageName &&
-          definition.ref.moduleName === module.name,
-      )
-      .map((info): DefinitionTreeNode => ({
-        id: definitionNodeId(info),
-        kind: info.kind,
-        label: info.ref.localName,
-        parentId: id,
-        info,
-        children: [],
-      }))
+    const children = (
+      definitionsByPackageAndModule.get(module.packageName)?.get(module.name) ?? []
+    ).map((info): DefinitionTreeNode => ({
+      id: definitionNodeId(info),
+      kind: info.kind,
+      label: info.ref.localName,
+      parentId: id,
+      info,
+      children: [],
+    }))
 
     return {
       id,

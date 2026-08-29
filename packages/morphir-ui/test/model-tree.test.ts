@@ -99,6 +99,24 @@ describe('model tree projection', () => {
     })
   })
 
+  test('indexes definitions once without rescanning them for each module', () => {
+    const definitionsFilter = vi.spyOn(IR.definitions, 'filter')
+
+    try {
+      const [pkg] = projectModelTree(IR)
+
+      expect(
+        pkg!.children.map((module) => module.children.map((definition) => definition.label)),
+      ).toEqual([
+        ['DAG', 'incomingEdges', 'insertEdge'],
+        ['Distribution', 'dependencyEdges'],
+      ])
+      expect(definitionsFilter).not.toHaveBeenCalled()
+    } finally {
+      definitionsFilter.mockRestore()
+    }
+  })
+
   test('expands every package and its first module in pre-order with one-based levels', () => {
     const roots = projectModelTree(IR)
     const expanded = defaultExpandedIds(roots)
