@@ -65,6 +65,13 @@ export class WorkbenchStore {
     const existing = this.openEntries.find((entry) => entry.descriptor.source === requested)
     if (existing) {
       this.activate(existing.descriptor.id)
+      if (existing.status === 'error') {
+        this.#replace(existing.descriptor.id, {
+          descriptor: existing.descriptor,
+          status: 'loading',
+        })
+        await this.#load(existing.descriptor)
+      }
       return existing.descriptor.id
     }
 
@@ -75,6 +82,13 @@ export class WorkbenchStore {
       )
       if (canonicalExisting) {
         this.activate(canonicalExisting.descriptor.id)
+        if (canonicalExisting.status === 'error') {
+          this.#replace(canonicalExisting.descriptor.id, {
+            descriptor: canonicalExisting.descriptor,
+            status: 'loading',
+          })
+          await this.#load(canonicalExisting.descriptor)
+        }
         return canonicalExisting.descriptor.id
       }
 
@@ -100,8 +114,17 @@ export class WorkbenchStore {
   }
 
   async openPicked(kind: SourcePickerKind): Promise<void> {
-    const source = await this.#services.pickWorkbenchSource(kind)
-    if (source) await this.open(source)
+    try {
+      const source = await this.#services.pickWorkbenchSource(kind)
+      if (source) await this.open(source)
+    } catch (error) {
+      const source = kind === 'folder' ? 'Open folder' : 'Open model file'
+      const failure = { source, message: messageOf(error) }
+      this.failedRequests = [
+        failure,
+        ...this.failedRequests.filter((candidate) => candidate.source !== source),
+      ]
+    }
   }
 
   async restore(commandLineSources: ReadonlyArray<string> = []): Promise<void> {

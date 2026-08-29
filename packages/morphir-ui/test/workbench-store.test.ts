@@ -65,6 +65,52 @@ describe('WorkbenchStore', () => {
     expect(store.activeId).toBe('/a.json')
   })
 
+  test('opening an errored Workbench retries its load', async () => {
+    const { core } = makeFakeCore()
+    const services = await makeAppServices({ core })
+    let loadFails = true
+    const store = new WorkbenchStore(
+      {
+        ...services,
+        loadModelWorkbench: async (descriptor) => {
+          if (loadFails) throw new Error('temporary read failure')
+          return services.loadModelWorkbench(descriptor)
+        },
+      },
+      defaultUiConfig.workbenches,
+    )
+
+    await store.open('/retry.json')
+    expect(store.active?.status).toBe('error')
+
+    loadFails = false
+    await store.open('/retry.json')
+
+    expect(store.active?.status).toBe('ready')
+  })
+
+  test('picker failures are recorded instead of rejecting the UI event', async () => {
+    const { core } = makeFakeCore()
+    const services = await makeAppServices({ core })
+    const store = new WorkbenchStore(
+      {
+        ...services,
+        pickWorkbenchSource: async () => {
+          throw new Error('Folder Workbenches are not available in the browser')
+        },
+      },
+      defaultUiConfig.workbenches,
+    )
+
+    await expect(store.openPicked('folder')).resolves.toBeUndefined()
+    expect(store.failedRequests).toEqual([
+      {
+        source: 'Open folder',
+        message: 'Folder Workbenches are not available in the browser',
+      },
+    ])
+  })
+
   test('keeps route state on each descriptor', async () => {
     const store = await makeStore()
     await store.open('/a.json')

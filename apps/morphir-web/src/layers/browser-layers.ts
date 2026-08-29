@@ -18,7 +18,8 @@ import { decodeMorphirIr, toWorkspaceIr } from '@morphir/ir'
 const CONFIG_KEY = 'morphir-ui.config'
 
 export const browserCore = (version: string): Layer.Layer<CoreServices> => {
-  const selectedModels = new Map<string, string>()
+  const selectedModels = new Map<string, { name: string; content: string }>()
+  let nextSelectedModelId = 0
 
   return Layer.mergeAll(
     Layer.succeed(ConfigService, {
@@ -55,7 +56,8 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
     }),
     Layer.succeed(WorkbenchSourceService, {
       inspect: (source) => {
-        if (!selectedModels.has(source)) {
+        const selectedModel = selectedModels.get(source)
+        if (!selectedModel) {
           return Effect.fail(
             new WorkbenchError({
               code: 'not-found',
@@ -68,7 +70,7 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
         return Effect.succeed({
           id: source,
           source,
-          name: source,
+          name: selectedModel.name,
           kind: 'model' as const,
           distribution: 'single-file' as const,
           route: 'overview' as const,
@@ -95,8 +97,9 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
             if (!file) return resume(Effect.succeed(Option.none()))
             file.text().then(
               (content) => {
-                selectedModels.set(file.name, content)
-                resume(Effect.succeed(Option.some(file.name)))
+                const source = `browser-model:${++nextSelectedModelId}:${file.name}`
+                selectedModels.set(source, { name: file.name, content })
+                resume(Effect.succeed(Option.some(source)))
               },
               (error) =>
                 resume(
@@ -129,8 +132,8 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
     }),
     Layer.succeed(ModelWorkbenchService, {
       load: (descriptor) => {
-        const content = selectedModels.get(descriptor.source)
-        if (!content) {
+        const selectedModel = selectedModels.get(descriptor.source)
+        if (!selectedModel) {
           return Effect.fail(
             new WorkbenchError({
               code: 'not-found',
@@ -139,7 +142,7 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
             }),
           )
         }
-        return decodeMorphirIr(content).pipe(
+        return decodeMorphirIr(selectedModel.content).pipe(
           Effect.map((library) => ({
             kind: 'model' as const,
             descriptor,

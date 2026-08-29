@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { defaultUiConfig, makeAppServices } from '@morphir/ui'
 import { browserCore } from '../src/layers/browser-layers.ts'
 
 describe('browserCore', () => {
   beforeEach(() => localStorage.clear())
+  afterEach(() => vi.restoreAllMocks())
 
   test('config defaults when localStorage is empty', async () => {
     const services = await makeAppServices({ core: browserCore('1.0.0') })
@@ -33,5 +34,37 @@ describe('browserCore', () => {
     await expect(services.pickWorkbenchSource('folder')).rejects.toThrow(
       'Folder Workbenches are not available in the browser',
     )
+  })
+
+  test('keeps separate browser selections that share a file name', async () => {
+    const selectedFiles = [
+      new File(
+        ['{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}'],
+        'model.json',
+      ),
+      new File(
+        ['{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}'],
+        'model.json',
+      ),
+    ]
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function (
+      this: HTMLInputElement,
+    ) {
+      Object.defineProperty(this, 'files', {
+        configurable: true,
+        value: [selectedFiles.shift()],
+      })
+      this.onchange?.(new Event('change'))
+    })
+    const services = await makeAppServices({ core: browserCore('1.0.0') })
+
+    const first = await services.pickWorkbenchSource('model-file')
+    const second = await services.pickWorkbenchSource('model-file')
+
+    expect(first).not.toBeNull()
+    expect(second).not.toBeNull()
+    expect(first).not.toBe(second)
+    await expect(services.inspectWorkbench(first!)).resolves.toMatchObject({ name: 'model.json' })
+    await expect(services.inspectWorkbench(second!)).resolves.toMatchObject({ name: 'model.json' })
   })
 })
