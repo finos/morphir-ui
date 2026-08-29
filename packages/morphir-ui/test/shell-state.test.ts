@@ -2,9 +2,9 @@ import { describe, expect, test } from 'vitest'
 import { PANEL_BOUNDS, SHELL_DEFAULTS, ShellState } from '../src/index.ts'
 
 describe('ShellState', () => {
-  test('defaults match morphir-scala ShellDefaults', () => {
+  test('defaults provide a wide Workbench rail', () => {
     const s = new ShellState()
-    expect([s.leftWidth, s.rightWidth, s.bottomHeight]).toEqual([224, 300, 180])
+    expect([s.leftWidth, s.rightWidth, s.bottomHeight]).toEqual([320, 300, 180])
     expect(s.colorScheme).toBe('dark')
     expect(s.animations).toBe(true)
     expect(s.route).toEqual({ kind: 'workspace' })
@@ -16,7 +16,7 @@ describe('ShellState', () => {
     s.toggleLeft()
     expect(s.leftExtent).toBe(0)
     s.toggleLeft()
-    expect(s.leftExtent).toBe(224)
+    expect(s.leftExtent).toBe(320)
   })
 
   test('resize clamps to PanelBounds', () => {

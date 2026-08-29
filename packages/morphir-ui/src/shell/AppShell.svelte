@@ -1,20 +1,18 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import Titlebar from './Titlebar.svelte'
-  import Sidebar from './Sidebar.svelte'
+  import WorkbenchRail from './WorkbenchRail.svelte'
   import RegionPanel from './RegionPanel.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
-  import type { NavItem } from './nav.ts'
   import type { ShellState } from '../state/shell-state.svelte.ts'
+  import type { WorkbenchStore } from '../workbench/workbench-store.svelte.ts'
 
   let {
     shell,
     badge,
     version,
     crumbTitle,
-    navItems,
-    activeNav,
-    onNavSelect,
+    store,
     onOpenSettings,
     macChrome = false,
     center,
@@ -25,9 +23,7 @@
     badge: string
     version: string
     crumbTitle: string
-    navItems: NavItem[]
-    activeNav: string
-    onNavSelect: (id: string) => void
+    store: WorkbenchStore
     onOpenSettings: () => void
     macChrome?: boolean
     center?: Snippet
@@ -40,7 +36,7 @@
   <Titlebar {shell} {badge} {version} {crumbTitle} {macChrome} />
   <div class="shell-body">
     <RegionPanel region="left" extent={shell.leftExtent}>
-      <Sidebar {navItems} {activeNav} {onNavSelect} {onOpenSettings} />
+      <WorkbenchRail {store} {onOpenSettings} />
     </RegionPanel>
     {#if shell.leftVisible}
       <ResizeHandle

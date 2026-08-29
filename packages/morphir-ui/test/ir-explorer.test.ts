@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import IrExplorerView from '../src/views/IrExplorerView.svelte'
-import { WorkspaceState, makeAppServices } from '../src/index.ts'
+import { makeAppServices, type ModelWorkbenchData } from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
 
 // This project imports test primitives explicitly rather than using Vitest globals, so
@@ -22,21 +22,17 @@ const irFixture = readFileSync(
   'utf8',
 )
 
-const openWorkspace = async () => {
+const openModel = async (): Promise<ModelWorkbenchData> => {
   const { core } = makeFakeCore({ workspaceContent: irFixture })
-  const ws = new WorkspaceState(await makeAppServices({ core }))
-  await ws.openPicked()
-  return ws
+  const services = await makeAppServices({ core })
+  const descriptor = await services.inspectWorkbench('/models/listType.json')
+  if (descriptor.kind !== 'model') throw new Error('expected model descriptor')
+  return services.loadModelWorkbench(descriptor)
 }
 
 describe('IrExplorerView', () => {
-  test('empty state prompts to open a workspace', () => {
-    render(IrExplorerView, { props: { workspace: new WorkspaceState(null as never) } })
-    expect(screen.getByText(/Open a workspace/)).toBeTruthy()
-  })
-
   test('renders package, modules and definitions', async () => {
-    render(IrExplorerView, { props: { workspace: await openWorkspace() } })
+    render(IrExplorerView, { props: { model: await openModel() } })
     expect(screen.getByText('Morphir.Example.App')).toBeTruthy()
     expect(screen.getByText('Forecast')).toBeTruthy()
     expect(screen.getByText('listExample')).toBeTruthy()
@@ -44,21 +40,21 @@ describe('IrExplorerView', () => {
   })
 
   test('search filter narrows definitions', async () => {
-    render(IrExplorerView, { props: { workspace: await openWorkspace() } })
+    render(IrExplorerView, { props: { model: await openModel() } })
     await userEvent.type(screen.getByPlaceholderText('Filter definitions'), 'listEx')
     expect(screen.queryByText('WindDirection')).toBeNull()
     expect(screen.getByText('listExample')).toBeTruthy()
   })
 
   test('kind toggles hide types or values', async () => {
-    render(IrExplorerView, { props: { workspace: await openWorkspace() } })
+    render(IrExplorerView, { props: { model: await openModel() } })
     await userEvent.click(screen.getByRole('button', { name: 'Types' }))
     expect(screen.queryByText('WindDirection')).toBeNull()
     expect(screen.getByText('listExample')).toBeTruthy()
   })
 
   test('clicking a definition opens the detail surface, defaulting to the Insight tab', async () => {
-    render(IrExplorerView, { props: { workspace: await openWorkspace() } })
+    render(IrExplorerView, { props: { model: await openModel() } })
     await userEvent.click(screen.getByText('listExample'))
     expect(screen.getByText('Insight')).toBeTruthy()
     expect(screen.getByText('XRay')).toBeTruthy()

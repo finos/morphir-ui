@@ -1,14 +1,13 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import AppShell from './AppShell.svelte'
-  import OverviewView from '../views/OverviewView.svelte'
-  import IrExplorerView from '../views/IrExplorerView.svelte'
+  import WorkbenchTabs from './WorkbenchTabs.svelte'
+  import WorkbenchView from '../views/WorkbenchView.svelte'
   import SettingsView from '../views/settings/SettingsView.svelte'
   import { ShellState, type SettingsSection } from '../state/shell-state.svelte.ts'
-  import { WorkspaceState } from '../state/workspace-state.svelte.ts'
+  import { WorkbenchStore } from '../workbench/workbench-store.svelte.ts'
   import { configToSnapshot, withSnapshot, type UiConfig } from '../services/config.ts'
   import type { AppServices } from '../services/services.ts'
-  import type { NavItem } from './nav.ts'
   import type { InspectMeta } from '../views/insight/insight-context.ts'
 
   let {
@@ -16,19 +15,19 @@
     badge,
     version,
     initialConfig,
+    initialSources = [],
+    registerOpenSources,
     macChrome = false,
   }: {
     services: AppServices
     badge: string
     version: string
     initialConfig: UiConfig
+    initialSources?: ReadonlyArray<string>
+    registerOpenSources?: (handler: (sources: ReadonlyArray<string>) => void) => () => void
     macChrome?: boolean
   } = $props()
 
-  const NAV_ITEMS: NavItem[] = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'explorer', label: 'IR Explorer' },
-  ]
   const SECTION_LABELS: Record<SettingsSection, string> = {
     general: 'General',
     appearance: 'Appearance',
@@ -36,16 +35,19 @@
     about: 'About',
   }
 
-  const shell = new ShellState()
-  shell.hydrate(configToSnapshot(initialConfig))
-  const workspace = new WorkspaceState(services, initialConfig.workspace.recent)
-  let activeNav = $state('overview')
+  const shell = untrack(() => {
+    const state = new ShellState()
+    state.hydrate(configToSnapshot(initialConfig))
+    return state
+  })
+  const workbenches = untrack(() => new WorkbenchStore(services, initialConfig.workbenches))
   let inspected = $state<InspectMeta | null>(null)
+  let inspectedWorkbenchId: string | null = null
 
   const crumbTitle = $derived(
     shell.route.kind === 'settings'
       ? SECTION_LABELS[shell.route.section]
-      : (NAV_ITEMS.find((n) => n.id === activeNav)?.label ?? ''),
+      : (workbenches.active?.descriptor.name ?? 'Workbenches'),
   )
 
   let saveTimer: ReturnType<typeof setTimeout> | undefined
@@ -59,14 +61,29 @@
     return () => clearTimeout(saveTimer)
   })
 
-  onMount(() => {
-    if (
-      initialConfig.workspace.reopenOnLaunch &&
-      initialConfig.workspace.active &&
-      services.capabilities.reopenWorkspaces
-    ) {
-      void workspace.reopen(initialConfig.workspace.active)
+  $effect(() => {
+    const activeId = workbenches.activeId
+    if (inspectedWorkbenchId !== activeId) {
+      inspectedWorkbenchId = activeId
+      inspected = null
     }
+  })
+
+  onMount(() => {
+    void workbenches.restore(initialSources)
+    const unsubscribe = registerOpenSources?.((sources) => {
+      void (async () => {
+        const activeBefore = workbenches.activeId
+        let firstOpened: string | null = null
+        for (const source of sources) {
+          const openedId = await workbenches.open(source)
+          if (!firstOpened) firstOpened = openedId
+        }
+        if (firstOpened) workbenches.activate(firstOpened)
+        else if (activeBefore) workbenches.activate(activeBefore)
+      })()
+    })
+    return () => unsubscribe?.()
   })
 </script>
 
@@ -75,26 +92,37 @@
   {badge}
   {version}
   {crumbTitle}
-  navItems={NAV_ITEMS}
-  {activeNav}
-  onNavSelect={(id) => {
-    activeNav = id
-    shell.closeSettings()
-  }}
+  store={workbenches}
   onOpenSettings={() => shell.openSettings()}
   {macChrome}
 >
   {#snippet center()}
     {#if shell.isSettings}
-      <SettingsView {services} {shell} {workspace} {version} />
-    {:else if activeNav === 'overview'}
-      <OverviewView
-        {workspace}
-        capabilities={services.capabilities}
-        onOpen={() => void workspace.openPicked()}
-      />
+      <SettingsView {services} {shell} store={workbenches} {version} />
+    {:else if workbenches.active}
+      <div class="workbench-content">
+        <WorkbenchTabs entry={workbenches.active} store={workbenches} />
+        <div class="workbench-view">
+          <WorkbenchView
+            entry={workbenches.active}
+            store={workbenches}
+            onInspect={(meta) => (inspected = meta)}
+          />
+        </div>
+      </div>
     {:else}
-      <IrExplorerView {workspace} onInspect={(meta) => (inspected = meta)} />
+      <section class="welcome">
+        <h1>Open a Workbench</h1>
+        <p>Explore a Morphir model or open a development root.</p>
+        <div>
+          <button type="button" onclick={() => void workbenches.openPicked('model-file')}
+            >Open model file</button
+          >
+          <button type="button" onclick={() => void workbenches.openPicked('folder')}
+            >Open folder</button
+          >
+        </div>
+      </section>
     {/if}
   {/snippet}
   {#snippet inspector()}
@@ -111,9 +139,68 @@
 </AppShell>
 
 <style>
-  .inspector { display: flex; flex-direction: column; gap: 4px; }
-  .fqn { font-family: var(--mono); font-size: 12px; color: var(--text-strong); word-break: break-word; }
-  .kind { font-size: 11px; color: var(--accent2); text-transform: uppercase; letter-spacing: 0.08em; }
-  .doc { font-size: 12.5px; color: var(--muted); }
-  .empty { font-size: 12.5px; color: var(--muted); }
+  .workbench-content {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    margin: -22px;
+  }
+  .workbench-view {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    gap: 16px;
+    padding: 22px;
+  }
+  .welcome {
+    grid-column: 1 / -1;
+    max-width: 560px;
+    margin: 8vh auto;
+    text-align: center;
+  }
+  .welcome h1 {
+    margin: 0 0 8px;
+    color: var(--text-strong);
+  }
+  .welcome p {
+    color: var(--muted);
+  }
+  .welcome div {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 18px;
+  }
+  .welcome button {
+    padding: 8px 14px;
+    border: 1px solid var(--panel-edge);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .inspector {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .fqn {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-strong);
+    word-break: break-word;
+  }
+  .kind {
+    font-size: 11px;
+    color: var(--accent2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .doc {
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .empty {
+    font-size: 12.5px;
+    color: var(--muted);
+  }
 </style>

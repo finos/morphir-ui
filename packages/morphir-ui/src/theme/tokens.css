@@ -32,6 +32,12 @@
   --traffic-light-inset: 78px;
 }
 
-.theme-dark { color-scheme: dark; }
-.theme-light { color-scheme: light; }
-.theme-system { color-scheme: light dark; }
+.theme-dark {
+  color-scheme: dark;
+}
+.theme-light {
+  color-scheme: light;
+}
+.theme-system {
+  color-scheme: light dark;
+}

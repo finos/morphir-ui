@@ -1,5 +1,18 @@
 import { Context, Data, Effect, Layer, ManagedRuntime, Option } from 'effect'
 import type { UiConfig } from './config.ts'
+import {
+  DevelopmentWorkbenchService,
+  ModelWorkbenchService,
+  WorkbenchSourceService,
+  type SourcePickerKind,
+} from '../workbench/services.ts'
+import type {
+  DevelopmentWorkbenchData,
+  DevelopmentWorkbenchDescriptor,
+  ModelWorkbenchData,
+  ModelWorkbenchDescriptor,
+  WorkbenchDescriptor,
+} from '../workbench/types.ts'
 
 export interface WorkspaceRef {
   readonly path: string
@@ -51,7 +64,13 @@ export class GitHubService extends Context.Tag('@morphir/ui/GitHubService')<
   GitHubServiceApi
 >() {}
 
-export type CoreServices = ConfigService | WorkspaceService | AppInfoService
+export type CoreServices =
+  | ConfigService
+  | WorkspaceService
+  | AppInfoService
+  | WorkbenchSourceService
+  | ModelWorkbenchService
+  | DevelopmentWorkbenchService
 
 export interface Capabilities {
   readonly github: boolean
@@ -70,6 +89,13 @@ export interface AppServices {
    * full-object replace.
    */
   updateConfig(mutate: (config: UiConfig) => UiConfig): Promise<void>
+  inspectWorkbench(source: string): Promise<WorkbenchDescriptor>
+  pickWorkbenchSource(kind: SourcePickerKind): Promise<string | null>
+  revealWorkbenchSource(source: string): Promise<void>
+  loadModelWorkbench(descriptor: ModelWorkbenchDescriptor): Promise<ModelWorkbenchData>
+  loadDevelopmentWorkbench(
+    descriptor: DevelopmentWorkbenchDescriptor,
+  ): Promise<DevelopmentWorkbenchData>
   pickWorkspace(): Promise<PickedWorkspace | null>
   readonly readWorkspace: ((ref: WorkspaceRef) => Promise<string>) | null
   readonly github: {
@@ -87,6 +113,9 @@ const buildFacade = async (
 ): Promise<AppServices> => {
   const config = await runtime.runPromise(ConfigService)
   const workspace = await runtime.runPromise(WorkspaceService)
+  const workbenchSource = await runtime.runPromise(WorkbenchSourceService)
+  const modelWorkbench = await runtime.runPromise(ModelWorkbenchService)
+  const developmentWorkbench = await runtime.runPromise(DevelopmentWorkbenchService)
   const appInfo = await runtime.runPromise(AppInfoService)
   const read = Option.getOrNull(workspace.read)
   // Serializes updateConfig's load -> mutate -> save cycles: each call is chained onto the
@@ -108,6 +137,13 @@ const buildFacade = async (
         const current = await runtime.runPromise(config.load)
         await runtime.runPromise(config.save(mutate(current)))
       }),
+    inspectWorkbench: (source) => runtime.runPromise(workbenchSource.inspect(source)),
+    pickWorkbenchSource: (kind) =>
+      runtime.runPromise(workbenchSource.pick(kind)).then(Option.getOrNull),
+    revealWorkbenchSource: (source) => runtime.runPromise(workbenchSource.reveal(source)),
+    loadModelWorkbench: (descriptor) => runtime.runPromise(modelWorkbench.load(descriptor)),
+    loadDevelopmentWorkbench: (descriptor) =>
+      runtime.runPromise(developmentWorkbench.load(descriptor)),
     pickWorkspace: () => runtime.runPromise(workspace.pickAndRead).then(Option.getOrNull),
     readWorkspace: read ? (ref) => runtime.runPromise(read(ref)) : null,
     github: github
@@ -131,10 +167,7 @@ export const makeAppServices = async (opts: {
     const runtime = ManagedRuntime.make(layer)
     const github = await runtime.runPromise(GitHubService)
     // Sound narrowing: the merged runtime provides CoreServices | GitHubService; buildFacade only needs CoreServices, but Layer/Runtime contravariance keeps the compiler from expressing this widening-as-subset directly.
-    return buildFacade(
-      runtime as ManagedRuntime.ManagedRuntime<CoreServices, never>,
-      github,
-    )
+    return buildFacade(runtime as ManagedRuntime.ManagedRuntime<CoreServices, never>, github)
   }
   const runtime = ManagedRuntime.make(opts.core)
   return buildFacade(runtime, null)

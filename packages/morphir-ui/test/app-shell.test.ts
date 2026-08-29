@@ -2,7 +2,8 @@ import { cleanup, render, screen } from '@testing-library/svelte'
 import { afterEach, describe, expect, test } from 'vitest'
 import { userEvent } from '@testing-library/user-event'
 import AppShell from '../src/shell/AppShell.svelte'
-import { ShellState } from '../src/index.ts'
+import { ShellState, WorkbenchStore, defaultUiConfig, makeAppServices } from '../src/index.ts'
+import { makeFakeCore } from './support/fake-services.ts'
 
 // `@testing-library/svelte`'s auto-cleanup only self-registers when
 // `beforeEach`/`afterEach` are *global* functions (i.e. Vitest `test.globals: true`).
@@ -12,45 +13,39 @@ import { ShellState } from '../src/index.ts'
 // tests (duplicate ids, duplicate text matches) rather than only the current render.
 afterEach(() => cleanup())
 
-const renderShell = (shell = new ShellState()) =>
-  render(AppShell, {
+const renderShell = async (shell = new ShellState()) => {
+  const { core } = makeFakeCore()
+  const store = new WorkbenchStore(await makeAppServices({ core }), defaultUiConfig.workbenches)
+  return render(AppShell, {
     props: {
       shell,
       badge: 'DESKTOP',
       version: '1.2.3',
       crumbTitle: 'Overview',
-      navItems: [
-        { id: 'overview', label: 'Overview' },
-        { id: 'explorer', label: 'IR Explorer' },
-      ],
-      activeNav: 'overview',
-      onNavSelect: () => {},
+      store,
       onOpenSettings: () => {},
     },
   })
+}
 
 describe('AppShell chrome', () => {
-  test('renders brand, badge and version chip', () => {
-    renderShell()
+  test('renders brand, badge and version chip', async () => {
+    await renderShell()
     expect(screen.getByText('morphir')).toBeTruthy()
     expect(screen.getByText('DESKTOP')).toBeTruthy()
     expect(document.getElementById('app-version')!.textContent).toBe('v1.2.3')
   })
 
-  test('renders nav items with active state and dots', () => {
-    renderShell()
-    // Both the titlebar crumb ("morphir / Overview") and the active nav item render an
-    // "Overview" text node as their own direct child, so a plain getByText('Overview') is
-    // ambiguous — scope the query to the nav item explicitly.
-    const active = screen.getByText('Overview', { selector: '.nav-item' }).closest('.nav-item')!
-    expect(active.classList.contains('active')).toBe(true)
-    expect(active.querySelector('.nav-dot')).toBeTruthy()
-    expect(screen.getByText('Workspace')).toBeTruthy()
+  test('renders the Workbench rail and opening controls', async () => {
+    await renderShell()
+    expect(screen.getByRole('navigation', { name: 'Workbenches' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Open model file' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Open folder' })).toBeTruthy()
   })
 
   test('root carries the scheme class and no-motion toggles', async () => {
     const shell = new ShellState()
-    const { container } = renderShell(shell)
+    const { container } = await renderShell(shell)
     const root = container.querySelector('.shell')!
     expect(root.classList.contains('theme-dark')).toBe(true)
     shell.selectColorScheme('light')
@@ -63,7 +58,7 @@ describe('AppShell chrome', () => {
 
   test('sidebar toggle collapses the left region to zero extent', async () => {
     const shell = new ShellState()
-    const { container } = renderShell(shell)
+    const { container } = await renderShell(shell)
     await userEvent.click(document.getElementById('sidebar-toggle')!)
     expect(shell.leftVisible).toBe(false)
     const left = container.querySelector('[data-region="left"]') as HTMLElement
@@ -74,7 +69,7 @@ describe('AppShell chrome', () => {
   test('settings route swaps panel toggles for Restore defaults and Settings crumb', async () => {
     const shell = new ShellState()
     shell.openSettings()
-    renderShell(shell)
+    await renderShell(shell)
     expect(document.getElementById('restore-defaults')).toBeTruthy()
     expect(screen.getByText('Restore defaults')).toBeTruthy()
     expect(screen.getByText(/^Settings \//)).toBeTruthy()

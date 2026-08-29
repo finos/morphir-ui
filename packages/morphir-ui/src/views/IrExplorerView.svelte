@@ -1,18 +1,19 @@
 <script lang="ts">
-  import type { WorkspaceState } from '../state/workspace-state.svelte.ts'
+  import type { ModelWorkbenchData } from '../workbench/types.ts'
   import DefinitionDetail from './insight/DefinitionDetail.svelte'
   import Icon from '../icons/Icon.svelte'
   import { nameToCamel, nameToTitle, pathToTitle, type RawDefEntry } from '@morphir/ir'
   import type { InspectMeta } from './insight/insight-context.ts'
 
-  let { workspace, onInspect }: { workspace: WorkspaceState; onInspect?: (meta: InspectMeta) => void } = $props()
+  let { model, onInspect }: { model: ModelWorkbenchData; onInspect?: (meta: InspectMeta) => void } =
+    $props()
 
   let search = $state('')
   let showTypes = $state(true)
   let showValues = $state(true)
   let selectedModule = $state<string | null>(null)
 
-  const ir = $derived(workspace.current?.ir ?? null)
+  const ir = $derived(model.ir)
   const activeModule = $derived(selectedModule ?? ir?.modules[0]?.name ?? null)
   const definitions = $derived(
     (ir?.definitions ?? []).filter(
@@ -25,8 +26,12 @@
 
   let selected = $state<{ info: (typeof definitions)[number]; entry: RawDefEntry } | null>(null)
 
-  const findEntry = (moduleName: string, localName: string, kind: 'type' | 'value'): RawDefEntry | null => {
-    const lib = workspace.current?.library
+  const findEntry = (
+    moduleName: string,
+    localName: string,
+    kind: 'type' | 'value',
+  ): RawDefEntry | null => {
+    const lib = model.library
     if (!lib) return null
     for (const m of lib.modules) {
       if (pathToTitle(m.path) !== moduleName) continue
@@ -42,8 +47,7 @@
 
 {#if !ir}
   <section class="card">
-    <p class="muted">Open a workspace to explore its IR.</p>
-    {#if workspace.error}<p class="error">{workspace.error}</p>{/if}
+    <p class="muted">Decoded IR is not available for this Model Workbench.</p>
   </section>
 {:else}
   <section class="card">
@@ -72,7 +76,7 @@
         kind={selected.info.kind}
         moduleName={selected.info.ref.moduleName}
         packageName={selected.info.ref.packageName}
-        library={workspace.current!.library}
+        library={model.library!}
         onSelect={onInspect}
       />
     {:else}
@@ -127,10 +131,6 @@
   }
   .muted {
     color: var(--muted);
-    font-size: 13px;
-  }
-  .error {
-    color: var(--accent);
     font-size: 13px;
   }
   .mod {

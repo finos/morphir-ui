@@ -12,7 +12,8 @@ import type { InspectMeta } from '../src/views/insight/insight-context.ts'
 afterEach(() => cleanup())
 
 const fixture = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), '../../morphir-ir/test/fixtures/insight-ir.json'), 'utf8'
+  join(dirname(fileURLToPath(import.meta.url)), '../../morphir-ir/test/fixtures/insight-ir.json'),
+  'utf8',
 )
 const setup = async (name: string, onSelect?: (meta: InspectMeta) => void) => {
   const lib: MorphirLibrary = await Effect.runPromise(decodeMorphirIr(fixture))

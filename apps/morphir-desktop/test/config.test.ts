@@ -34,10 +34,11 @@ describe('config file round-trip', () => {
     const config = {
       ...defaultUiConfig,
       appearance: { colorScheme: 'light' as const, animations: false },
-      workspace: {
-        recent: ['/a/morphir-ir.json'],
+      workbenches: {
+        open: [],
+        recent: [],
+        activeId: null,
         reopenOnLaunch: false,
-        active: '/a/morphir-ir.json',
       },
     }
     await saveConfigFile(config, path)

@@ -18,13 +18,13 @@ export interface PanelBounds {
   readonly max: number
 }
 export const PANEL_BOUNDS = {
-  left: { min: 180, max: 420 },
+  left: { min: 300, max: 420 },
   right: { min: 220, max: 560 },
   bottom: { min: 120, max: 460 },
 } as const satisfies Record<string, PanelBounds>
 
 export const SHELL_DEFAULTS = {
-  leftWidth: 224,
+  leftWidth: 320,
   rightWidth: 300,
   bottomHeight: 180,
   colorScheme: 'dark' as ColorScheme,

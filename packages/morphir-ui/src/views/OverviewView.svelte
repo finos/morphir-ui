@@ -1,42 +1,32 @@
 <script lang="ts">
-  import type { Capabilities } from '../services/services.ts'
-  import type { WorkspaceState } from '../state/workspace-state.svelte.ts'
-  let {
-    workspace,
-    capabilities,
-    onOpen,
-  }: { workspace: WorkspaceState; capabilities: Capabilities; onOpen: () => void } = $props()
+  import type { ModelWorkbenchData } from '../workbench/types.ts'
+  let { model }: { model: ModelWorkbenchData } = $props()
 </script>
 
 <section class="card">
-  <h2 class="card-title">Workspace</h2>
-  {#if workspace.current}
+  <h2 class="card-title">Model Workbench</h2>
+  <div class="row">
+    <span class="label">Source</span><span class="value">{model.descriptor.source}</span>
+  </div>
+  <div class="row">
+    <span class="label">Distribution</span><span class="value"
+      >{model.descriptor.distribution === 'single-file' ? 'Single file' : 'Document Tree'}</span
+    >
+  </div>
+  {#if model.ir}
     <div class="row">
-      <span class="label">Path</span><span class="value">{workspace.current.ref.path}</span>
+      <span class="label">Package</span><span class="value">{model.ir.package.name}</span>
     </div>
     <div class="row">
-      <span class="label">Package</span><span class="value"
-        >{workspace.current.ir.package.name}</span
-      >
+      <span class="label">Modules</span><span class="value">{model.ir.package.moduleCount}</span>
     </div>
-    <div class="row">
-      <span class="label">Modules</span><span class="value"
-        >{workspace.current.ir.package.moduleCount}</span
-      >
-    </div>
-  {:else}
-    <p class="muted">No workspace open.</p>
   {/if}
-  {#if workspace.error}<p class="error">{workspace.error}</p>{/if}
-  <button class="action" onclick={onOpen}>Open workspace…</button>
 </section>
 
-{#if capabilities.reopenWorkspaces && workspace.recents.length > 0}
+{#if model.manifest}
   <section class="card">
-    <h2 class="card-title">Recent workspaces</h2>
-    {#each workspace.recents as path (path)}
-      <button class="recent" onclick={() => workspace.reopen(path)}>{path}</button>
-    {/each}
+    <h2 class="card-title">Document Tree Manifest</h2>
+    <pre>{JSON.stringify(model.manifest, null, 2)}</pre>
   </section>
 {/if}
 
@@ -70,41 +60,10 @@
     font-size: 12.5px;
     color: var(--accent-text);
   }
-  .muted {
-    color: var(--muted);
-  }
-  .error {
-    color: var(--accent);
-    font-size: 13px;
-    margin-top: 8px;
-  }
-  .action {
-    margin-top: 12px;
-    padding: 7px 14px;
-    border-radius: 8px;
-    border: 1px solid var(--panel-edge);
-    background: var(--hover-soft);
-    color: var(--text);
-    cursor: pointer;
-  }
-  .action:hover {
-    background: var(--hover);
-  }
-  .recent {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: 7px 10px;
-    border-radius: 8px;
-    background: none;
-    border: none;
+  pre {
+    margin: 0;
+    overflow: auto;
+    font: 12px/1.5 var(--mono);
     color: var(--nav);
-    font-family: var(--mono);
-    font-size: 12.5px;
-    cursor: pointer;
-  }
-  .recent:hover {
-    background: var(--hover-soft);
-    color: var(--text);
   }
 </style>

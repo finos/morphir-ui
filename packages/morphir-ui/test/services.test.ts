@@ -1,9 +1,7 @@
 import { describe, expect, test } from 'vitest'
-import { Effect, Layer, Option } from 'effect'
+import { Effect, Layer } from 'effect'
 import {
-  AppInfoService,
   ConfigService,
-  WorkspaceService,
   decodeUiConfig,
   defaultUiConfig,
   makeAppServices,
@@ -18,7 +16,7 @@ describe('UiConfig', () => {
     expect(decodeUiConfig({})).toEqual(defaultUiConfig)
     expect(defaultUiConfig.appearance.colorScheme).toBe('dark')
     expect(defaultUiConfig.github.source).toBe('none')
-    expect(defaultUiConfig.workspace.reopenOnLaunch).toBe(true)
+    expect(defaultUiConfig.workbenches.reopenOnLaunch).toBe(true)
   })
   test('invalid input falls back to defaults', () => {
     expect(decodeUiConfig({ appearance: { colorScheme: 'sepia' } })).toEqual(defaultUiConfig)
@@ -26,7 +24,7 @@ describe('UiConfig', () => {
   })
   test('snapshot round-trip', () => {
     const snap = configToSnapshot(defaultUiConfig)
-    expect(snap.shell.leftWidth).toBe(224)
+    expect(snap.shell.leftWidth).toBe(320)
     const updated = withSnapshot(defaultUiConfig, {
       ...snap,
       appearance: { ...snap.appearance, colorScheme: 'light' },
@@ -66,30 +64,25 @@ describe('makeAppServices', () => {
     // A ConfigService whose load/save each take a beat, so two concurrent updateConfig calls
     // would interleave (and drop one mutation) if the facade did not serialize them.
     const store: { config: UiConfig } = { config: defaultUiConfig }
-    const core = Layer.mergeAll(
-      Layer.succeed(ConfigService, {
+    const { core } = makeFakeCore({
+      configLayer: Layer.succeed(ConfigService, {
         load: Effect.sleep('5 millis').pipe(Effect.andThen(() => Effect.sync(() => store.config))),
         save: (c) =>
           Effect.sleep('5 millis').pipe(
             Effect.andThen(() => Effect.sync(() => void (store.config = c))),
           ),
       }),
-      Layer.succeed(WorkspaceService, {
-        pickAndRead: Effect.succeed(Option.none()),
-        read: Option.none(),
-      }),
-      Layer.succeed(AppInfoService, { version: Effect.succeed('0.0.0-test') }),
-    )
+    })
     const services = await makeAppServices({ core })
     await Promise.all([
       services.updateConfig((cfg) => ({ ...cfg, github: { source: 'gh-cli' } })),
       services.updateConfig((cfg) => ({
         ...cfg,
-        workspace: { ...cfg.workspace, reopenOnLaunch: false },
+        workbenches: { ...cfg.workbenches, reopenOnLaunch: false },
       })),
     ])
     expect(store.config.github.source).toBe('gh-cli')
-    expect(store.config.workspace.reopenOnLaunch).toBe(false)
+    expect(store.config.workbenches.reopenOnLaunch).toBe(false)
   })
   test('github facade appears when the layer is provided', async () => {
     const { core } = makeFakeCore()

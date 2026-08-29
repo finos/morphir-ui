@@ -4,12 +4,17 @@
 
   let {
     node,
-    render
-  }: { node: Extract<ViewNode, { kind: 'v-arith-chain' | 'v-logic-chain' }>; render: Snippet<[ViewNode]> } = $props()
+    render,
+  }: {
+    node: Extract<ViewNode, { kind: 'v-arith-chain' | 'v-logic-chain' }>
+    render: Snippet<[ViewNode]>
+  } = $props()
 
   const isLogic = $derived(node.kind === 'v-logic-chain')
   const items = $derived(
-    node.kind === 'v-arith-chain' ? node.items : node.items.map((n) => ({ node: n, grouped: false }))
+    node.kind === 'v-arith-chain'
+      ? node.items
+      : node.items.map((n) => ({ node: n, grouped: false })),
   )
 </script>
 
@@ -25,8 +30,21 @@
 </span>
 
 <style>
-  .chain { font-size: 12.5px; display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; }
-  .op { font-family: var(--mono); color: var(--muted); }
-  .op.logic { font-weight: 700; }
-  .grouped { display: inline-flex; }
+  .chain {
+    font-size: 12.5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+  .op {
+    font-family: var(--mono);
+    color: var(--muted);
+  }
+  .op.logic {
+    font-weight: 700;
+  }
+  .grouped {
+    display: inline-flex;
+  }
 </style>

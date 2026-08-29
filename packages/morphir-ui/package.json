@@ -4,10 +4,14 @@
   "type": "module",
   "svelte": "./src/index.ts",
   "exports": {
-    ".": { "svelte": "./src/index.ts", "default": "./src/index.ts" },
+    ".": {
+      "svelte": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
     "./theme.css": "./src/theme/index.css",
     "./token": "./src/services/token.ts",
-    "./config": "./src/services/config.ts"
+    "./config": "./src/services/config.ts",
+    "./workbench": "./src/workbench/index.ts"
   },
   "scripts": {
     "lint": "eslint src test",
@@ -20,7 +24,9 @@
     "@morphir/ir": "workspace:*",
     "effect": "^3.22.1"
   },
-  "peerDependencies": { "svelte": "^5.56.10" },
+  "peerDependencies": {
+    "svelte": "^5.56.10"
+  },
   "devDependencies": {
     "svelte": "^5.56.10",
     "svelte-check": "^4.7.6",

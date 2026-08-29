@@ -39,9 +39,9 @@ describe('theme stylesheets', () => {
   })
 
   test('scheme classes only flip color-scheme', () => {
-    expect(tokens).toContain('.theme-dark { color-scheme: dark; }')
-    expect(tokens).toContain('.theme-light { color-scheme: light; }')
-    expect(tokens).toContain('.theme-system { color-scheme: light dark; }')
+    expect(tokens).toMatch(/\.theme-dark\s*{\s*color-scheme:\s*dark;\s*}/)
+    expect(tokens).toMatch(/\.theme-light\s*{\s*color-scheme:\s*light;\s*}/)
+    expect(tokens).toMatch(/\.theme-system\s*{\s*color-scheme:\s*light dark;\s*}/)
     expect(tokens).toMatch(/:root\s*\{\s*color-scheme:\s*dark/)
   })
 

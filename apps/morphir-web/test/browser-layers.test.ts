@@ -30,5 +30,8 @@ describe('browserCore', () => {
     expect(services.capabilities).toEqual({ github: false, reopenWorkspaces: false })
     expect(services.github).toBeNull()
     expect(services.readWorkspace).toBeNull()
+    await expect(services.pickWorkbenchSource('folder')).rejects.toThrow(
+      'Folder Workbenches are not available in the browser',
+    )
   })
 })
