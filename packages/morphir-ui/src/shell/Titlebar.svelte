@@ -17,7 +17,7 @@
   const crumbPrefix = $derived(shell.isSettings ? 'Settings' : 'morphir')
 </script>
 
-<header class="titlebar" id="titlebar">
+<header class="titlebar" id="titlebar" style:--left-extent="{shell.leftExtent}px">
   {#if shell.leftVisible}
     <div class="brand-zone" class:lights-inset={macChrome}>
       <button
@@ -99,7 +99,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    width: 224px;
+    width: var(--left-extent);
     padding: 0 12px;
     background: var(--rail);
     border-right: 1px solid var(--edge);

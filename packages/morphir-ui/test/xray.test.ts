@@ -11,7 +11,7 @@ afterEach(() => cleanup())
 
 const fixture = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '../../morphir-ir/test/fixtures/insight-ir.json'),
-  'utf8'
+  'utf8',
 )
 
 const defByName = async (name: string) => {
@@ -37,7 +37,13 @@ describe('XRayView', () => {
 
   test('unknown nodes render the fallback marker', async () => {
     render(XRayView, {
-      props: { def: { inputs: [], output: { kind: 'type-unit' }, body: { kind: 'unknown', tag: 'Mystery', raw: null } } }
+      props: {
+        def: {
+          inputs: [],
+          output: { kind: 'type-unit' },
+          body: { kind: 'unknown', tag: 'Mystery', raw: null },
+        },
+      },
     })
     expect(screen.getByText(/Mystery/)).toBeTruthy()
   })

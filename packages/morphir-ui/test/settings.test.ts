@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, test } from 'vitest'
 import SettingsView from '../src/views/settings/SettingsView.svelte'
-import { ShellState, WorkspaceState, makeAppServices } from '../src/index.ts'
+import { ShellState, WorkbenchStore, defaultUiConfig, makeAppServices } from '../src/index.ts'
 import { makeFakeCore, makeFakeGitHub } from './support/fake-services.ts'
 
 // This project imports test primitives explicitly rather than using Vitest globals, so
@@ -16,9 +16,10 @@ const setup = async (opts?: { github?: boolean }) => {
   const github = opts?.github ? makeFakeGitHub({ login: 'octocat' }).github : undefined
   const services = await makeAppServices(github ? { core, github } : { core })
   const shell = new ShellState()
+  const workbenches = new WorkbenchStore(services, defaultUiConfig.workbenches)
   shell.openSettings()
   render(SettingsView, {
-    props: { services, shell, workspace: new WorkspaceState(services), version: '1.2.3' },
+    props: { services, shell, store: workbenches, version: '1.2.3' },
   })
   return { services, shell, store }
 }
@@ -47,14 +48,14 @@ describe('SettingsView', () => {
   test('reopen-on-launch toggle persists to config', async () => {
     const { shell, store } = await setup()
     shell.selectSettingsSection('general')
-    await userEvent.click(await screen.findByRole('switch', { name: /Reopen on launch/ }))
+    await userEvent.click(await screen.findByRole('switch', { name: /Reopen Workbenches/ }))
     // Ruling 2: GeneralSection.setReopen flips the local toggle state synchronously but
     // only writes to the (fake) config store after `await services.loadConfig()` /
     // `await services.saveConfig(...)` resolve. userEvent.click awaits event dispatch, not
     // that unrelated promise chain, so a bare synchronous assertion here races the save.
-    // waitFor polls the same assertion the brief made — store.config.workspace.reopenOnLaunch
+    // waitFor polls the persisted Workbench setting until the asynchronous save resolves.
     // === false — until it's true, which happens once saveConfig() actually resolves.
-    await waitFor(() => expect(store.config.workspace.reopenOnLaunch).toBe(false))
+    await waitFor(() => expect(store.config.workbenches.reopenOnLaunch).toBe(false))
   })
 
   test('PAT capture: save shows redacted token, verify shows login, remove clears', async () => {

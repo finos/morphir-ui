@@ -41,6 +41,19 @@ cd apps/morphir-desktop
 bun run dev
 ```
 
+The packaged desktop app accepts one or more Morphir sources at launch. A Morphir IR JSON file
+opens as a Model Workbench; a directory is detected as either a Document Tree Model Workbench or
+a Development Workbench. Opening a canonical path that is already open focuses its existing
+Workbench.
+
+```sh
+Morphir /absolute/path/to/morphir-ir.json /absolute/path/to/development-root
+```
+
+The desktop UI stores its open and Recent Workbench session beneath the shared Morphir Home. It
+honors `MORPHIR_HOME` and otherwise uses the same `~/.morphir` fallback as the Morphir CLI. Session
+state remains separate from project configuration.
+
 Run the headless desktop smoke check:
 
 ```sh

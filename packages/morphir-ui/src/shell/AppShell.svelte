@@ -1,20 +1,19 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import Titlebar from './Titlebar.svelte'
-  import Sidebar from './Sidebar.svelte'
+  import WorkbenchRail from './WorkbenchRail.svelte'
   import RegionPanel from './RegionPanel.svelte'
   import ResizeHandle from './ResizeHandle.svelte'
-  import type { NavItem } from './nav.ts'
   import type { ShellState } from '../state/shell-state.svelte.ts'
+  import type { WorkbenchStore } from '../workbench/workbench-store.svelte.ts'
+  import { PANEL_BOUNDS } from '../state/shell-constants.ts'
 
   let {
     shell,
     badge,
     version,
     crumbTitle,
-    navItems,
-    activeNav,
-    onNavSelect,
+    store,
     onOpenSettings,
     macChrome = false,
     center,
@@ -25,9 +24,7 @@
     badge: string
     version: string
     crumbTitle: string
-    navItems: NavItem[]
-    activeNav: string
-    onNavSelect: (id: string) => void
+    store: WorkbenchStore
     onOpenSettings: () => void
     macChrome?: boolean
     center?: Snippet
@@ -40,11 +37,14 @@
   <Titlebar {shell} {badge} {version} {crumbTitle} {macChrome} />
   <div class="shell-body">
     <RegionPanel region="left" extent={shell.leftExtent}>
-      <Sidebar {navItems} {activeNav} {onNavSelect} {onOpenSettings} />
+      <WorkbenchRail {store} {onOpenSettings} />
     </RegionPanel>
     {#if shell.leftVisible}
       <ResizeHandle
         edge="left"
+        label="Resize Workbench rail"
+        min={PANEL_BOUNDS.left.min}
+        max={PANEL_BOUNDS.left.max}
         currentSize={shell.leftWidth}
         onResize={(px) => shell.resizeLeft(px)}
       />
@@ -57,6 +57,9 @@
         {#if shell.rightVisible}
           <ResizeHandle
             edge="right"
+            label="Resize Inspector"
+            min={PANEL_BOUNDS.right.min}
+            max={PANEL_BOUNDS.right.max}
             currentSize={shell.rightWidth}
             onResize={(px) => shell.resizeRight(px)}
           />
@@ -71,6 +74,9 @@
       {#if shell.bottomVisible}
         <ResizeHandle
           edge="bottom"
+          label="Resize Log"
+          min={PANEL_BOUNDS.bottom.min}
+          max={PANEL_BOUNDS.bottom.max}
           currentSize={shell.bottomHeight}
           onResize={(px) => shell.resizeBottom(px)}
         />

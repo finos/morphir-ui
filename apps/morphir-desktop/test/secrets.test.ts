@@ -37,10 +37,7 @@ describe('SecretStore', () => {
 
   test('concurrent set operations are serialized', async () => {
     const store = new SecretStore(tempFile(), fakeCrypto())
-    await Promise.all([
-      store.set('a', 'va'),
-      store.set('b', 'vb'),
-    ])
+    await Promise.all([store.set('a', 'va'), store.set('b', 'vb')])
     expect(await store.get('a')).toBe('va')
     expect(await store.get('b')).toBe('vb')
   })

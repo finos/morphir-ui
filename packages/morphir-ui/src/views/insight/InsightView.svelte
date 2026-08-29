@@ -9,8 +9,9 @@
   let {
     def,
     library,
-    onSelect
-  }: { def: ValueDef | null; library: MorphirLibrary; onSelect?: (meta: InspectMeta) => void } = $props()
+    onSelect,
+  }: { def: ValueDef | null; library: MorphirLibrary; onSelect?: (meta: InspectMeta) => void } =
+    $props()
 
   const state = new InsightState()
 
@@ -25,7 +26,7 @@
   // inside toViewTree (via ctx.expanded.has(key)) are tracked like any other reactive read.
   const tree = $derived(def ? toViewTree(def, makeContext(library, state.expanded)) : null)
   const signature = $derived(
-    def ? def.inputs.map((i) => `${nameToCamel(i.name)} : ${typeText(i.tpe)}`).join(', ') : ''
+    def ? def.inputs.map((i) => `${nameToCamel(i.name)} : ${typeText(i.tpe)}`).join(', ') : '',
   )
 </script>
 
@@ -47,6 +48,12 @@
     padding-bottom: 8px;
     border-bottom: 1px solid var(--row-edge);
   }
-  .body { font-size: 12.5px; color: var(--text); }
-  .empty { color: var(--muted); font-size: 13px; }
+  .body {
+    font-size: 12.5px;
+    color: var(--text);
+  }
+  .empty {
+    color: var(--muted);
+    font-size: 13px;
+  }
 </style>

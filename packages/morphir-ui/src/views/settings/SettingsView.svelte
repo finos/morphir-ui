@@ -6,15 +6,14 @@
   import AboutSection from './AboutSection.svelte'
   import type { AppServices } from '../../services/services.ts'
   import type { ShellState, SettingsSection } from '../../state/shell-state.svelte.ts'
-  import type { WorkspaceState } from '../../state/workspace-state.svelte.ts'
+  import type { WorkbenchStore } from '../../workbench/workbench-store.svelte.ts'
 
   let {
     services,
     shell,
-    workspace,
+    store,
     version,
-  }: { services: AppServices; shell: ShellState; workspace: WorkspaceState; version: string } =
-    $props()
+  }: { services: AppServices; shell: ShellState; store: WorkbenchStore; version: string } = $props()
 
   const sections = $derived([
     { key: 'general', label: 'General' },
@@ -33,7 +32,7 @@
     onBack={() => shell.closeSettings()}
   />
   <div class="settings-body">
-    {#if active === 'general'}<GeneralSection {services} {workspace} />
+    {#if active === 'general'}<GeneralSection {services} {store} />
     {:else if active === 'appearance'}<AppearanceSection {shell} />
     {:else if active === 'github' && services.capabilities.github}<GitHubSection {services} />
     {:else}<AboutSection {version} />{/if}

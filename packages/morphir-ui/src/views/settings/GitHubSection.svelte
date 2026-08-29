@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import SettingsRow from './SettingsRow.svelte'
   import type { AppServices, GitHubStatus } from '../../services/services.ts'
   let { services }: { services: AppServices } = $props()
-  const github = services.github!
+  const github = untrack(() => services.github!)
 
   let status = $state<GitHubStatus | null>(null)
   let patSelected = $state(false)

@@ -5,7 +5,7 @@
 
   let {
     node,
-    render
+    render,
   }: { node: Extract<ViewNode, { kind: 'v-reference' }>; render: Snippet<[ViewNode]> } = $props()
 
   const onToggle = getContext<((key: string) => void) | undefined>(TOGGLE_KEY)
@@ -16,14 +16,19 @@
 
 <span class="ref">
   {#if showButton}
-    <button type="button" class="ref-name" aria-expanded={isOpen} onclick={() => onToggle?.(key)}>{node.display}</button>
+    <button type="button" class="ref-name" aria-expanded={isOpen} onclick={() => onToggle?.(key)}
+      >{node.display}</button
+    >
   {:else}
     <span class="ref-name plain">{node.display}</span>
   {/if}
   {#if node.args.length > 0}
-    <span class="call">(<!--
-    -->{#each node.args as arg, i (i)}{#if i > 0}, {/if}{@render render(arg)}{/each}<!--
-    -->)</span>
+    <span class="call"
+      >(<!--
+    -->{#each node.args as arg, i (i)}{#if i > 0},
+        {/if}{@render render(arg)}{/each}<!--
+    -->)</span
+    >
   {/if}
   {#if node.cycle}
     <span class="cycle-chip">↺ recursive</span>
@@ -35,19 +40,41 @@
 </span>
 
 <style>
-  .ref { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-  .ref-name {
-    font-family: var(--mono); font-size: 12.5px; color: var(--accent2);
-    background: none; border: none; padding: 0; cursor: pointer;
+  .ref {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
   }
-  .ref-name.plain { color: var(--text); cursor: default; }
-  .call { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+  .ref-name {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--accent2);
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  .ref-name.plain {
+    color: var(--text);
+    cursor: default;
+  }
+  .call {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--text);
+  }
   .cycle-chip {
-    font-size: 11px; color: var(--accent-text); background: rgba(214, 64, 159, 0.14);
-    border-radius: 6px; padding: 1px 6px;
+    font-size: 11px;
+    color: var(--accent-text);
+    background: rgba(214, 64, 159, 0.14);
+    border-radius: 6px;
+    padding: 1px 6px;
   }
   .expanded-body {
-    border: 1px solid var(--panel-edge); border-radius: 8px; padding: 8px 10px;
+    border: 1px solid var(--panel-edge);
+    border-radius: 8px;
+    padding: 8px 10px;
     background: var(--code-bg);
   }
 </style>

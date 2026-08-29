@@ -21,15 +21,28 @@ interface WireResponse {
   result?: unknown
   error?: { message: string; data?: unknown }
 }
+interface WireNotification {
+  method: string
+  params?: unknown
+}
 
 export class RpcClient {
   readonly #pending = new Map<number, Pending>()
   #nextId = 1
   readonly #ipc: MorphirIpc
+  readonly #notificationHandlers = new Map<string, Set<(params: unknown) => void>>()
 
   constructor(ipc: MorphirIpc = window.morphirIpc) {
     this.#ipc = ipc
     ipc.onMessage((message) => {
+      const notification = message as Partial<WireNotification>
+      if (typeof notification.method === 'string') {
+        for (const handler of this.#notificationHandlers.get(notification.method) ?? []) {
+          handler(notification.params)
+        }
+        return
+      }
+
       const response = message as WireResponse
       const pending = this.#pending.get(response.id)
       if (!pending) return
@@ -42,6 +55,16 @@ export class RpcClient {
         pending.resolve(response.result)
       }
     })
+  }
+
+  onNotification(method: string, handler: (params: unknown) => void): () => void {
+    const handlers = this.#notificationHandlers.get(method) ?? new Set()
+    handlers.add(handler)
+    this.#notificationHandlers.set(method, handlers)
+    return () => {
+      handlers.delete(handler)
+      if (handlers.size === 0) this.#notificationHandlers.delete(method)
+    }
   }
 
   call(method: string, params?: unknown): Promise<unknown> {

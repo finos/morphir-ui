@@ -21,8 +21,16 @@
 
 <style>
   .section {
-    font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em;
-    text-transform: uppercase; color: var(--muted2); margin: 10px 0 4px 0;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted2);
+    margin: 10px 0 4px 0;
   }
-  .empty { color: var(--muted); font-size: 13px; }
+  .empty {
+    color: var(--muted);
+    font-size: 13px;
+  }
 </style>
