@@ -2,6 +2,7 @@ import { cleanup, render, screen } from '@testing-library/svelte'
 import { afterEach, describe, expect, test } from 'vitest'
 import { userEvent } from '@testing-library/user-event'
 import AppShell from '../src/shell/AppShell.svelte'
+import ResizeHandle from '../src/shell/ResizeHandle.svelte'
 import { ShellState, WorkbenchStore, defaultUiConfig, makeAppServices } from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
 
@@ -11,7 +12,39 @@ import { makeFakeCore } from './support/fake-services.ts'
 // this the DOM from every `renderShell()` call accumulates across tests in the same
 // file — later `getByText`/`getElementById` lookups then see stale nodes from earlier
 // tests (duplicate ids, duplicate text matches) rather than only the current render.
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  document.body.classList.remove('resizing-col', 'resizing-row')
+})
+
+const preparePointerCapture = (separator: HTMLElement) => {
+  let capturedPointer: number | null = null
+  Object.defineProperties(separator, {
+    setPointerCapture: {
+      value: (pointerId: number) => (capturedPointer = pointerId),
+    },
+    hasPointerCapture: {
+      value: (pointerId: number) => capturedPointer === pointerId,
+    },
+    releasePointerCapture: {
+      value: () => (capturedPointer = null),
+    },
+  })
+  const dispatch = (type: string): void => {
+    separator.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: 100,
+        pointerId: 7,
+      }),
+    )
+  }
+  return {
+    dispatch,
+    loseCapture: () => (capturedPointer = null),
+  }
+}
 
 const renderShell = async (shell = new ShellState()) => {
   const { core } = makeFakeCore()
@@ -41,6 +74,66 @@ describe('AppShell chrome', () => {
     expect(screen.getByRole('navigation', { name: 'Workbenches' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Open model file' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Open folder' })).toBeTruthy()
+  })
+
+  test('names every panel resize separator', async () => {
+    await renderShell()
+
+    expect(screen.getByRole('separator', { name: 'Resize Workbench rail' })).toBeTruthy()
+    expect(screen.getByRole('separator', { name: 'Resize Inspector' })).toBeTruthy()
+    expect(screen.getByRole('separator', { name: 'Resize Log' })).toBeTruthy()
+  })
+
+  test('gives a standalone resize separator a default accessible name', () => {
+    render(ResizeHandle, {
+      props: { edge: 'left', currentSize: 280, onResize: () => {} },
+    })
+
+    expect(screen.getByRole('separator', { name: 'Resize panel' })).toBeTruthy()
+  })
+
+  test('cleans the body resize class on pointerup and pointercancel', () => {
+    render(ResizeHandle, {
+      props: { edge: 'left', currentSize: 280, onResize: () => {} },
+    })
+    const separator = screen.getByRole('separator', { name: 'Resize panel' })
+    const pointer = preparePointerCapture(separator)
+
+    pointer.dispatch('pointerdown')
+    expect(document.body.classList.contains('resizing-col')).toBe(true)
+    pointer.dispatch('pointerup')
+    expect(document.body.classList.contains('resizing-col')).toBe(false)
+
+    pointer.dispatch('pointerdown')
+    pointer.dispatch('pointercancel')
+    expect(document.body.classList.contains('resizing-col')).toBe(false)
+  })
+
+  test('cleans the body resize class when pointer capture is lost', () => {
+    render(ResizeHandle, {
+      props: { edge: 'left', currentSize: 280, onResize: () => {} },
+    })
+    const separator = screen.getByRole('separator', { name: 'Resize panel' })
+    const pointer = preparePointerCapture(separator)
+
+    pointer.dispatch('pointerdown')
+    pointer.loseCapture()
+    pointer.dispatch('lostpointercapture')
+
+    expect(document.body.classList.contains('resizing-col')).toBe(false)
+  })
+
+  test('cleans the body resize class when unmounted during a drag', () => {
+    const view = render(ResizeHandle, {
+      props: { edge: 'left', currentSize: 280, onResize: () => {} },
+    })
+    const separator = screen.getByRole('separator', { name: 'Resize panel' })
+    const pointer = preparePointerCapture(separator)
+    pointer.dispatch('pointerdown')
+
+    view.unmount()
+
+    expect(document.body.classList.contains('resizing-col')).toBe(false)
   })
 
   test('root carries the scheme class and no-motion toggles', async () => {

@@ -41,6 +41,7 @@
     {#if shell.leftVisible}
       <ResizeHandle
         edge="left"
+        label="Resize Workbench rail"
         currentSize={shell.leftWidth}
         onResize={(px) => shell.resizeLeft(px)}
       />
@@ -53,6 +54,7 @@
         {#if shell.rightVisible}
           <ResizeHandle
             edge="right"
+            label="Resize Inspector"
             currentSize={shell.rightWidth}
             onResize={(px) => shell.resizeRight(px)}
           />
@@ -67,6 +69,7 @@
       {#if shell.bottomVisible}
         <ResizeHandle
           edge="bottom"
+          label="Resize Log"
           currentSize={shell.bottomHeight}
           onResize={(px) => shell.resizeBottom(px)}
         />

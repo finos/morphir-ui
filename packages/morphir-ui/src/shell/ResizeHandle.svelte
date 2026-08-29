@@ -3,35 +3,56 @@
     edge,
     currentSize,
     onResize,
-  }: { edge: 'left' | 'right' | 'bottom'; currentSize: number; onResize: (px: number) => void } =
-    $props()
+    label = 'Resize panel',
+  }: {
+    edge: 'left' | 'right' | 'bottom'
+    currentSize: number
+    onResize: (px: number) => void
+    label?: string
+  } = $props()
   let start = 0
   let startSize = 0
+  let separator: HTMLElement | undefined = $state()
+  let activePointerId: number | null = null
+
+  function cleanupDrag() {
+    const pointerId = activePointerId
+    activePointerId = null
+    document.body.classList.remove('resizing-col', 'resizing-row')
+    if (pointerId !== null && separator?.hasPointerCapture(pointerId)) {
+      separator.releasePointerCapture(pointerId)
+    }
+  }
+
+  $effect(() => cleanupDrag)
 
   function down(e: PointerEvent) {
+    cleanupDrag()
     start = edge !== 'bottom' ? e.clientX : e.clientY
     startSize = currentSize
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    separator = e.currentTarget as HTMLElement
+    activePointerId = e.pointerId
+    separator.setPointerCapture(e.pointerId)
     document.body.classList.add(edge !== 'bottom' ? 'resizing-col' : 'resizing-row')
   }
   function move(e: PointerEvent) {
-    if (!(e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) return
+    if (activePointerId !== e.pointerId || !separator?.hasPointerCapture(e.pointerId)) return
     const delta = (edge !== 'bottom' ? e.clientX : e.clientY) - start
     onResize(edge === 'left' ? startSize + delta : startSize - delta)
-  }
-  function up(e: PointerEvent) {
-    ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
-    document.body.classList.remove('resizing-col', 'resizing-row')
   }
 </script>
 
 <div
+  bind:this={separator}
   class="resize-handle {edge !== 'bottom' ? 'resize-vertical' : 'resize-horizontal'}"
   role="separator"
+  aria-label={label}
   aria-orientation={edge !== 'bottom' ? 'vertical' : 'horizontal'}
   onpointerdown={down}
   onpointermove={move}
-  onpointerup={up}
+  onpointerup={cleanupDrag}
+  onpointercancel={cleanupDrag}
+  onlostpointercapture={cleanupDrag}
 ></div>
 
 <style>
