@@ -68,6 +68,11 @@ describe('theme stylesheets', () => {
     expect(base).toContain('::selection')
   })
 
+  test('the application root completes the viewport height chain', () => {
+    const base = css('base.css')
+    expect(base).toMatch(/html,\s*body,\s*#app\s*{\s*height:\s*100%;\s*}/)
+  })
+
   test('index.css aggregates the three sheets', () => {
     const index = css('index.css')
     for (const name of ['tokens.css', 'base.css', 'global.css']) expect(index).toContain(name)
