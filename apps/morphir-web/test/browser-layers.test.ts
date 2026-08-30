@@ -1,17 +1,45 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { Effect, Stream } from 'effect'
 import {
-  WorkbenchSourceService,
   DevelopmentWorkbenchService,
   defaultUiConfig,
   makeAppServices,
   type DevelopmentWorkbenchDescriptor,
 } from '@morphir/ui'
-import { sourceKey } from '@morphir/workspace'
-import { browserCore } from '../src/layers/browser-layers.ts'
+import { projectKey, sourceKey, type DiscoveryRequest } from '@morphir/workspace'
+import {
+  browserCore,
+  browserCoreWith,
+  type BrowserWorkspaceDependencies,
+} from '../src/layers/browser-layers.ts'
+import type { DirectoryPermissionHandle } from '../src/workspace/browser-directory.ts'
+import { pickBrowserDirectory } from '../src/workspace/browser-provider.ts'
 
 const COUNTER_KEY = 'morphir-ui.browser-local.model-source-counter.v1'
 const LOCK_NAME = `${COUNTER_KEY}.lock`
+
+const directoryHandle = (
+  name: string,
+  entries: Readonly<Record<string, string>>,
+): DirectoryPermissionHandle => ({
+  kind: 'directory',
+  name,
+  queryPermission: vi.fn(async (): Promise<PermissionState> => 'granted'),
+  requestPermission: vi.fn(async (): Promise<PermissionState> => 'granted'),
+  entries: () =>
+    (async function* () {
+      for (const [entryName, text] of Object.entries(entries)) {
+        yield [
+          entryName,
+          {
+            kind: 'file' as const,
+            name: entryName,
+            getFile: async () => ({ text: async () => text }) as File,
+          },
+        ] as const
+      }
+    })(),
+})
 
 const installSerialLocks = (afterRelease: () => void = () => undefined): string[] => {
   let queue: Promise<void> = Promise.resolve()
@@ -45,6 +73,16 @@ describe('browserCore', () => {
     expect(await services.version()).toBe('1.0.0')
   })
 
+  test('treats File System Access picker cancellation as no selected directory', async () => {
+    const picker = vi.fn(async () => {
+      throw new DOMException('cancelled', 'AbortError')
+    })
+    vi.stubGlobal('showDirectoryPicker', picker)
+
+    await expect(pickBrowserDirectory()).resolves.toBeNull()
+    expect(picker).toHaveBeenCalledWith({ mode: 'read' })
+  })
+
   test('config round-trips through localStorage', async () => {
     const services = await makeAppServices({ core: browserCore('1.0.0') })
     const cfg = { ...defaultUiConfig, github: { source: 'gh-cli' as const } }
@@ -59,7 +97,7 @@ describe('browserCore', () => {
     expect(await services.loadConfig()).toEqual(defaultUiConfig)
   })
 
-  test('web capabilities: no github, no reopen', async () => {
+  test('web capabilities include local model and Development Workbench operations', async () => {
     const core = browserCore('1.0.0')
     const services = await makeAppServices({ core })
     expect(services.capabilities).toEqual({ github: false, reopenWorkspaces: false })
@@ -71,20 +109,251 @@ describe('browserCore', () => {
         name: 'This browser',
         kind: 'local',
         status: 'available',
-        capabilities: [{ name: 'morphir/model/open', version: '1' }],
+        capabilities: [
+          { name: 'morphir/model/open', version: '1' },
+          { name: 'morphir/development/inspect', version: '1' },
+          { name: 'morphir/workspace/open', version: '1' },
+        ],
       },
     ])
-    await expect(services.pickWorkbenchSource('folder')).rejects.toThrow(
-      'Folder Workbenches are not available in the browser',
-    )
-    const folderError = await Effect.runPromise(
+  })
+
+  test('picks, inspects, and loads a local Development Workbench with Browser Morphir Home', async () => {
+    const rootHandle = directoryHandle('orders-workspace', {
+      'morphir.toml': '[workspace]\nmembers = ["packages/*"]',
+    })
+    const handles = new Map<string, FileSystemDirectoryHandle>()
+    const requests: DiscoveryRequest[] = []
+    const dependencies: BrowserWorkspaceDependencies = {
+      engine: {
+        discover: async (request) => {
+          requests.push(request)
+          return {
+            status: 'success',
+            snapshot: {
+              protocolVersion: 1,
+              configAnchor: 'morphir.toml',
+              name: 'Orders workspace',
+              state: 'open',
+              projects: [
+                {
+                  name: 'root',
+                  version: '1.0.0',
+                  relativePath: '.',
+                  configAnchor: 'morphir.toml',
+                  sourceDirectory: 'src',
+                  state: 'unloaded',
+                  diagnostics: [],
+                },
+                {
+                  name: 'orders',
+                  version: null,
+                  relativePath: 'packages/orders',
+                  configAnchor: 'packages/orders/morphir.toml',
+                  sourceDirectory: 'packages/orders/src',
+                  state: 'unloaded',
+                  diagnostics: [],
+                },
+              ],
+              diagnostics: [],
+            },
+          }
+        },
+      },
+      handles: {
+        put: async (key, handle) => {
+          handles.set(key, handle)
+        },
+        get: async (key) => handles.get(key) ?? null,
+        delete: async (key) => {
+          handles.delete(key)
+        },
+      },
+      home: {
+        read: async () => ({
+          entries: {
+            '.': { kind: 'directory' },
+            'morphir.toml': { kind: 'file', text: '[project]\nversion = "1.0.0"' },
+          },
+        }),
+        writeConfig: async () => undefined,
+      },
+      pickDirectory: async () => ({ kind: 'handle', handle: rootHandle }),
+    }
+    const services = await makeAppServices({ core: browserCoreWith('1.0.0', dependencies) })
+
+    const source = await services.pickWorkbenchSource('folder')
+    expect(source).toMatchObject({
+      providerId: 'browser-local',
+      locator: expect.stringMatching(/^directory:/),
+      displayName: 'orders-workspace',
+    })
+    const descriptor = await services.inspectWorkbench(source!)
+    expect(descriptor).toMatchObject({
+      id: sourceKey(source!),
+      source,
+      name: 'orders-workspace',
+      kind: 'development',
+      route: 'overview',
+    })
+    if (descriptor.kind !== 'development') throw new Error('Expected Development Workbench')
+
+    const loaded = await services.loadDevelopmentWorkbench(descriptor)
+    expect(loaded.snapshot).toMatchObject({
+      id: sourceKey(source!),
+      root: source,
+      name: 'Orders workspace',
+      projects: [
+        { id: projectKey(source!, '.'), relativePath: '.' },
+        { id: projectKey(source!, 'packages/orders'), relativePath: 'packages/orders' },
+      ],
+    })
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({
+      protocolVersion: 1,
+      developmentRoot: {
+        entries: {
+          '.': { kind: 'directory' },
+          'morphir.toml': {
+            kind: 'file',
+            text: '[workspace]\nmembers = ["packages/*"]',
+          },
+        },
+      },
+      morphirHome: {
+        entries: {
+          '.': { kind: 'directory' },
+          'morphir.toml': { kind: 'file', text: '[project]\nversion = "1.0.0"' },
+        },
+      },
+    })
+  })
+
+  test('keeps a directory-upload fallback available for the provider session', async () => {
+    vi.stubGlobal('showDirectoryPicker', undefined)
+    const selectedFile = new File(['[project]\nname = "uploaded"'], 'morphir.toml')
+    Object.defineProperty(selectedFile, 'webkitRelativePath', {
+      configurable: true,
+      value: 'uploaded-workspace/morphir.toml',
+    })
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function (
+      this: HTMLInputElement,
+    ) {
+      expect(this.multiple).toBe(true)
+      expect(this.hasAttribute('webkitdirectory')).toBe(true)
+      Object.defineProperty(this, 'files', { configurable: true, value: [selectedFile] })
+      this.onchange?.(new Event('change'))
+    })
+    const handleLookup = vi.fn(async () => null)
+    const requests: DiscoveryRequest[] = []
+    const services = await makeAppServices({
+      core: browserCoreWith('1.0.0', {
+        engine: {
+          discover: async (request) => {
+            requests.push(request)
+            return {
+              status: 'success',
+              snapshot: {
+                protocolVersion: 1,
+                configAnchor: 'morphir.toml',
+                name: null,
+                state: 'open',
+                projects: [
+                  {
+                    name: 'uploaded',
+                    version: null,
+                    relativePath: '.',
+                    configAnchor: 'morphir.toml',
+                    sourceDirectory: 'src',
+                    state: 'unloaded',
+                    diagnostics: [],
+                  },
+                ],
+                diagnostics: [],
+              },
+            }
+          },
+        },
+        handles: {
+          put: async () => undefined,
+          get: handleLookup,
+          delete: async () => undefined,
+        },
+        home: {
+          read: async () => ({ entries: { '.': { kind: 'directory' } } }),
+          writeConfig: async () => undefined,
+        },
+        pickDirectory: pickBrowserDirectory,
+      }),
+    })
+
+    const source = await services.pickWorkbenchSource('folder')
+    const descriptor = await services.inspectWorkbench(source!)
+    if (descriptor.kind !== 'development') throw new Error('Expected Development Workbench')
+    const loaded = await services.loadDevelopmentWorkbench(descriptor)
+
+    expect(source?.displayName).toBe('uploaded-workspace')
+    expect(loaded.snapshot.name).toBe('uploaded-workspace')
+    expect(requests[0]?.developmentRoot).toEqual({
+      entries: {
+        '.': { kind: 'directory' },
+        'morphir.toml': { kind: 'file', text: '[project]\nname = "uploaded"' },
+      },
+    })
+    expect(handleLookup).not.toHaveBeenCalled()
+  })
+
+  test('maps a canonical discovery failure to a typed Workbench error', async () => {
+    const handle = directoryHandle('ambiguous-workspace', {
+      'morphir.toml': '[project]',
+      'morphir.yaml': 'project: {}',
+    })
+    const handles = new Map<string, FileSystemDirectoryHandle>()
+    const core = browserCoreWith('1.0.0', {
+      engine: {
+        discover: async () => ({
+          status: 'failure',
+          error: {
+            code: 'workspace.config.ambiguous',
+            message: 'Found multiple primary configurations',
+            path: null,
+          },
+        }),
+      },
+      handles: {
+        put: async (key, selected) => {
+          handles.set(key, selected)
+        },
+        get: async (key) => handles.get(key) ?? null,
+        delete: async (key) => {
+          handles.delete(key)
+        },
+      },
+      home: {
+        read: async () => ({ entries: { '.': { kind: 'directory' } } }),
+        writeConfig: async () => undefined,
+      },
+      pickDirectory: async () => ({ kind: 'handle', handle }),
+    })
+    const services = await makeAppServices({ core })
+    const source = await services.pickWorkbenchSource('folder')
+    const descriptor = await services.inspectWorkbench(source!)
+    if (descriptor.kind !== 'development') throw new Error('Expected Development Workbench')
+
+    const failure = await Effect.runPromise(
       Effect.flip(
-        Effect.flatMap(WorkbenchSourceService, (service) => service.pick('folder')).pipe(
+        Effect.flatMap(DevelopmentWorkbenchService, (service) => service.load(descriptor)).pipe(
           Effect.provide(core),
         ),
       ),
     )
-    expect(folderError.code).toBe('unsupported-capability')
+
+    expect(failure).toMatchObject({
+      _tag: 'WorkbenchError',
+      code: 'detection-failed',
+      source,
+      message: 'workspace.config.ambiguous: Found multiple primary configurations',
+    })
   })
 
   test('keeps separate browser selections that share a file name', async () => {
@@ -135,10 +404,7 @@ describe('browserCore', () => {
   })
 
   test('allocates distinct locators across independent browser runtimes', async () => {
-    const selectedFiles = [
-      new File(['{}'], 'first.json'),
-      new File(['{}'], 'second.json'),
-    ]
+    const selectedFiles = [new File(['{}'], 'first.json'), new File(['{}'], 'second.json')]
     vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function (
       this: HTMLInputElement,
     ) {
@@ -225,10 +491,7 @@ describe('browserCore', () => {
       if (key === COUNTER_KEY) pendingCounter = value
       else originalSetItem.call(this, key, value)
     })
-    const selectedFiles = [
-      new File(['{}'], 'first.json'),
-      new File(['{}'], 'second.json'),
-    ]
+    const selectedFiles = [new File(['{}'], 'first.json'), new File(['{}'], 'second.json')]
     vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function (
       this: HTMLInputElement,
     ) {
@@ -246,19 +509,14 @@ describe('browserCore', () => {
       secondRuntime.pickWorkbenchSource('model-file'),
     ])
 
-    expect(new Set([first?.locator, second?.locator])).toEqual(
-      new Set(['model:1', 'model:2']),
-    )
+    expect(new Set([first?.locator, second?.locator])).toEqual(new Set(['model:1', 'model:2']))
     expect(requestedLocks).toEqual([LOCK_NAME, LOCK_NAME])
   })
 
   test('uses cryptographically random opaque locators when Web Locks are unavailable', async () => {
     vi.stubGlobal('navigator', {})
     const randomValues = vi.spyOn(globalThis.crypto, 'getRandomValues')
-    const selectedFiles = [
-      new File(['{}'], 'first.json'),
-      new File(['{}'], 'second.json'),
-    ]
+    const selectedFiles = [new File(['{}'], 'first.json'), new File(['{}'], 'second.json')]
     vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function (
       this: HTMLInputElement,
     ) {
@@ -281,10 +539,7 @@ describe('browserCore', () => {
   })
 
   test('falls back to distinct opaque locators when counter storage is unavailable', async () => {
-    const selectedFiles = [
-      new File(['{}'], 'first.json'),
-      new File(['{}'], 'second.json'),
-    ]
+    const selectedFiles = [new File(['{}'], 'first.json'), new File(['{}'], 'second.json')]
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('storage unavailable')
     })
@@ -368,7 +623,7 @@ describe('browserCore', () => {
     ).rejects.toThrow('Workbench source belongs to provider cli:session-1')
   })
 
-  test('reports typed failures for its unsupported Development capabilities', async () => {
+  test('reports a typed failure for unsupported project models and leaves events empty', async () => {
     const source = {
       providerId: 'browser-local',
       locator: 'directory:workspace',
@@ -384,13 +639,6 @@ describe('browserCore', () => {
       lastUsedAt: '2026-08-29T12:00:00.000Z',
     }
     const core = browserCore('1.0.0')
-    const loadError = await Effect.runPromise(
-      Effect.flip(
-        Effect.flatMap(DevelopmentWorkbenchService, (service) => service.load(descriptor)).pipe(
-          Effect.provide(core),
-        ),
-      ),
-    )
     const projectError = await Effect.runPromise(
       Effect.flip(
         Effect.flatMap(DevelopmentWorkbenchService, (service) =>
@@ -398,16 +646,13 @@ describe('browserCore', () => {
         ).pipe(Effect.provide(core)),
       ),
     )
-    const eventError = await Effect.runPromise(
-      Effect.flip(
-        Effect.flatMap(DevelopmentWorkbenchService, (service) =>
-          Stream.runCollect(service.events(descriptor)),
-        ).pipe(Effect.provide(core)),
-      ),
+    const events = await Effect.runPromise(
+      Effect.flatMap(DevelopmentWorkbenchService, (service) =>
+        Stream.runCollect(service.events(descriptor)),
+      ).pipe(Effect.provide(core)),
     )
 
-    expect(loadError.code).toBe('unsupported-capability')
     expect(projectError.code).toBe('unsupported-capability')
-    expect(eventError.code).toBe('unsupported-capability')
+    expect([...events]).toEqual([])
   })
 })
