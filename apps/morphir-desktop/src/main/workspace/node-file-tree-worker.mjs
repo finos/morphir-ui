@@ -15,6 +15,8 @@ const segment = (value) =>
   !value.includes('/') &&
   !value.includes('\\') &&
   !/^[A-Za-z]:/.test(value)
+const candidatePath = (value) =>
+  typeof value === 'string' && value !== '.' && value.split('/').every(segment)
 const waitForGo = () =>
   new Promise((resolve, reject) => {
     const cleanup = () => {
@@ -382,10 +384,72 @@ const mount = async (command) => {
   }
 }
 
+const primary = async (command) => {
+  const root = await stat('.', { bigint: true })
+  const rootIdentity = identity(root)
+  send({ type: 'ready', directory: rootIdentity })
+  await waitForGo()
+
+  const validate = async (path) => {
+    if (!candidatePath(path))
+      throw error('workspace.path.not-confined', 'invalid primary configuration path')
+    try {
+      await lstat(path, { bigint: true })
+    } catch (cause) {
+      if (cause?.code === 'ENOENT') return null
+      throw cause
+    }
+
+    const resolved = await realpath(path)
+    confined(command.canonicalRoot, resolved)
+    const expected = await stat(resolved, { bigint: true })
+    if (!expected.isFile()) return null
+    const noFollow = process.platform === 'win32' ? 0 : constants.O_NOFOLLOW
+    const handle = await open(resolved, constants.O_RDONLY | noFollow)
+    try {
+      const bound = await handle.stat({ bigint: true })
+      if (!bound.isFile() || !sameIdentity(identity(bound), identity(expected)))
+        throw error('workspace.path.not-confined', 'primary configuration identity changed')
+      const currentRoot = await stat('.', { bigint: true })
+      if (!sameIdentity(identity(currentRoot), rootIdentity))
+        throw error('workspace.path.not-confined', 'bound directory identity changed')
+      const currentResolved = await realpath(path)
+      confined(command.canonicalRoot, currentResolved)
+      const current = await stat(currentResolved, { bigint: true })
+      if (!sameIdentity(identity(current), identity(bound)))
+        throw error('workspace.path.not-confined', 'primary configuration path changed')
+      return path
+    } finally {
+      await handle.close()
+    }
+  }
+
+  const modern = []
+  for (const path of command.modern) {
+    const found = await validate(path)
+    if (found !== null) modern.push(found)
+  }
+  if (modern.length > 1)
+    throw error(
+      'workspace.config.ambiguous',
+      `multiple Morphir configurations found for workspace root: ${modern.join(', ')}`,
+    )
+  const selected = modern[0] ?? (await validate(command.legacy))
+  send({
+    type: 'result',
+    tree:
+      selected === null
+        ? null
+        : { entries: { '.': { kind: 'directory' }, [selected]: { kind: 'file', text: '' } } },
+    chargedConfigBytes: 0,
+  })
+}
+
 try {
   const command = JSON.parse(process.argv[2] ?? 'null')
   if (command?.mode === 'scan') await scan(command)
   else if (command?.mode === 'mount') await mount(command)
+  else if (command?.mode === 'primary') await primary(command)
   else throw new Error('unsupported scanner command')
 } catch (cause) {
   send({

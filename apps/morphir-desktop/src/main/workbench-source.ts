@@ -20,7 +20,7 @@ import { access, readFile, realpath, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { requireDesktopSourceRef } from '../shared/workbench-source.ts'
 import { discoverNodeWorkspace } from './workspace/discovery.ts'
-import { fileTreeFromNodeRoot, hasPrimaryConfiguration } from './workspace/node-file-tree.ts'
+import { hasNodePrimaryConfiguration } from './workspace/node-file-tree.ts'
 
 const exists = async (path: string): Promise<boolean> =>
   access(path).then(
@@ -125,7 +125,7 @@ export const inspectWorkbenchSource = async (
       })
     }
 
-    if (hasPrimaryConfiguration(await fileTreeFromNodeRoot(canonical))) {
+    if (await hasNodePrimaryConfiguration(canonical)) {
       return { ...base, kind: 'development', route: 'overview' }
     }
     if (await documentTreeManifest(canonical)) {

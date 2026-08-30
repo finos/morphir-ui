@@ -7,6 +7,7 @@ import type { DiscoveryRequest, FileEntry, FileTree } from '@morphir/workspace'
 import {
   NodeFileTreeError,
   fileTreeFromNodeRoot,
+  hasNodePrimaryConfiguration,
   hasPrimaryConfiguration,
   sameFileIdentity,
   type NodeFileTreeOptions,
@@ -449,6 +450,39 @@ describe('confined Node FileTree adapter', () => {
       expect.objectContaining({ code: 'workspace.config.ambiguous' }),
     )
   })
+
+  test('checks exact primary candidates without traversing unrelated descendants', async () => {
+    const root = await temporaryDirectory('primary-candidates')
+    await mkdir(join(root, 'packages', 'member'), { recursive: true })
+    await writeFile(join(root, 'packages', 'member', 'morphir.toml'), 'ignored')
+
+    expect(await hasNodePrimaryConfiguration(root)).toBe(false)
+
+    await writeFile(join(root, 'morphir.json'), '{}')
+    expect(await hasNodePrimaryConfiguration(root)).toBe(true)
+
+    await writeFile(join(root, 'morphir.yaml'), 'project: {}')
+    expect(await hasNodePrimaryConfiguration(root)).toBe(true)
+
+    await writeFile(join(root, 'morphir.toml'), '[project]')
+    await expect(hasNodePrimaryConfiguration(root)).rejects.toMatchObject({
+      code: 'workspace.config.ambiguous',
+    })
+  })
+
+  test.skipIf(process.platform === 'win32')(
+    'rejects a primary candidate symlink that escapes the bound root',
+    async () => {
+      const root = await temporaryDirectory('primary-confined')
+      const outside = await temporaryDirectory('primary-outside')
+      await writeFile(join(outside, 'morphir.toml'), '[project]')
+      await symlink(join(outside, 'morphir.toml'), join(root, 'morphir.toml'))
+
+      await expect(hasNodePrimaryConfiguration(root)).rejects.toMatchObject({
+        code: 'workspace.path.not-confined',
+      })
+    },
+  )
 
   test.skipIf(process.platform === 'win32')(
     'materializes 100 root aliases with one bounded scanner process',

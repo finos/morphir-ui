@@ -7,11 +7,7 @@ import { readWorkspaceFile } from './workspace.ts'
 import { decodeUiConfig } from '@morphir/ui/config'
 import { GH_SECRET_KEY, SecretStore } from './secrets.ts'
 import { ghCliToken, verifyGitHubToken } from './github.ts'
-import {
-  inspectDevelopment,
-  inspectWorkbenchSource,
-  readModelSource,
-} from './workbench-source.ts'
+import { inspectDevelopment, inspectWorkbenchSource, readModelSource } from './workbench-source.ts'
 import { registerWorkbenchHandlers } from './workbench-rpc.ts'
 import { LaunchRequestQueue, parseOpenSources } from './launch-requests.ts'
 import { desktopSourceRef } from '../shared/workbench-source.ts'

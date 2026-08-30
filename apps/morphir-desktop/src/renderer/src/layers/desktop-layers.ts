@@ -194,35 +194,33 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
       load: (descriptor: DevelopmentWorkbenchDescriptor) =>
         descriptor.source.providerId !== 'desktop-local'
           ? Effect.fail(unsupportedProviderError('desktop-local', descriptor.source))
-          : rpc
-              .effect<unknown>('morphir/workbench/inspectDevelopment', { descriptor })
-              .pipe(
-                Effect.mapError(
-                  (error) =>
+          : rpc.effect<unknown>('morphir/workbench/inspectDevelopment', { descriptor }).pipe(
+              Effect.mapError(
+                (error) =>
+                  new WorkbenchError({
+                    code: 'read-failed',
+                    source: descriptor.source,
+                    message: error.message,
+                  }),
+              ),
+              Effect.flatMap((snapshot) =>
+                Effect.try({
+                  try: () => Schema.decodeUnknownSync(WorkspaceSnapshotSchema)(snapshot),
+                  catch: (error) =>
                     new WorkbenchError({
                       code: 'read-failed',
                       source: descriptor.source,
-                      message: error.message,
+                      message: error instanceof Error ? error.message : String(error),
                     }),
-                ),
-                Effect.flatMap((snapshot) =>
-                  Effect.try({
-                    try: () => Schema.decodeUnknownSync(WorkspaceSnapshotSchema)(snapshot),
-                    catch: (error) =>
-                      new WorkbenchError({
-                        code: 'read-failed',
-                        source: descriptor.source,
-                        message: error instanceof Error ? error.message : String(error),
-                      }),
-                  }),
-                ),
-                Effect.flatMap((snapshot) => validateWorkspaceSnapshot(descriptor, snapshot)),
-                Effect.map((snapshot) => ({
-                  kind: 'development' as const,
-                  descriptor,
-                  snapshot,
-                })),
+                }),
               ),
+              Effect.flatMap((snapshot) => validateWorkspaceSnapshot(descriptor, snapshot)),
+              Effect.map((snapshot) => ({
+                kind: 'development' as const,
+                descriptor,
+                snapshot,
+              })),
+            ),
       loadProjectModel: (descriptor) =>
         Effect.fail(
           descriptor.source.providerId === 'desktop-local'

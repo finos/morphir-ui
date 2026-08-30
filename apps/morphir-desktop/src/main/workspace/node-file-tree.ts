@@ -300,6 +300,33 @@ const ROOT_MODERN_PRIMARY_CONFIGURATIONS = [
   '.config/morphir/config.yaml',
 ] as const
 
+export const hasNodePrimaryConfiguration = async (
+  rootPath: string,
+  options: NodeFileTreeOptions = {},
+): Promise<boolean> => {
+  try {
+    const granted = resolve(rootPath)
+    await lstat(granted)
+    const canonicalRoot = await realpath(granted)
+    const metadata = await stat(canonicalRoot, { bigint: true })
+    if (!metadata.isDirectory()) throw new Error('workspace root is not a directory')
+    const scan = await runWorker(
+      granted,
+      {
+        mode: 'primary',
+        canonicalRoot,
+        modern: ROOT_MODERN_PRIMARY_CONFIGURATIONS,
+        legacy: 'morphir.json',
+      },
+      identity(metadata),
+      options,
+    )
+    return scan.tree !== null
+  } catch (cause) {
+    throw normalize(cause, `unable to inspect workspace root ${JSON.stringify(rootPath)}`)
+  }
+}
+
 export const hasPrimaryConfiguration = (tree: FileTree): boolean => {
   const modern = ROOT_MODERN_PRIMARY_CONFIGURATIONS.filter(
     (path) => tree.entries[path]?.kind === 'file',

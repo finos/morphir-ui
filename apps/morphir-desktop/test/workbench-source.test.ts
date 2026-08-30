@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  truncateSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { sourceKey } from '@morphir/workspace'
@@ -139,6 +147,35 @@ describe('inspectWorkbenchSource', () => {
       message: expect.stringContaining('workspace.config.ambiguous'),
     })
   })
+
+  test('ignores unrelated oversized descendant configuration content during detection', async () => {
+    const root = fixtureRoot()
+    const model = fixtureDirectory(root, 'model')
+    fixtureFile(root, 'model/.morphir-dist/manifest.json', '{"formatVersion":4}')
+    const unrelated = fixtureFile(root, 'model/packages/member/morphir.toml', '')
+    truncateSync(unrelated, 64 * 1024 * 1024 + 1)
+
+    expect(await inspectWorkbenchSource(model, () => timestamp)).toMatchObject({
+      kind: 'model',
+      distribution: 'document-tree',
+    })
+  })
+
+  test.skipIf(process.platform === 'win32')(
+    'ignores unrelated escaping descendant links during Document Tree detection',
+    async () => {
+      const root = fixtureRoot()
+      const outside = fixtureDirectory(fixtureRoot(), 'outside')
+      const model = fixtureDirectory(root, 'model')
+      fixtureFile(root, 'model/.morphir-dist/manifest.json', '{"formatVersion":4}')
+      symlinkSync(outside, join(model, 'unrelated'), 'dir')
+
+      expect(await inspectWorkbenchSource(model, () => timestamp)).toMatchObject({
+        kind: 'model',
+        distribution: 'document-tree',
+      })
+    },
+  )
 
   test('detects any other directory as Development', async () => {
     const root = fixtureRoot()
