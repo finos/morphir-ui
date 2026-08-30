@@ -1,0 +1,24 @@
+{
+  "name": "@morphir/workspace-engine",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./wasm": "./generated/morphir_workspace_wasm_bg.wasm",
+    "./corpus": "./generated/workspace-discovery-corpus.json"
+  },
+  "scripts": {
+    "lint": "eslint src test",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@morphir/workspace": "workspace:*",
+    "effect": "^3.22.1"
+  },
+  "devDependencies": {
+    "bun-types": "^1.4.0",
+    "typescript": "7.0.2"
+  }
+}

@@ -83,3 +83,6 @@ export const WORKBENCH_CAPABILITIES = {
 
 export const sourceKey = (source: WorkbenchSourceRef): string =>
   JSON.stringify([source.providerId, source.locator])
+
+export const projectKey = (root: WorkbenchSourceRef, relativePath: string): string =>
+  JSON.stringify([root.providerId, root.locator, relativePath])
