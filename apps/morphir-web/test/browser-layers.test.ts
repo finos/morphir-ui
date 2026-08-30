@@ -785,6 +785,30 @@ describe('browserCore', () => {
     expect(second!.locator).not.toContain('model.json')
   })
 
+  test('keeps a lone morphir-ir.json as a single-file Model Workbench', async () => {
+    const selectedFile = new File(
+      ['{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}'],
+      'morphir-ir.json',
+    )
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function (
+      this: HTMLInputElement,
+    ) {
+      Object.defineProperty(this, 'files', { configurable: true, value: [selectedFile] })
+      this.onchange?.(new Event('change'))
+    })
+    const services = await makeAppServices({ core: browserCore('1.0.0') })
+
+    const source = await services.pickWorkbenchSource('model-file')
+    const descriptor = await services.inspectWorkbench(source!)
+
+    expect(descriptor).toMatchObject({
+      source,
+      name: 'morphir-ir.json',
+      kind: 'model',
+      distribution: 'single-file',
+    })
+  })
+
   test('allocates distinct locators across independent browser runtimes', async () => {
     const selectedFiles = [new File(['{}'], 'first.json'), new File(['{}'], 'second.json')]
     vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function (

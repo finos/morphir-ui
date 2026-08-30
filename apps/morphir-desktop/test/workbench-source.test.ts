@@ -48,7 +48,7 @@ describe('inspectWorkbenchSource', () => {
     const root = fixtureRoot()
     const path = fixtureFile(
       root,
-      'model.json',
+      'morphir-ir.json',
       '{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}',
     )
     const canonical = realpathSync(path)
@@ -57,14 +57,14 @@ describe('inspectWorkbenchSource', () => {
       id: sourceKey({
         providerId: 'desktop-local',
         locator: canonical,
-        displayName: 'model.json',
+        displayName: 'morphir-ir.json',
       }),
       source: {
         providerId: 'desktop-local',
         locator: canonical,
-        displayName: 'model.json',
+        displayName: 'morphir-ir.json',
       },
-      name: 'model.json',
+      name: 'morphir-ir.json',
       kind: 'model',
       distribution: 'single-file',
     })
@@ -72,16 +72,16 @@ describe('inspectWorkbenchSource', () => {
 
   test('detects a .morphir-dist manifest as a Document Tree Model Workbench', async () => {
     const root = fixtureRoot()
-    const distribution = fixtureDirectory(root, 'model/.morphir-dist')
+    const model = fixtureDirectory(root, 'model')
     fixtureFile(
       root,
       'model/.morphir-dist/manifest.json',
       '{"formatVersion":4,"distribution":"Library"}',
     )
-    const canonical = realpathSync(distribution)
+    const canonical = realpathSync(model)
 
-    expect(await inspectWorkbenchSource(distribution, () => timestamp)).toMatchObject({
-      source: { providerId: 'desktop-local', locator: canonical, displayName: '.morphir-dist' },
+    expect(await inspectWorkbenchSource(model, () => timestamp)).toMatchObject({
+      source: { providerId: 'desktop-local', locator: canonical, displayName: 'model' },
       kind: 'model',
       distribution: 'document-tree',
     })
