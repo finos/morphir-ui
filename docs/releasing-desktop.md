@@ -1,5 +1,8 @@
 # Releasing Morphir Desktop
 
+For account setup, key custody, rehearsal, and rotation, read
+[Desktop code signing for maintainers](desktop-code-signing.md) first.
+
 Morphir Desktop releases are built from `desktop-v<VERSION>` tags. The tag version must exactly
 match `apps/morphir-desktop/package.json`; a mismatch stops the workflow before packaging.
 
@@ -15,8 +18,34 @@ It also publishes the NSIS, DMG, AppImage, and deb system packages produced by e
 GitHub Releases are the durable public source; the one-day workflow artifacts only transfer bytes
 between jobs and are not a supported download location.
 
-Pull-request CI continues to package unsigned artifacts with notarization disabled. Those artifacts
-exist only to detect packaging regressions and must never be promoted or published.
+## Build channels
+
+Build channels decide whether operating-system signing is required. They do not replace the
+authenticated `stable` and `preview` update channels used by the Morphir CLI.
+
+| Build channel       | Command or trigger                               | Signing  | Intended use                         |
+| ------------------- | ------------------------------------------------ | -------- | ------------------------------------ |
+| `developer`         | `bun run package` or `bun run package:developer` | Off      | Local work                           |
+| `developer-insider` | Branch and pull-request CI                       | Off      | Shared CI packages and early testing |
+| `preview`           | Prerelease `desktop-v*` tag                      | Required | Published prerelease                 |
+| `stable`            | Final `desktop-v*` tag                           | Required | Published release                    |
+
+Developer-channel packages record their build channel in packaged `package.json` metadata. CI
+artifacts exist only to detect packaging regressions and support early testing. They must never be
+promoted to a public release.
+
+Local development follows the same rule. Neither of these commands needs code-signing or Apple
+credentials:
+
+```shell
+bun run --cwd apps/morphir-desktop build
+bun run --cwd apps/morphir-desktop package
+```
+
+`build` compiles the Electron application. `package` aliases `package:developer` and creates unsigned
+packages for the host platform. Use `package:developer-insider` when testing the same build channel
+as branch CI. Both pass `--config.mac.notarize=false` explicitly. The tag workflow is the only
+checked-in path that passes `--config.mac.notarize=true`.
 
 ## Required signing secrets
 

@@ -18,7 +18,9 @@
     "build": "electron-vite build",
     "dev": "electron-vite dev",
     "smoke": "electron-vite build && MORPHIR_SMOKE=1 electron .",
-    "package": "electron-vite build && electron-builder --publish=never",
+    "package": "bun run package:developer",
+    "package:developer": "electron-vite build && electron-builder --publish=never --config.mac.notarize=false --config.extraMetadata.morphirBuildChannel=developer",
+    "package:developer-insider": "electron-vite build && electron-builder --publish=never --config.mac.notarize=false --config.extraMetadata.morphirBuildChannel=developer-insider",
     "release:contract": "bun scripts/release-contract.ts"
   },
   "dependencies": {

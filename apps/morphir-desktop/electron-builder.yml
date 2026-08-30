@@ -14,7 +14,7 @@ mac:
     - zip
     - dmg
   category: public.app-category.developer-tools
-  notarize: true
+  notarize: false
 win:
   target:
     - zip

@@ -17,6 +17,7 @@ jobs:
     name: Validate release contract
     runs-on: ubuntu-24.04
     outputs:
+      channel: ${{ steps.version.outputs.channel }}
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
@@ -33,9 +34,14 @@ jobs:
             exit 1
           fi
           prerelease=false
-          if [[ "$version" == *-* ]]; then prerelease=true; fi
+          channel=stable
+          if [[ "$version" == *-* ]]; then
+            prerelease=true
+            channel=preview
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.0
@@ -54,7 +60,10 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Build portable archive and system packages
         working-directory: apps/morphir-desktop
-        run: bun run build && bunx electron-builder --linux tar.gz AppImage deb --x64 --publish=never
+        run: >-
+          bun run build && bunx electron-builder --linux tar.gz AppImage deb --x64
+          --publish=never
+          --config.extraMetadata.morphirBuildChannel=${{ needs.release-contract.outputs.channel }}
       - name: Verify portable launch entry point
         shell: bash
         run: |
@@ -97,7 +106,9 @@ jobs:
           }
       - name: Build signed portable archive and NSIS installer
         working-directory: apps/morphir-desktop
-        run: bun run build && bunx electron-builder --win zip nsis --x64 --publish=never
+        run: >-
+          bun run build && bunx electron-builder --win zip nsis --x64 --publish=never
+          --config.extraMetadata.morphirBuildChannel=${{ needs.release-contract.outputs.channel }}
       - name: Verify Authenticode and portable launch entry point
         shell: pwsh
         run: |
@@ -165,7 +176,10 @@ jobs:
           echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
       - name: Build signed and notarized portable archive and DMG
         working-directory: apps/morphir-desktop
-        run: bun run build && bunx electron-builder --mac zip dmg --arm64 --publish=never
+        run: >-
+          bun run build && bunx electron-builder --mac zip dmg --arm64 --publish=never
+          --config.mac.notarize=true
+          --config.extraMetadata.morphirBuildChannel=${{ needs.release-contract.outputs.channel }}
       - name: Verify signature, notarization ticket, and launch entry point
         shell: bash
         run: |

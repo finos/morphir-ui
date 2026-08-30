@@ -36,6 +36,35 @@ const sourceArtifacts = (root: string): DesktopReleaseSources => {
 }
 
 describe('Desktop release contract', () => {
+  test('keeps developer channels unsigned and opts into notarization only for releases', async () => {
+    const desktopRoot = join(import.meta.dir, '..')
+    const repositoryRoot = join(desktopRoot, '..', '..')
+    const packageJson = JSON.parse(readFileSync(join(desktopRoot, 'package.json'), 'utf8'))
+    const builder = Bun.YAML.parse(
+      readFileSync(join(desktopRoot, 'electron-builder.yml'), 'utf8'),
+    ) as { mac: { notarize: boolean } }
+    const releaseWorkflow = readFileSync(
+      join(repositoryRoot, '.github', 'workflows', 'release-desktop.yml'),
+      'utf8',
+    )
+    const ciWorkflow = readFileSync(join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8')
+
+    expect(packageJson.scripts.package).toBe('bun run package:developer')
+    expect(packageJson.scripts['package:developer']).toContain('--config.mac.notarize=false')
+    expect(packageJson.scripts['package:developer']).toContain(
+      '--config.extraMetadata.morphirBuildChannel=developer',
+    )
+    expect(packageJson.scripts['package:developer-insider']).toContain(
+      '--config.mac.notarize=false',
+    )
+    expect(packageJson.scripts['package:developer-insider']).toContain(
+      '--config.extraMetadata.morphirBuildChannel=developer-insider',
+    )
+    expect(builder.mac.notarize).toBeFalse()
+    expect(ciWorkflow).toContain('bun run package:developer-insider')
+    expect(releaseWorkflow).toContain('--config.mac.notarize=true')
+  })
+
   test('derives stable and preview channels from semantic versions', () => {
     expect(channelForVersion('1.2.3')).toEqual(['stable'])
     expect(channelForVersion('1.2.3+signed-build')).toEqual(['stable'])
