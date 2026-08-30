@@ -28,6 +28,8 @@ export interface DesktopRetentionResult {
   skippedEntries: number
 }
 
+export type DesktopCrashRetentionOptions = Pick<DesktopRetentionOptions, 'now' | 'retentionMs'>
+
 const processIsAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0)
@@ -137,6 +139,69 @@ export const enforceDesktopLogRetention = (
       rmSync(session.path)
       removedFiles += 1
       removedBytes += session.size
+    } catch {
+      skippedEntries += 1
+    }
+  }
+  return { removedFiles, removedBytes, skippedEntries }
+}
+
+const crashInventory = (
+  directory: string,
+  depth = 0,
+): { dumps: Array<{ path: string; size: number; modifiedMs: number }>; skippedEntries: number } => {
+  if (!existsSync(directory)) return { dumps: [], skippedEntries: 0 }
+  if (depth > 8) return { dumps: [], skippedEntries: 1 }
+  let entries
+  try {
+    entries = readdirSync(directory, { withFileTypes: true })
+  } catch {
+    return { dumps: [], skippedEntries: 1 }
+  }
+
+  const dumps: Array<{ path: string; size: number; modifiedMs: number }> = []
+  let skippedEntries = 0
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue
+    const path = join(directory, entry.name)
+    if (entry.isDirectory()) {
+      const nested = crashInventory(path, depth + 1)
+      dumps.push(...nested.dumps)
+      skippedEntries += nested.skippedEntries
+      continue
+    }
+    if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.dmp')) continue
+    try {
+      const metadata = lstatSync(path)
+      if (!metadata.isFile() || metadata.isSymbolicLink()) continue
+      dumps.push({ path, size: metadata.size, modifiedMs: metadata.mtimeMs })
+    } catch {
+      skippedEntries += 1
+    }
+  }
+  return { dumps, skippedEntries }
+}
+
+/// Remove expired Crashpad minidumps. Recent dumps remain available for a
+/// diagnostic bundle even when many crashes occur in a short period.
+export const enforceDesktopCrashRetention = (
+  root: string,
+  options: DesktopCrashRetentionOptions = {},
+): DesktopRetentionResult => {
+  const now = options.now ?? new Date()
+  const retentionMs = options.retentionMs ?? DEFAULT_DESKTOP_LOG_RETENTION_MS
+  const cutoff = now.getTime() - retentionMs
+  const found = crashInventory(root)
+  let removedFiles = 0
+  let removedBytes = 0
+  let skippedEntries = found.skippedEntries
+
+  for (const dump of found.dumps) {
+    if (dump.modifiedMs >= cutoff) continue
+    try {
+      rmSync(dump.path)
+      removedFiles += 1
+      removedBytes += dump.size
     } catch {
       skippedEntries += 1
     }

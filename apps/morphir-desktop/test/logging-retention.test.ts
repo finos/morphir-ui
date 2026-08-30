@@ -2,7 +2,10 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { enforceDesktopLogRetention } from '../src/main/logging-retention.ts'
+import {
+  enforceDesktopCrashRetention,
+  enforceDesktopLogRetention,
+} from '../src/main/logging-retention.ts'
 
 const roots: string[] = []
 const tempRoot = (): string => {
@@ -103,5 +106,27 @@ describe('Desktop log retention', () => {
     expect(existsSync(`${first}.active`)).toBeFalse()
     expect(existsSync(second)).toBeFalse()
     expect(existsSync(newest)).toBeTrue()
+  })
+})
+
+describe('Desktop crash retention', () => {
+  test('removes only expired Crashpad minidumps and preserves recent or unknown content', () => {
+    const root = tempRoot()
+    const expired = join(root, 'pending', 'old-report.dmp')
+    const recent = join(root, 'completed', 'recent-report.dmp')
+    const unknown = join(root, 'settings.dat')
+    put(expired, 20, new Date('2026-08-01T00:00:00Z'))
+    put(recent, 20, new Date('2026-08-29T00:00:00Z'))
+    put(unknown, 20, new Date('2026-08-01T00:00:00Z'))
+
+    const result = enforceDesktopCrashRetention(root, {
+      now: new Date('2026-08-30T00:00:00Z'),
+      retentionMs: 14 * 24 * 60 * 60 * 1000,
+    })
+
+    expect(result).toEqual({ removedFiles: 1, removedBytes: 20, skippedEntries: 0 })
+    expect(existsSync(expired)).toBeFalse()
+    expect(existsSync(recent)).toBeTrue()
+    expect(existsSync(unknown)).toBeTrue()
   })
 })

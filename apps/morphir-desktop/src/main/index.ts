@@ -17,6 +17,7 @@ import {
 import { registerWorkbenchHandlers } from './workbench-rpc.ts'
 import { LaunchRequestQueue, parseOpenSources } from './launch-requests.ts'
 import { desktopSourceRef } from '../shared/workbench-source.ts'
+import { enforceDesktopCrashRetention, type DesktopRetentionResult } from './logging-retention.ts'
 
 const smoke = process.env['MORPHIR_SMOKE'] === '1'
 const registry = new RpcRegistry()
@@ -26,11 +27,17 @@ let mainWindow: BrowserWindow | null = null
 const logSession = createDesktopLogSession()
 const logger = logSession.logger
 const crashDirectory = desktopCrashDirectory()
+let crashRetention: DesktopRetentionResult = {
+  removedFiles: 0,
+  removedBytes: 0,
+  skippedEntries: 0,
+}
 
 try {
   mkdirSync(crashDirectory, { recursive: true })
+  crashRetention = enforceDesktopCrashRetention(crashDirectory)
   app.setPath('crashDumps', crashDirectory)
-  crashReporter.start({ uploadToServer: false, compress: false })
+  crashReporter.start({ uploadToServer: false })
 } catch (error) {
   logger.warn('desktop.crash-reporter.unavailable', {
     error_type: error instanceof Error ? error.name : 'UnknownError',
@@ -42,6 +49,11 @@ logger.debug('desktop.logs.retention', {
   removed_files: logSession.retention.removedFiles,
   removed_bytes: logSession.retention.removedBytes,
   skipped_entries: logSession.retention.skippedEntries,
+})
+logger.debug('desktop.crashes.retention', {
+  removed_files: crashRetention.removedFiles,
+  removed_bytes: crashRetention.removedBytes,
+  skipped_entries: crashRetention.skippedEntries,
 })
 process.on('uncaughtExceptionMonitor', (error) => {
   logger.error('desktop.main.uncaught-exception', {
