@@ -14,7 +14,7 @@ export const uiConfigPath = (env?: Record<string, string | undefined>): string =
 
 export async function loadConfigFile(path: string = uiConfigPath()): Promise<UiConfig> {
   try {
-    return decodeUiConfig(parse(await readFile(path, 'utf8')))
+    return decodeUiConfig(parse(await readFile(path, 'utf8')), { legacyProviderId: 'desktop-local' })
   } catch {
     return defaultUiConfig
   }

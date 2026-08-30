@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { sourceKey } from '@morphir/workspace'
 import {
   WorkbenchStore,
   defaultUiConfig,
@@ -15,6 +16,9 @@ const makeStore = async (
   return new WorkbenchStore(await makeAppServices({ core }), defaultUiConfig.workbenches)
 }
 
+const workbenchId = (locator: string): string =>
+  sourceKey({ providerId: 'legacy-local', locator, displayName: locator })
+
 describe('WorkbenchStore', () => {
   test('restoration deduplicates canonical command-line sources and activates the first', async () => {
     const { core } = makeFakeCore({ canonicalSources: { '/alias.json': '/real/model.json' } })
@@ -29,11 +33,11 @@ describe('WorkbenchStore', () => {
 
     await store.restore(['/alias.json', '/dev'])
 
-    expect(store.openEntries.map((entry) => entry.descriptor.source)).toEqual([
+    expect(store.openEntries.map((entry) => entry.descriptor.source.locator)).toEqual([
       '/dev',
       '/real/model.json',
     ])
-    expect(store.activeId).toBe('/real/model.json')
+    expect(store.activeId).toBe(workbenchId('/real/model.json'))
   })
 
   test('reopen disabled retains prior entries as Recent without loading them', async () => {
@@ -61,8 +65,60 @@ describe('WorkbenchStore', () => {
     await store.open('/dev')
     await store.open('/a.json')
 
-    expect(store.openEntries.map((entry) => entry.descriptor.source)).toEqual(['/dev', '/a.json'])
-    expect(store.activeId).toBe('/a.json')
+    expect(store.openEntries.map((entry) => entry.descriptor.source.locator)).toEqual([
+      '/dev',
+      '/a.json',
+    ])
+    expect(store.activeId).toBe(workbenchId('/a.json'))
+  })
+
+  test('keeps Workbenches with the same locator from different providers', async () => {
+    const { core } = makeFakeCore()
+    const services = await makeAppServices({ core })
+    const browser = {
+      providerId: 'browser-local',
+      locator: '/shared/model.json',
+      displayName: 'Browser model',
+    }
+    const cli = {
+      providerId: 'cli:one',
+      locator: '/shared/model.json',
+      displayName: 'CLI model',
+    }
+    const descriptors = {
+      browser: {
+        id: '/shared/model.json',
+        source: browser,
+        name: 'Browser model',
+        kind: 'model' as const,
+        distribution: 'single-file' as const,
+        route: 'overview' as const,
+        openedAt: '2026-08-29T12:00:00.000Z',
+        lastUsedAt: '2026-08-29T12:00:00.000Z',
+      },
+      cli: {
+        id: '/shared/model.json',
+        source: cli,
+        name: 'CLI model',
+        kind: 'model' as const,
+        distribution: 'single-file' as const,
+        route: 'overview' as const,
+        openedAt: '2026-08-29T12:00:00.000Z',
+        lastUsedAt: '2026-08-29T12:00:00.000Z',
+      },
+    }
+    const store = new WorkbenchStore(
+      { ...services, inspectWorkbench: async (source) => descriptors[source as 'browser' | 'cli'] },
+      defaultUiConfig.workbenches,
+    )
+
+    await store.open('browser')
+    await store.open('cli')
+
+    expect(store.openEntries.map((entry) => entry.descriptor.id)).toEqual([
+      sourceKey(cli),
+      sourceKey(browser),
+    ])
   })
 
   test('opening an errored Workbench retries its load', async () => {
@@ -116,9 +172,9 @@ describe('WorkbenchStore', () => {
     await store.open('/a.json')
     await store.open('/b.json')
 
-    store.selectRoute('/a.json', 'explorer')
-    store.activate('/b.json')
-    store.activate('/a.json')
+    store.selectRoute(workbenchId('/a.json'), 'explorer')
+    store.activate(workbenchId('/b.json'))
+    store.activate(workbenchId('/a.json'))
 
     expect(store.active?.descriptor.route).toBe('explorer')
   })
@@ -127,14 +183,14 @@ describe('WorkbenchStore', () => {
     const store = await makeStore()
     await store.open('/a.json')
 
-    store.close('/a.json')
+    store.close(workbenchId('/a.json'))
 
     expect(store.openEntries).toHaveLength(0)
-    expect(store.recent[0]?.id).toBe('/a.json')
+    expect(store.recent[0]?.id).toBe(workbenchId('/a.json'))
 
-    await store.reopen('/a.json')
+    await store.reopen(workbenchId('/a.json'))
 
-    expect(store.activeId).toBe('/a.json')
+    expect(store.activeId).toBe(workbenchId('/a.json'))
     expect(store.recent).toHaveLength(0)
   })
 
@@ -145,7 +201,7 @@ describe('WorkbenchStore', () => {
     await store.open('/missing')
 
     expect(
-      store.openEntries.find((entry) => entry.descriptor.source === '/good.json')?.status,
+      store.openEntries.find((entry) => entry.descriptor.source.locator === '/good.json')?.status,
     ).toBe('ready')
     expect(store.failedRequests).toEqual([
       { source: '/missing', message: 'Workbench source not found: /missing' },
@@ -154,8 +210,8 @@ describe('WorkbenchStore', () => {
 
   test('a failed restored load remains attached to its descriptor', async () => {
     const descriptor: ModelWorkbenchDescriptor = {
-      id: '/bad.json',
-      source: '/bad.json',
+      id: workbenchId('/bad.json'),
+      source: { providerId: 'legacy-local', locator: '/bad.json', displayName: 'bad.json' },
       name: 'bad.json',
       kind: 'model',
       distribution: 'single-file',
@@ -184,16 +240,16 @@ describe('WorkbenchStore', () => {
     const store = await makeStore()
     await store.open('/models/acme.json')
     await store.open('/knowledge')
-    store.close('/knowledge')
+    store.close(workbenchId('/knowledge'))
 
     store.query = 'acme'
-    expect(store.filteredOpen.map((entry) => entry.descriptor.source)).toEqual([
+    expect(store.filteredOpen.map((entry) => entry.descriptor.source.locator)).toEqual([
       '/models/acme.json',
     ])
     expect(store.filteredRecent).toEqual([])
 
     store.query = 'knowledge'
     expect(store.filteredOpen).toEqual([])
-    expect(store.filteredRecent.map((entry) => entry.source)).toEqual(['/knowledge'])
+    expect(store.filteredRecent.map((entry) => entry.source.locator)).toEqual(['/knowledge'])
   })
 })

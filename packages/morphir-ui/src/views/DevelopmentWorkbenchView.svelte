@@ -7,7 +7,7 @@
   <h2>Development Workbench</h2>
   <dl>
     <dt>Root</dt>
-    <dd>{workbench.descriptor.source}</dd>
+    <dd>{workbench.descriptor.source.displayName} ({workbench.descriptor.source.providerId})</dd>
     <dt>Configuration anchor</dt>
     <dd>{workbench.configAnchor ?? 'No project configuration found'}</dd>
   </dl>

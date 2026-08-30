@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { sourceKey } from '@morphir/workspace'
 import {
   inspectDevelopmentRoot,
   inspectWorkbenchSource,
@@ -45,8 +46,16 @@ describe('inspectWorkbenchSource', () => {
     const canonical = realpathSync(path)
 
     expect(await inspectWorkbenchSource(path, () => timestamp)).toMatchObject({
-      id: canonical,
-      source: canonical,
+      id: sourceKey({
+        providerId: 'desktop-local',
+        locator: canonical,
+        displayName: 'model.json',
+      }),
+      source: {
+        providerId: 'desktop-local',
+        locator: canonical,
+        displayName: 'model.json',
+      },
       name: 'model.json',
       kind: 'model',
       distribution: 'single-file',
@@ -64,7 +73,7 @@ describe('inspectWorkbenchSource', () => {
     const canonical = realpathSync(distribution)
 
     expect(await inspectWorkbenchSource(distribution, () => timestamp)).toMatchObject({
-      source: canonical,
+      source: { providerId: 'desktop-local', locator: canonical, displayName: '.morphir-dist' },
       kind: 'model',
       distribution: 'document-tree',
     })
@@ -78,7 +87,7 @@ describe('inspectWorkbenchSource', () => {
     const canonical = realpathSync(development)
 
     expect(await inspectWorkbenchSource(development, () => timestamp)).toMatchObject({
-      source: canonical,
+      source: { providerId: 'desktop-local', locator: canonical, displayName: 'dev' },
       kind: 'development',
     })
   })

@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/svelte'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, test } from 'vitest'
+import { sourceKey } from '@morphir/workspace'
 import WorkbenchRail from '../src/shell/WorkbenchRail.svelte'
 import { WorkbenchStore, defaultUiConfig, makeAppServices } from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
@@ -22,10 +23,16 @@ describe('WorkbenchRail', () => {
 
     await userEvent.click(
       screen.getByRole('button', {
-        name: 'acme.json, model Workbench, /models/acme.json',
+        name: 'acme.json, model Workbench, acme.json (legacy-local)',
       }),
     )
-    expect(store.activeId).toBe('/models/acme.json')
+    expect(store.activeId).toBe(
+      sourceKey({
+        providerId: 'legacy-local',
+        locator: '/models/acme.json',
+        displayName: 'acme.json',
+      }),
+    )
 
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search Workbenches' }), 'knowledge')
     expect(screen.queryByText('acme.json')).toBeNull()
@@ -36,12 +43,14 @@ describe('WorkbenchRail', () => {
     const store = await renderRail()
 
     await userEvent.click(screen.getByRole('button', { name: 'Close knowledge' }))
-    expect(store.recent.map((item) => item.source)).toEqual(['/knowledge'])
+    expect(store.recent.map((item) => item.source.locator)).toEqual(['/knowledge'])
     expect(screen.queryByRole('button', { name: /knowledge/i })).toBeNull()
 
     await userEvent.click(screen.getByRole('button', { name: /Recent, 1 Workbench/ }))
     await userEvent.click(screen.getByRole('button', { name: /Reopen knowledge/ }))
-    expect(store.activeId).toBe('/knowledge')
+    expect(store.activeId).toBe(
+      sourceKey({ providerId: 'legacy-local', locator: '/knowledge', displayName: 'knowledge' }),
+    )
     expect(store.recent).toHaveLength(0)
   })
 

@@ -1,12 +1,17 @@
 import { Either, Schema } from 'effect'
+import { WorkbenchSourceRefSchema, sourceKey } from '@morphir/workspace'
 import { SHELL_DEFAULTS, type ColorScheme, type ShellSnapshot } from '../state/shell-constants.ts'
-import { legacyModelDescriptor, type WorkbenchDescriptor } from '../workbench/types.ts'
+import {
+  legacyModelDescriptor,
+  legacySourceRef,
+  type WorkbenchDescriptor,
+} from '../workbench/types.ts'
 
 export type GitHubSource = 'none' | 'gh-cli' | 'pat'
 
 const WorkbenchBaseFields = {
   id: Schema.String,
-  source: Schema.String,
+  source: WorkbenchSourceRefSchema,
   name: Schema.String,
   openedAt: Schema.String,
   lastUsedAt: Schema.String,
@@ -66,14 +71,115 @@ export const defaultUiConfig: UiConfig = {
   github: { source: 'none' },
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+interface PersistedDescriptor {
+  readonly descriptor: WorkbenchDescriptor
+  readonly aliases: ReadonlyArray<string>
+}
+
+const migrateDescriptor = (
+  input: unknown,
+  providerId: string,
+): PersistedDescriptor | null => {
+  if (!isRecord(input)) return null
+
+  const sourceInput = input.source
+  const source =
+    typeof sourceInput === 'string'
+      ? {
+          ...legacySourceRef(sourceInput, providerId),
+          displayName:
+            typeof input.name === 'string'
+              ? input.name
+              : legacySourceRef(sourceInput, providerId).displayName,
+        }
+      : sourceInput
+  const decodedSource = Either.getOrNull(
+    Schema.decodeUnknownEither(WorkbenchSourceRefSchema)(source),
+  )
+  if (!decodedSource) return null
+
+  const descriptor = Either.getOrNull(
+    Schema.decodeUnknownEither(WorkbenchDescriptorSchema)({
+      ...input,
+      id: sourceKey(decodedSource),
+      source: decodedSource,
+    }),
+  )
+  if (!descriptor) return null
+
+  const aliases = [
+    typeof input.id === 'string' ? input.id : null,
+    typeof sourceInput === 'string' ? sourceInput : null,
+    descriptor.id,
+  ].filter((id): id is string => id !== null)
+  return { descriptor, aliases }
+}
+
+const deduplicateDescriptors = (
+  descriptors: ReadonlyArray<PersistedDescriptor>,
+): ReadonlyArray<PersistedDescriptor> => {
+  const seen = new Set<string>()
+  return descriptors.filter(({ descriptor }) => {
+    if (seen.has(descriptor.id)) return false
+    seen.add(descriptor.id)
+    return true
+  })
+}
+
+const migrateWorkbenchConfig = (
+  input: Record<string, unknown>,
+  providerId: string,
+): Record<string, unknown> => {
+  const migrateList = (value: unknown): ReadonlyArray<PersistedDescriptor> =>
+    Array.isArray(value)
+      ? value
+          .map((descriptor) => migrateDescriptor(descriptor, providerId))
+          .filter((descriptor): descriptor is PersistedDescriptor => descriptor !== null)
+      : []
+  const openCandidates = migrateList(input.open)
+  const recentCandidates = migrateList(input.recent)
+  const open = deduplicateDescriptors(openCandidates)
+  const openIds = new Set(open.map(({ descriptor }) => descriptor.id))
+  const recent = deduplicateDescriptors(recentCandidates).filter(
+    ({ descriptor }) => !openIds.has(descriptor.id),
+  )
+  const aliases = new Map<string, string>()
+  for (const { descriptor } of [...open, ...recent]) {
+    aliases.set(descriptor.id, descriptor.id)
+  }
+  for (const candidate of [...openCandidates, ...recentCandidates]) {
+    for (const oldId of candidate.aliases) {
+      if (!aliases.has(oldId)) aliases.set(oldId, candidate.descriptor.id)
+    }
+  }
+  const resolvedActiveId =
+    typeof input.activeId === 'string' ? (aliases.get(input.activeId) ?? null) : null
+  const activeId = resolvedActiveId !== null && openIds.has(resolvedActiveId) ? resolvedActiveId : null
+  return {
+    open: open.map(({ descriptor }) => descriptor),
+    recent: recent.map(({ descriptor }) => descriptor),
+    activeId,
+    reopenOnLaunch:
+      typeof input.reopenOnLaunch === 'boolean'
+        ? input.reopenOnLaunch
+        : defaultUiConfig.workbenches.reopenOnLaunch,
+  }
+}
+
+export interface DecodeUiConfigOptions {
+  readonly legacyProviderId?: string
+}
+
 /** Lenient: any invalid or partial input yields the defaults. Config files are never a crash. */
-export const decodeUiConfig = (input: unknown): UiConfig => {
-  const record =
-    typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : null
-  const workspaceInput =
-    typeof record?.['workspace'] === 'object' && record['workspace'] !== null
-      ? (record['workspace'] as Record<string, unknown>)
-      : {}
+export const decodeUiConfig = (
+  input: unknown,
+  { legacyProviderId = 'legacy-local' }: DecodeUiConfigOptions = {},
+): UiConfig => {
+  const record = isRecord(input) ? input : null
+  const workspaceInput = isRecord(record?.['workspace']) ? record['workspace'] : {}
   const legacyWorkspace = { recent: [], reopenOnLaunch: true, active: null, ...workspaceInput }
   const legacyActive = typeof legacyWorkspace.active === 'string' ? legacyWorkspace.active : null
   const legacyRecent: ReadonlyArray<string> = Array.isArray(legacyWorkspace.recent)
@@ -81,17 +187,17 @@ export const decodeUiConfig = (input: unknown): UiConfig => {
         (path): path is string => typeof path === 'string',
       )
     : []
-  const migratedOpen: ReadonlyArray<WorkbenchDescriptor> = legacyActive
-    ? [legacyModelDescriptor(legacyActive)]
-    : []
   const migratedRecent = legacyRecent
     .filter((path) => path !== legacyActive)
     .filter((path, index, paths) => paths.indexOf(path) === index)
-    .map(legacyModelDescriptor)
+    .map((source) => legacyModelDescriptor(source, legacyProviderId))
+  const legacyActiveDescriptor = legacyActive
+    ? legacyModelDescriptor(legacyActive, legacyProviderId)
+    : null
   const migratedWorkbenches = {
-    open: migratedOpen,
+    open: legacyActiveDescriptor ? [legacyActiveDescriptor] : [],
     recent: migratedRecent,
-    activeId: legacyActive,
+    activeId: legacyActiveDescriptor?.id ?? null,
     reopenOnLaunch:
       typeof legacyWorkspace.reopenOnLaunch === 'boolean'
         ? legacyWorkspace.reopenOnLaunch
@@ -100,8 +206,11 @@ export const decodeUiConfig = (input: unknown): UiConfig => {
   const merged = record
     ? {
         workbenches:
-          typeof record['workbenches'] === 'object' && record['workbenches'] !== null
-            ? { ...defaultUiConfig.workbenches, ...(record['workbenches'] as object) }
+          isRecord(record['workbenches'])
+            ? {
+                ...defaultUiConfig.workbenches,
+                ...migrateWorkbenchConfig(record['workbenches'], legacyProviderId),
+              }
             : migratedWorkbenches,
         appearance: {
           ...defaultUiConfig.appearance,

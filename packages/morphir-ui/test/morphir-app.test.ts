@@ -35,10 +35,10 @@ describe('MorphirApp', () => {
     })
 
     const aRow = await screen.findByRole('button', {
-      name: 'a.json, model Workbench, /models/a.json',
+      name: 'a.json, model Workbench, a.json (legacy-local)',
     })
     const bRow = await screen.findByRole('button', {
-      name: 'b.json, model Workbench, /models/b.json',
+      name: 'b.json, model Workbench, b.json (legacy-local)',
     })
     await waitFor(() => {
       expect(aRow.closest('.workbench-row')?.classList.contains('active')).toBe(true)
@@ -59,14 +59,14 @@ describe('MorphirApp', () => {
     ).toBe(true)
     expect(container.querySelector('.ir-explorer')).toBeTruthy()
     await userEvent.click(
-      screen.getByRole('button', { name: 'b.json, model Workbench, /models/b.json' }),
+      screen.getByRole('button', { name: 'b.json, model Workbench, b.json (legacy-local)' }),
     )
     expect(screen.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected')).toBe('true')
     expect(
       container.querySelector('.workbench-view')?.classList.contains('workbench-view-explorer'),
     ).toBe(false)
     await userEvent.click(
-      screen.getByRole('button', { name: 'a.json, model Workbench, /models/a.json' }),
+      screen.getByRole('button', { name: 'a.json, model Workbench, a.json (legacy-local)' }),
     )
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: 'IR Explorer' }).getAttribute('aria-selected')).toBe(
@@ -88,18 +88,21 @@ describe('MorphirApp', () => {
       },
     })
 
-    await screen.findByRole('button', { name: 'a.json, model Workbench, /models/a.json' })
+    await screen.findByRole('button', {
+      name: 'a.json, model Workbench, a.json (legacy-local)',
+    })
     await waitFor(() =>
       expect(
-        screen.getByRole('button', { name: 'b.json, model Workbench, /models/b.json' }).textContent,
+        screen.getByRole('button', { name: 'b.json, model Workbench, b.json (legacy-local)' })
+          .textContent,
       ).toContain('ready'),
     )
     await userEvent.click(
-      screen.getByRole('button', { name: 'b.json, model Workbench, /models/b.json' }),
+      screen.getByRole('button', { name: 'b.json, model Workbench, b.json (legacy-local)' }),
     )
     await userEvent.click(screen.getByRole('tab', { name: 'IR Explorer' }))
     await userEvent.click(
-      screen.getByRole('button', { name: 'a.json, model Workbench, /models/a.json' }),
+      screen.getByRole('button', { name: 'a.json, model Workbench, a.json (legacy-local)' }),
     )
     await userEvent.click(screen.getByRole('tab', { name: 'IR Explorer' }))
     await userEvent.click(await screen.findByRole('treeitem', { name: 'usesHelper' }))
@@ -110,7 +113,7 @@ describe('MorphirApp', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Types' }))
 
     await userEvent.click(
-      screen.getByRole('button', { name: 'b.json, model Workbench, /models/b.json' }),
+      screen.getByRole('button', { name: 'b.json, model Workbench, b.json (legacy-local)' }),
     )
 
     expect(screen.getByRole('tab', { name: 'IR Explorer' }).getAttribute('aria-selected')).toBe(

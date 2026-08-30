@@ -6,7 +6,9 @@
 <section class="card">
   <h2 class="card-title">Model Workbench</h2>
   <div class="row">
-    <span class="label">Source</span><span class="value">{model.descriptor.source}</span>
+    <span class="label">Source</span><span class="value"
+      >{model.descriptor.source.displayName} ({model.descriptor.source.providerId})</span
+    >
   </div>
   <div class="row">
     <span class="label">Distribution</span><span class="value"

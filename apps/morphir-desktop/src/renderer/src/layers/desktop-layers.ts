@@ -51,7 +51,7 @@ const decodeModelSource = (
       (error) =>
         new WorkbenchError({
           code: 'invalid-distribution',
-          source: descriptor.source,
+          source: descriptor.source.locator,
           message: error.message,
         }),
     ),
@@ -138,7 +138,7 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
               (error) =>
                 new WorkbenchError({
                   code: 'read-failed',
-                  source: descriptor.source,
+                  source: descriptor.source.locator,
                   message: error.message,
                 }),
             ),
@@ -159,7 +159,7 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
               (error) =>
                 new WorkbenchError({
                   code: 'read-failed',
-                  source: descriptor.source,
+                  source: descriptor.source.locator,
                   message: error.message,
                 }),
             ),

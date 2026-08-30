@@ -22,6 +22,7 @@
   "dependencies": {
     "@morphir/insight": "workspace:*",
     "@morphir/ir": "workspace:*",
+    "@morphir/workspace": "workspace:*",
     "effect": "^3.22.1"
   },
   "peerDependencies": {

@@ -1,4 +1,5 @@
 import { Effect, Layer, Option } from 'effect'
+import { sourceKey } from '@morphir/workspace'
 import {
   AppInfoService,
   ConfigService,
@@ -11,6 +12,7 @@ import {
   WorkspaceError,
   WorkspaceService,
   defaultUiConfig,
+  legacySourceRef,
   redactToken,
   type GitHubSource,
   type UiConfig,
@@ -64,11 +66,12 @@ export const makeFakeCore = (opts?: {
           )
         }
         const canonicalSource = opts?.canonicalSources?.[source] ?? source
+        const sourceRef = legacySourceRef(canonicalSource)
         return Effect.succeed(
           canonicalSource.endsWith('.json')
             ? {
-                id: canonicalSource,
-                source: canonicalSource,
+                id: sourceKey(sourceRef),
+                source: sourceRef,
                 name: canonicalSource.split('/').at(-1) ?? canonicalSource,
                 kind: 'model' as const,
                 distribution: 'single-file' as const,
@@ -77,8 +80,8 @@ export const makeFakeCore = (opts?: {
                 lastUsedAt: timestamp,
               }
             : {
-                id: canonicalSource,
-                source: canonicalSource,
+                id: sourceKey(sourceRef),
+                source: sourceRef,
                 name: canonicalSource.split('/').at(-1) ?? canonicalSource,
                 kind: 'development' as const,
                 route: 'overview' as const,
@@ -93,12 +96,12 @@ export const makeFakeCore = (opts?: {
     }),
     Layer.succeed(ModelWorkbenchService, {
       load: (descriptor) =>
-        failingLoads.has(descriptor.source)
+        failingLoads.has(descriptor.source.locator)
           ? Effect.fail(
               new WorkbenchError({
                 code: 'invalid-distribution',
-                source: descriptor.source,
-                message: `Invalid Morphir distribution: ${descriptor.source}`,
+                source: descriptor.source.locator,
+                message: `Invalid Morphir distribution: ${descriptor.source.locator}`,
               }),
             )
           : descriptor.distribution === 'document-tree'
@@ -121,7 +124,7 @@ export const makeFakeCore = (opts?: {
                   (error) =>
                     new WorkbenchError({
                       code: 'invalid-distribution',
-                      source: descriptor.source,
+                      source: descriptor.source.locator,
                       message: error.message,
                     }),
                 ),
@@ -132,7 +135,7 @@ export const makeFakeCore = (opts?: {
         Effect.succeed({
           kind: 'development' as const,
           descriptor,
-          configAnchor: opts?.development?.configAnchor ?? descriptor.source,
+          configAnchor: opts?.development?.configAnchor ?? descriptor.source.locator,
           modelSources: opts?.development?.modelSources ?? [],
           knowledgeBaseSources: opts?.development?.knowledgeBaseSources ?? [],
         }),

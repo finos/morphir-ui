@@ -1,4 +1,5 @@
 import { Effect, Layer, Option } from 'effect'
+import { sourceKey } from '@morphir/workspace'
 import { describe, expect, test } from 'vitest'
 import {
   DevelopmentWorkbenchService,
@@ -6,16 +7,19 @@ import {
   WorkbenchError,
   WorkbenchSourceService,
   loadWorkbench,
+  legacySourceRef,
   openWorkbench,
   type DevelopmentWorkbenchDescriptor,
   type ModelWorkbenchDescriptor,
 } from '../src/index.ts'
 
 const timestamp = '2026-08-29T12:00:00.000Z'
+const modelSource = legacySourceRef('/canonical/model.json')
+const developmentSource = legacySourceRef('/canonical/dev')
 
 const modelDescriptor: ModelWorkbenchDescriptor = {
-  id: '/canonical/model.json',
-  source: '/canonical/model.json',
+  id: sourceKey(modelSource),
+  source: modelSource,
   name: 'model.json',
   kind: 'model',
   distribution: 'single-file',
@@ -25,8 +29,8 @@ const modelDescriptor: ModelWorkbenchDescriptor = {
 }
 
 const developmentDescriptor: DevelopmentWorkbenchDescriptor = {
-  id: '/canonical/dev',
-  source: '/canonical/dev',
+  id: sourceKey(developmentSource),
+  source: developmentSource,
   name: 'dev',
   kind: 'development',
   route: 'overview',
@@ -57,7 +61,7 @@ const developmentLayer = Layer.succeed(DevelopmentWorkbenchService, {
     Effect.succeed({
       kind: 'development' as const,
       descriptor,
-      configAnchor: descriptor.source,
+      configAnchor: descriptor.source.locator,
       modelSources: [],
       knowledgeBaseSources: [],
     }),
@@ -71,7 +75,7 @@ describe('Workbench Effect services', () => {
       openWorkbench('/model.json').pipe(Effect.provide(services)),
     )
 
-    expect(result.descriptor.source).toBe('/canonical/model.json')
+    expect(result.descriptor.source.locator).toBe('/canonical/model.json')
     expect(result.data.kind).toBe('model')
   })
 

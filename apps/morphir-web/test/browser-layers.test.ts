@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { defaultUiConfig, makeAppServices } from '@morphir/ui'
+import { sourceKey } from '@morphir/workspace'
 import { browserCore } from '../src/layers/browser-layers.ts'
 
 describe('browserCore', () => {
@@ -64,7 +65,18 @@ describe('browserCore', () => {
     expect(first).not.toBeNull()
     expect(second).not.toBeNull()
     expect(first).not.toBe(second)
-    await expect(services.inspectWorkbench(first!)).resolves.toMatchObject({ name: 'model.json' })
-    await expect(services.inspectWorkbench(second!)).resolves.toMatchObject({ name: 'model.json' })
+    const firstDescriptor = await services.inspectWorkbench(first!)
+    const secondDescriptor = await services.inspectWorkbench(second!)
+    expect(firstDescriptor).toMatchObject({
+      id: sourceKey({ providerId: 'browser-local', locator: first!, displayName: 'model.json' }),
+      source: { providerId: 'browser-local', locator: first!, displayName: 'model.json' },
+      name: 'model.json',
+    })
+    expect(secondDescriptor).toMatchObject({
+      id: sourceKey({ providerId: 'browser-local', locator: second!, displayName: 'model.json (2)' }),
+      source: { providerId: 'browser-local', locator: second!, displayName: 'model.json (2)' },
+      name: 'model.json (2)',
+    })
+    expect(secondDescriptor.source.displayName).not.toContain('browser-model:')
   })
 })

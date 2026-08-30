@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import type { WorkbenchDescriptor } from '@morphir/ui/workbench'
+import { sourceKey } from '@morphir/workspace'
 import { RpcRegistry } from '../src/main/rpc.ts'
 import { registerWorkbenchHandlers } from '../src/main/workbench-rpc.ts'
 
 const timestamp = '2026-08-29T12:00:00.000Z'
 const descriptor: WorkbenchDescriptor = {
-  id: '/model.json',
-  source: '/model.json',
+  id: sourceKey({ providerId: 'desktop-local', locator: '/model.json', displayName: 'model.json' }),
+  source: { providerId: 'desktop-local', locator: '/model.json', displayName: 'model.json' },
   name: 'model.json',
   kind: 'model',
   distribution: 'single-file',

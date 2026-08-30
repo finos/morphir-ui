@@ -33,7 +33,9 @@ registry.register('morphir/shell/smokeReport', async (params) => {
 })
 registry.register('morphir/config/load', async () => loadConfigFile())
 registry.register('morphir/config/save', async (params) => {
-  const config = decodeUiConfig((params as { config?: unknown })?.config)
+  const config = decodeUiConfig((params as { config?: unknown })?.config, {
+    legacyProviderId: 'desktop-local',
+  })
   await saveConfigFile(config)
   return {}
 })

@@ -14,18 +14,22 @@ import {
   type PickedWorkspace,
 } from '@morphir/ui'
 import { decodeMorphirIr, toWorkspaceIr } from '@morphir/ir'
+import { sourceKey } from '@morphir/workspace'
 
 const CONFIG_KEY = 'morphir-ui.config'
 
 export const browserCore = (version: string): Layer.Layer<CoreServices> => {
   const selectedModels = new Map<string, { name: string; content: string }>()
+  const selectedModelNameCounts = new Map<string, number>()
   let nextSelectedModelId = 0
 
   return Layer.mergeAll(
     Layer.succeed(ConfigService, {
       load: Effect.sync(() => {
         try {
-          return decodeUiConfig(JSON.parse(localStorage.getItem(CONFIG_KEY) ?? '{}'))
+          return decodeUiConfig(JSON.parse(localStorage.getItem(CONFIG_KEY) ?? '{}'), {
+            legacyProviderId: 'browser-local',
+          })
         } catch {
           return defaultUiConfig
         }
@@ -67,9 +71,14 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
           )
         }
         const timestamp = new Date().toISOString()
+        const sourceRef = {
+          providerId: 'browser-local',
+          locator: source,
+          displayName: selectedModel.name,
+        }
         return Effect.succeed({
-          id: source,
-          source,
+          id: sourceKey(sourceRef),
+          source: sourceRef,
           name: selectedModel.name,
           kind: 'model' as const,
           distribution: 'single-file' as const,
@@ -98,7 +107,10 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
             file.text().then(
               (content) => {
                 const source = `browser-model:${++nextSelectedModelId}:${file.name}`
-                selectedModels.set(source, { name: file.name, content })
+                const nameCount = (selectedModelNameCounts.get(file.name) ?? 0) + 1
+                selectedModelNameCounts.set(file.name, nameCount)
+                const name = nameCount === 1 ? file.name : `${file.name} (${nameCount})`
+                selectedModels.set(source, { name, content })
                 resume(Effect.succeed(Option.some(source)))
               },
               (error) =>
@@ -132,13 +144,13 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
     }),
     Layer.succeed(ModelWorkbenchService, {
       load: (descriptor) => {
-        const selectedModel = selectedModels.get(descriptor.source)
+        const selectedModel = selectedModels.get(descriptor.source.locator)
         if (!selectedModel) {
           return Effect.fail(
             new WorkbenchError({
               code: 'not-found',
-              source: descriptor.source,
-              message: `Workbench source not found in this browser session: ${descriptor.source}`,
+              source: descriptor.source.locator,
+              message: `Workbench source not found in this browser session: ${descriptor.source.locator}`,
             }),
           )
         }
@@ -154,7 +166,7 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
             (error) =>
               new WorkbenchError({
                 code: 'invalid-distribution',
-                source: descriptor.source,
+                source: descriptor.source.locator,
                 message: error.message,
               }),
           ),
@@ -166,7 +178,7 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
         Effect.fail(
           new WorkbenchError({
             code: 'unsupported-file',
-            source: descriptor.source,
+            source: descriptor.source.locator,
             message: 'Development Workbenches are not available in the browser',
           }),
         ),
