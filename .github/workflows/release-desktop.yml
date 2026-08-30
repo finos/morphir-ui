@@ -72,7 +72,7 @@ jobs:
           test -n "$archive"
           tar -tzf "$archive" > "$RUNNER_TEMP/linux-archive-entries.txt"
           grep -Eq '(^|/)morphir-desktop$' "$RUNNER_TEMP/linux-archive-entries.txt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop-linux-x86_64
           if-no-files-found: error
@@ -128,7 +128,7 @@ jobs:
               throw "Invalid Authenticode signature for $($file.FullName): $($signature.Status)"
             }
           }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop-windows-x86_64
           if-no-files-found: error
@@ -194,7 +194,7 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app"
           xcrun stapler validate "$app"
           spctl --assess --type execute --verbose=2 "$app"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop-macos-aarch64
           if-no-files-found: error
@@ -217,7 +217,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
           path: release-input
