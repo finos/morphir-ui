@@ -31,6 +31,7 @@ import type { BrowserMorphirHome } from './browser-home.ts'
 import type { DirectoryHandleStore } from './handle-store.ts'
 
 const PROVIDER_ID = 'browser-local'
+const DIRECTORY_LOCATOR_ATTEMPTS = 32
 
 export type PickedBrowserDirectory =
   | {
@@ -178,6 +179,7 @@ export const makeBrowserWorkbenchLayers = (
   models: BrowserModelSourceProvider,
 ): Layer.Layer<WorkbenchSourceService | WorkbenchProviderService | DevelopmentWorkbenchService> => {
   const uploads = new Map<string, UploadedTree>()
+  const reservedLocators = new Set<string>()
 
   const findDirectory = async (source: WorkbenchSourceRef): Promise<UploadedTree['tree']> => {
     const uploaded = uploads.get(source.locator)
@@ -224,17 +226,37 @@ export const makeBrowserWorkbenchLayers = (
       try: async () => {
         const picked = await dependencies.pickDirectory()
         if (picked === null) return Option.none<WorkbenchSourceRef>()
-        const locator = opaqueDirectoryLocator()
-        if (picked.kind === 'handle') {
-          await dependencies.handles.put(
-            locator,
-            picked.handle as unknown as FileSystemDirectoryHandle,
-          )
-        } else {
-          uploads.set(locator, {
-            name: picked.name,
-            tree: await fileTreeFromDirectoryUpload(picked.files),
+        let locator: string | null = null
+        for (let attempt = 0; attempt < DIRECTORY_LOCATOR_ATTEMPTS; attempt += 1) {
+          const candidate = opaqueDirectoryLocator()
+          if (uploads.has(candidate) || reservedLocators.has(candidate)) continue
+          if (await dependencies.handles.has(candidate)) continue
+          if (uploads.has(candidate) || reservedLocators.has(candidate)) continue
+          reservedLocators.add(candidate)
+          locator = candidate
+          break
+        }
+        if (locator === null) {
+          throw new WorkbenchError({
+            code: 'read-failed',
+            source: '<browser-folder>',
+            message: `Unable to allocate a unique browser directory source after ${DIRECTORY_LOCATOR_ATTEMPTS} attempts`,
           })
+        }
+        try {
+          if (picked.kind === 'handle') {
+            await dependencies.handles.put(
+              locator,
+              picked.handle as unknown as FileSystemDirectoryHandle,
+            )
+          } else {
+            uploads.set(locator, {
+              name: picked.name,
+              tree: await fileTreeFromDirectoryUpload(picked.files),
+            })
+          }
+        } finally {
+          reservedLocators.delete(locator)
         }
         return Option.some({
           providerId: PROVIDER_ID,

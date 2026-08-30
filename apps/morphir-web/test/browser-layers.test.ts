@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { Effect, Stream } from 'effect'
 import {
   DevelopmentWorkbenchService,
+  WorkbenchSourceService,
   defaultUiConfig,
   makeAppServices,
   type DevelopmentWorkbenchDescriptor,
@@ -10,6 +11,7 @@ import { projectKey, sourceKey, type DiscoveryRequest } from '@morphir/workspace
 import {
   browserCore,
   browserCoreWith,
+  makeLazyWorkspaceEngine,
   type BrowserWorkspaceDependencies,
 } from '../src/layers/browser-layers.ts'
 import type { DirectoryPermissionHandle } from '../src/workspace/browser-directory.ts'
@@ -17,6 +19,40 @@ import { pickBrowserDirectory } from '../src/workspace/browser-provider.ts'
 
 const COUNTER_KEY = 'morphir-ui.browser-local.model-source-counter.v1'
 const LOCK_NAME = `${COUNTER_KEY}.lock`
+const directoryLocator = (suffix: number): string =>
+  `directory:${'00000000'.repeat(3)}${suffix.toString(16).padStart(8, '0')}`
+
+const installDirectoryIds = (...suffixes: ReadonlyArray<number>) => {
+  const remaining = [...suffixes]
+  const getRandomValues = vi.fn((values: Uint32Array) => {
+    values.fill(0)
+    values[3] = remaining.shift() ?? suffixes.at(-1) ?? 0
+    return values
+  })
+  vi.stubGlobal('crypto', { getRandomValues })
+  return getRandomValues
+}
+
+const emptyDiscoveryRequest: DiscoveryRequest = {
+  protocolVersion: 1,
+  developmentRoot: { entries: { '.': { kind: 'directory' } } },
+  morphirHome: null,
+  systemConfig: null,
+  environment: {},
+  cliOverlay: {},
+}
+
+const emptyDiscoveryResponse = {
+  status: 'success' as const,
+  snapshot: {
+    protocolVersion: 1 as const,
+    configAnchor: 'morphir.toml',
+    name: null,
+    state: 'open' as const,
+    projects: [],
+    diagnostics: [],
+  },
+}
 
 const directoryHandle = (
   name: string,
@@ -81,6 +117,57 @@ describe('browserCore', () => {
 
     await expect(pickBrowserDirectory()).resolves.toBeNull()
     expect(picker).toHaveBeenCalledWith({ mode: 'read' })
+  })
+
+  test('retries lazy workspace engine initialization after one failed attempt', async () => {
+    const engine = { discover: vi.fn(async () => emptyDiscoveryResponse) }
+    const initialize = vi
+      .fn<() => Promise<typeof engine>>()
+      .mockRejectedValueOnce(new Error('first load failed'))
+      .mockResolvedValue(engine)
+    const lazy = makeLazyWorkspaceEngine(initialize)
+
+    const failed = await Promise.allSettled([
+      lazy.discover(emptyDiscoveryRequest),
+      lazy.discover(emptyDiscoveryRequest),
+    ])
+    expect(failed).toMatchObject([
+      { status: 'rejected', reason: { message: 'first load failed' } },
+      { status: 'rejected', reason: { message: 'first load failed' } },
+    ])
+    expect(initialize).toHaveBeenCalledOnce()
+
+    await expect(lazy.discover(emptyDiscoveryRequest)).resolves.toEqual(emptyDiscoveryResponse)
+
+    expect(initialize).toHaveBeenCalledTimes(2)
+    expect(engine.discover).toHaveBeenCalledOnce()
+  })
+
+  test('shares concurrent workspace engine initialization and keeps a successful engine cached', async () => {
+    let resolveInitialization!: (engine: {
+      readonly discover: (request: DiscoveryRequest) => Promise<typeof emptyDiscoveryResponse>
+    }) => void
+    const pending = new Promise<{
+      readonly discover: (request: DiscoveryRequest) => Promise<typeof emptyDiscoveryResponse>
+    }>((resolve) => {
+      resolveInitialization = resolve
+    })
+    const engine = { discover: vi.fn(async () => emptyDiscoveryResponse) }
+    const initialize = vi.fn(() => pending)
+    const lazy = makeLazyWorkspaceEngine(initialize)
+
+    const first = lazy.discover(emptyDiscoveryRequest)
+    const second = lazy.discover(emptyDiscoveryRequest)
+    expect(initialize).toHaveBeenCalledOnce()
+    resolveInitialization(engine)
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      emptyDiscoveryResponse,
+      emptyDiscoveryResponse,
+    ])
+    await expect(lazy.discover(emptyDiscoveryRequest)).resolves.toEqual(emptyDiscoveryResponse)
+    expect(initialize).toHaveBeenCalledOnce()
+    expect(engine.discover).toHaveBeenCalledTimes(3)
   })
 
   test('config round-trips through localStorage', async () => {
@@ -161,6 +248,7 @@ describe('browserCore', () => {
         },
       },
       handles: {
+        has: async (key) => handles.has(key),
         put: async (key, handle) => {
           handles.set(key, handle)
         },
@@ -275,6 +363,7 @@ describe('browserCore', () => {
           },
         },
         handles: {
+          has: async () => false,
           put: async () => undefined,
           get: handleLookup,
           delete: async () => undefined,
@@ -321,6 +410,7 @@ describe('browserCore', () => {
         }),
       },
       handles: {
+        has: async (key) => handles.has(key),
         put: async (key, selected) => {
           handles.set(key, selected)
         },
@@ -353,6 +443,203 @@ describe('browserCore', () => {
       code: 'detection-failed',
       source,
       message: 'workspace.config.ambiguous: Found multiple primary configurations',
+    })
+  })
+
+  test('retries a persisted handle locator collision without reading or replacing it', async () => {
+    installDirectoryIds(1, 2)
+    const existingLocator = directoryLocator(1)
+    const existingHandle = directoryHandle('existing', { 'morphir.toml': '[project]' })
+    const selectedHandle = directoryHandle('selected', { 'morphir.toml': '[project]' })
+    const handles = new Map<string, FileSystemDirectoryHandle>([
+      [existingLocator, existingHandle as unknown as FileSystemDirectoryHandle],
+    ])
+    const get = vi.fn(async (key: string) => handles.get(key) ?? null)
+    const put = vi.fn(async (key: string, handle: FileSystemDirectoryHandle) => {
+      if (handles.has(key)) throw new Error(`Would replace ${key}`)
+      handles.set(key, handle)
+    })
+    const services = await makeAppServices({
+      core: browserCoreWith('1.0.0', {
+        engine: { discover: async () => Promise.reject(new Error('not used')) },
+        handles: {
+          has: async (key: string) => handles.has(key),
+          put,
+          get,
+          delete: async (key: string) => {
+            handles.delete(key)
+          },
+        },
+        home: {
+          read: async () => ({ entries: { '.': { kind: 'directory' } } }),
+          writeConfig: async () => undefined,
+        },
+        pickDirectory: async () => ({ kind: 'handle', handle: selectedHandle }),
+      }),
+    })
+
+    const selected = await services.pickWorkbenchSource('folder')
+
+    expect(selected?.locator).toBe(directoryLocator(2))
+    expect(handles.get(existingLocator)).toBe(existingHandle)
+    expect(put).toHaveBeenCalledOnce()
+    expect(put).toHaveBeenCalledWith(
+      directoryLocator(2),
+      selectedHandle as unknown as FileSystemDirectoryHandle,
+    )
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  test('retries an uploaded-tree locator collision and preserves the first source', async () => {
+    installDirectoryIds(1, 1, 2)
+    const uploads = [
+      {
+        kind: 'upload' as const,
+        name: 'first',
+        files: [
+          { relativePath: 'first/morphir.toml', text: async () => '[project]\nname = "first"' },
+        ],
+      },
+      {
+        kind: 'upload' as const,
+        name: 'second',
+        files: [
+          {
+            relativePath: 'second/morphir.toml',
+            text: async () => '[project]\nname = "second"',
+          },
+        ],
+      },
+    ]
+    const requests: DiscoveryRequest[] = []
+    const services = await makeAppServices({
+      core: browserCoreWith('1.0.0', {
+        engine: {
+          discover: async (request) => {
+            requests.push(request)
+            const config = request.developmentRoot.entries['morphir.toml']
+            const name =
+              config?.kind === 'file' && config.text.includes('second') ? 'second' : 'first'
+            return {
+              status: 'success',
+              snapshot: {
+                protocolVersion: 1,
+                configAnchor: 'morphir.toml',
+                name,
+                state: 'open',
+                projects: [],
+                diagnostics: [],
+              },
+            }
+          },
+        },
+        handles: {
+          has: async () => false,
+          put: async () => undefined,
+          get: async () => null,
+          delete: async () => undefined,
+        },
+        home: {
+          read: async () => ({ entries: { '.': { kind: 'directory' } } }),
+          writeConfig: async () => undefined,
+        },
+        pickDirectory: async () => uploads.shift() ?? null,
+      }),
+    })
+
+    const first = await services.pickWorkbenchSource('folder')
+    const second = await services.pickWorkbenchSource('folder')
+    const firstDescriptor = await services.inspectWorkbench(first!)
+    const secondDescriptor = await services.inspectWorkbench(second!)
+    if (firstDescriptor.kind !== 'development' || secondDescriptor.kind !== 'development') {
+      throw new Error('Expected Development Workbenches')
+    }
+    const firstLoaded = await services.loadDevelopmentWorkbench(firstDescriptor)
+    const secondLoaded = await services.loadDevelopmentWorkbench(secondDescriptor)
+
+    expect(first?.locator).toBe(directoryLocator(1))
+    expect(second?.locator).toBe(directoryLocator(2))
+    expect(firstLoaded.snapshot.name).toBe('first')
+    expect(secondLoaded.snapshot.name).toBe('second')
+    expect(requests.map((request) => request.developmentRoot.entries['morphir.toml'])).toEqual([
+      { kind: 'file', text: '[project]\nname = "first"' },
+      { kind: 'file', text: '[project]\nname = "second"' },
+    ])
+  })
+
+  test('reserves opaque directory IDs across concurrent upload selections', async () => {
+    installDirectoryIds(1, 1, 2)
+    const uploads = ['first', 'second'].map((name) => ({
+      kind: 'upload' as const,
+      name,
+      files: [
+        { relativePath: `${name}/morphir.toml`, text: async () => `[project]\nname = "${name}"` },
+      ],
+    }))
+    const services = await makeAppServices({
+      core: browserCoreWith('1.0.0', {
+        engine: { discover: async () => Promise.reject(new Error('not used')) },
+        handles: {
+          has: async () => false,
+          put: async () => undefined,
+          get: async () => null,
+          delete: async () => undefined,
+        },
+        home: {
+          read: async () => ({ entries: { '.': { kind: 'directory' } } }),
+          writeConfig: async () => undefined,
+        },
+        pickDirectory: async () => uploads.shift() ?? null,
+      }),
+    })
+
+    const [first, second] = await Promise.all([
+      services.pickWorkbenchSource('folder'),
+      services.pickWorkbenchSource('folder'),
+    ])
+
+    expect(new Set([first?.locator, second?.locator])).toEqual(
+      new Set([directoryLocator(1), directoryLocator(2)]),
+    )
+  })
+
+  test('returns a typed failure when opaque directory IDs remain exhausted', async () => {
+    installDirectoryIds(1)
+    const upload = {
+      kind: 'upload' as const,
+      name: 'workspace',
+      files: [{ relativePath: 'workspace/morphir.toml', text: async () => '[project]' }],
+    }
+    const core = browserCoreWith('1.0.0', {
+      engine: { discover: async () => Promise.reject(new Error('not used')) },
+      handles: {
+        has: async () => false,
+        put: async () => undefined,
+        get: async () => null,
+        delete: async () => undefined,
+      },
+      home: {
+        read: async () => ({ entries: { '.': { kind: 'directory' } } }),
+        writeConfig: async () => undefined,
+      },
+      pickDirectory: async () => upload,
+    })
+    const services = await makeAppServices({ core })
+    await services.pickWorkbenchSource('folder')
+
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        Effect.flatMap(WorkbenchSourceService, (service) => service.pick('folder')).pipe(
+          Effect.provide(core),
+        ),
+      ),
+    )
+
+    expect(failure).toMatchObject({
+      _tag: 'WorkbenchError',
+      code: 'read-failed',
+      source: '<browser-folder>',
+      message: 'Unable to allocate a unique browser directory source after 32 attempts',
     })
   })
 

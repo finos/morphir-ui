@@ -148,6 +148,7 @@ describe('browser workspace discovery conformance', () => {
             }),
         },
         handles: {
+          has: async (key) => handles.has(key),
           put: async (key, selected) => {
             handles.set(key, selected)
           },

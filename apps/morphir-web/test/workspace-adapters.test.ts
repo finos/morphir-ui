@@ -32,6 +32,7 @@ const makeStorage = (): { readonly storage: WorkspaceStorage; readonly values: S
   return {
     values,
     storage: {
+      has: async (store, key) => bucket(store).has(key),
       get: async <Value>(store: WorkspaceStorageName, key: string) =>
         (bucket(store).get(key) as Value | undefined) ?? null,
       put: async (store, key, value) => {
@@ -389,6 +390,17 @@ const makeIndexedDbFactory = () => {
     }
     Object.assign(tx, {
       objectStore: () => ({
+        count: (key: string) => {
+          const request = {
+            result: values.get(storeName)?.has(key) ? 1 : 0,
+            error: null,
+            onsuccess: null,
+            onerror: null,
+          } as unknown as IDBRequest<number>
+          queueMicrotask(() => request.onsuccess?.(new Event('success') as unknown as Event))
+          finish()
+          return request
+        },
         get: (key: string) => {
           const request = {
             result: values.get(storeName)?.get(key),
@@ -463,8 +475,10 @@ describe('IndexedDB workspace storage', () => {
 
     expect(fake.openCalls).toEqual([[WORKSPACE_DATABASE_NAME, 1]])
     expect(fake.createdStores).toEqual([DIRECTORY_HANDLE_STORE, MORPHIR_HOME_FILE_STORE])
+    expect(await storage.has(DIRECTORY_HANDLE_STORE, 'directory:41')).toBe(true)
     expect(await storage.get(DIRECTORY_HANDLE_STORE, 'directory:41')).toBe(handle)
     await storage.delete(DIRECTORY_HANDLE_STORE, 'directory:41')
+    expect(await storage.has(DIRECTORY_HANDLE_STORE, 'directory:41')).toBe(false)
     expect(await storage.get(DIRECTORY_HANDLE_STORE, 'directory:41')).toBeNull()
   })
 

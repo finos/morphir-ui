@@ -267,24 +267,38 @@ export const browserCoreWith = (
   dependencies: BrowserWorkspaceDependencies,
 ): Layer.Layer<CoreServices> => makeBrowserCoreLayers(version, dependencies)
 
-const lazyWorkspaceEngine = (): WorkspaceDiscoveryEngine => {
+export const makeLazyWorkspaceEngine = (
+  initialize: () => Promise<WorkspaceDiscoveryEngine>,
+): WorkspaceDiscoveryEngine => {
   let initialized: Promise<WorkspaceDiscoveryEngine> | undefined
   return {
     discover: async (request) => {
-      initialized ??= fetch(workspaceWasmUrl)
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(
-              `Unable to load workspace discovery WebAssembly: ${response.status} ${response.statusText}`,
-            )
-          }
-          return response.arrayBuffer()
-        })
-        .then(makeWorkspaceDiscoveryEngine)
-      return (await initialized).discover(request)
+      const pending = (initialized ??= initialize())
+      let engine: WorkspaceDiscoveryEngine
+      try {
+        engine = await pending
+      } catch (cause) {
+        if (initialized === pending) initialized = undefined
+        throw cause
+      }
+      return engine.discover(request)
     },
   }
 }
+
+const lazyWorkspaceEngine = (): WorkspaceDiscoveryEngine =>
+  makeLazyWorkspaceEngine(() =>
+    fetch(workspaceWasmUrl)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(
+            `Unable to load workspace discovery WebAssembly: ${response.status} ${response.statusText}`,
+          )
+        }
+        return response.arrayBuffer()
+      })
+      .then(makeWorkspaceDiscoveryEngine),
+  )
 
 export const browserCore = (version: string): Layer.Layer<CoreServices> => {
   let storage: WorkspaceStorage | undefined
@@ -293,6 +307,7 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
   return makeBrowserCoreLayers(version, {
     engine: lazyWorkspaceEngine(),
     handles: {
+      has: (key) => makeDirectoryHandleStore(getStorage()).has(key),
       put: (key, handle) => makeDirectoryHandleStore(getStorage()).put(key, handle),
       get: (key) => makeDirectoryHandleStore(getStorage()).get(key),
       delete: (key) => makeDirectoryHandleStore(getStorage()).delete(key),

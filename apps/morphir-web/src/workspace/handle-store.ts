@@ -5,6 +5,7 @@ export const MORPHIR_HOME_FILE_STORE = 'morphir-home-files'
 export type WorkspaceStorageName = typeof DIRECTORY_HANDLE_STORE | typeof MORPHIR_HOME_FILE_STORE
 
 export interface WorkspaceStorage {
+  readonly has: (store: WorkspaceStorageName, key: string) => Promise<boolean>
   readonly get: <Value>(store: WorkspaceStorageName, key: string) => Promise<Value | null>
   readonly put: (store: WorkspaceStorageName, key: string, value: unknown) => Promise<void>
   readonly delete: (store: WorkspaceStorageName, key: string) => Promise<void>
@@ -17,6 +18,7 @@ export interface WorkspaceStorage {
 }
 
 export interface DirectoryHandleStore {
+  readonly has: (key: string) => Promise<boolean>
   readonly put: (key: string, handle: FileSystemDirectoryHandle) => Promise<void>
   readonly get: (key: string) => Promise<FileSystemDirectoryHandle | null>
   readonly delete: (key: string) => Promise<void>
@@ -51,6 +53,13 @@ export const makeIndexedDbWorkspaceStorage = (factory: IDBFactory): WorkspaceSto
   })
 
   return {
+    has: async (store, key) => {
+      const db = await database
+      const transaction = db.transaction(store, 'readonly')
+      const request = transaction.objectStore(store).count(key)
+      const [count] = await Promise.all([requestResult(request), transactionResult(transaction)])
+      return count > 0
+    },
     get: async <Value>(store: WorkspaceStorageName, key: string): Promise<Value | null> => {
       const db = await database
       const transaction = db.transaction(store, 'readonly')
@@ -85,6 +94,7 @@ export const makeIndexedDbWorkspaceStorage = (factory: IDBFactory): WorkspaceSto
 }
 
 export const makeDirectoryHandleStore = (storage: WorkspaceStorage): DirectoryHandleStore => ({
+  has: (key) => storage.has(DIRECTORY_HANDLE_STORE, key),
   put: (key, handle) => storage.put(DIRECTORY_HANDLE_STORE, key, handle),
   get: (key) => storage.get<FileSystemDirectoryHandle>(DIRECTORY_HANDLE_STORE, key),
   delete: (key) => storage.delete(DIRECTORY_HANDLE_STORE, key),
