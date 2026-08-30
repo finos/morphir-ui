@@ -10,6 +10,7 @@ export type NodeFileTreeErrorCode =
   | 'workspace.traversal.unreadable'
   | 'workspace.traversal.resource-limit'
   | 'workspace.alias.resource-limit'
+  | 'workspace.alias.cycle'
   | 'workspace.config.ambiguous'
 export class NodeFileTreeError extends Error {
   readonly name = 'NodeFileTreeError'
@@ -53,6 +54,7 @@ export interface NodeFileTreeOptions {
   readonly budgets?: Partial<NodeFileTreeBudgets>
   readonly hooks?: {
     readonly afterDirectoryBound?: (path: string) => Promise<void> | void
+    readonly beforeConfigOpen?: (path: string) => Promise<void> | void
     readonly afterConfigBound?: (path: string) => Promise<void> | void
   }
   readonly timeoutMs?: number
@@ -83,13 +85,14 @@ const codes = new Set<NodeFileTreeErrorCode>([
   'workspace.traversal.unreadable',
   'workspace.traversal.resource-limit',
   'workspace.alias.resource-limit',
+  'workspace.alias.cycle',
   'workspace.config.ambiguous',
 ])
 
 interface Message {
   readonly type: 'ready' | 'boundary' | 'result' | 'error'
   readonly directory?: FileIdentity
-  readonly kind?: 'directory' | 'config'
+  readonly kind?: 'directory' | 'before-config' | 'config'
   readonly path?: string
   readonly tree?: unknown
   readonly chargedConfigBytes?: number
@@ -166,6 +169,8 @@ const runWorker = async (
               } else if (message.type === 'boundary') {
                 if (message.kind === 'directory')
                   await options.hooks?.afterDirectoryBound?.(message.path ?? '')
+                else if (message.kind === 'before-config')
+                  await options.hooks?.beforeConfigOpen?.(message.path ?? '')
                 else await options.hooks?.afterConfigBound?.(message.path ?? '')
                 child.stdin.write('go\n')
               } else {

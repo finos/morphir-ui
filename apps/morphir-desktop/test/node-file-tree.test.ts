@@ -94,7 +94,7 @@ describe('confined Node FileTree adapter', () => {
   })
 
   test.skipIf(process.platform === 'win32')(
-    'traverses an internal directory symlink once and terminates a cycle deterministically',
+    'rejects a symlink cycle with a stable typed diagnostic',
     async () => {
       const root = await temporaryDirectory('internal-symlink')
       const project = join(root, 'packages', 'orders')
@@ -103,19 +103,9 @@ describe('confined Node FileTree adapter', () => {
       await symlink(project, join(root, 'orders-alias'))
       await symlink(join(root, 'packages'), join(project, 'cycle'))
 
-      const first = await fileTreeFromNodeRoot(root)
-      const second = await fileTreeFromNodeRoot(root)
-
-      expect(second).toEqual(first)
-      expect(Object.keys(first.entries).filter((path) => path.endsWith('/morphir.toml'))).toEqual([
-        'orders-alias/cycle/orders/morphir.toml',
-        'orders-alias/morphir.toml',
-        'packages/orders/cycle/orders/morphir.toml',
-        'packages/orders/morphir.toml',
-      ])
-      expect(Object.keys(first.entries).some((path) => path.includes('/cycle/orders/cycle/'))).toBe(
-        false,
-      )
+      await expect(fileTreeFromNodeRoot(root)).rejects.toMatchObject({
+        code: 'workspace.alias.cycle',
+      })
     },
   )
 
@@ -257,6 +247,36 @@ describe('confined Node FileTree adapter', () => {
       expect(tree.entries['packages/morphir.toml']).toEqual({ kind: 'file', text: 'inside' })
       expect(JSON.stringify(tree)).not.toContain('outside-')
       expect(swaps).toEqual(new Set(['.', 'packages', 'packages/morphir.toml']))
+    },
+  )
+
+  test.skipIf(process.platform === 'win32')(
+    'never reads an external config after its validated ancestor is replaced',
+    async () => {
+      const base = await temporaryDirectory('open-race')
+      const outside = await temporaryDirectory('open-race-outside')
+      const root = join(base, 'root')
+      const packages = join(root, 'packages')
+      const held = join(root, 'held-packages')
+      await mkdir(packages, { recursive: true })
+      await mkdir(join(outside, 'packages'))
+      await writeFile(join(packages, 'morphir.toml'), 'inside')
+      await writeFile(join(outside, 'packages', 'morphir.toml'), 'outside-secret')
+
+      await expect(
+        fileTreeFromNodeRoot(root, {
+          hooks: {
+            beforeConfigOpen: async (path) => {
+              if (path !== 'packages/morphir.toml') return
+              await rename(packages, held)
+              await symlink(join(outside, 'packages'), packages)
+            },
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'workspace.path.not-confined' })
+
+      await unlink(packages)
+      await rename(held, packages)
     },
   )
 

@@ -5,6 +5,7 @@ import { isAbsolute, relative, sep } from 'node:path'
 
 const send = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
 const identity = (value) => ({ dev: value.dev.toString(), ino: value.ino.toString() })
+const sameIdentity = (left, right) => left.dev === right.dev && left.ino === right.ino
 const error = (code, message) => Object.assign(new Error(message), { code })
 const segment = (value) =>
   typeof value === 'string' &&
@@ -169,17 +170,34 @@ const scan = async (command) => {
           queue.push({ handle, path: lexical, depth: directory.depth + 1 })
         }
       } else if (target.isFile() && recognized(lexical)) {
+        const validatedIdentity = identity(target)
+        await boundary('before-config', lexical)
+        const openPath = metadata.isSymbolicLink() ? resolved : native
         const handle = await open(
-          metadata.isSymbolicLink() ? resolved : native,
+          openPath,
           constants.O_RDONLY |
             (metadata.isSymbolicLink() || process.platform === 'win32' ? 0 : constants.O_NOFOLLOW),
         )
         try {
           const bound = await handle.stat({ bigint: true })
-          if (!bound.isFile())
+          if (!bound.isFile() || !sameIdentity(identity(bound), validatedIdentity))
             throw error('workspace.path.not-confined', 'configuration identity changed')
+          const currentResolved = await realpath(native)
+          confined(command.canonicalRoot, currentResolved)
+          const current = await stat(currentResolved, { bigint: true })
+          if (!sameIdentity(identity(current), identity(bound)))
+            throw error('workspace.path.not-confined', 'configuration path changed before read')
           await boundary('config', lexical)
           const payload = await readHandle(handle, budgets.configBytes - state.configBytes)
+          const afterRead = await handle.stat({ bigint: true })
+          const afterResolved = await realpath(native)
+          confined(command.canonicalRoot, afterResolved)
+          const afterPath = await stat(afterResolved, { bigint: true })
+          if (
+            !sameIdentity(identity(afterRead), identity(bound)) ||
+            !sameIdentity(identity(afterPath), identity(bound))
+          )
+            throw error('workspace.path.not-confined', 'configuration path changed during read')
           state.configBytes += payload.bytes
           entries.set(lexical, { kind: 'file', text: payload.text })
         } finally {
@@ -244,7 +262,6 @@ const scan = async (command) => {
     }
     for (let nestedIndex = 0; nestedIndex < edges.length; nestedIndex += 1) {
       charge(state, 'totalWork', budgets.totalWork, 'alias')
-      if (hasAncestor(expansion.ancestry, nestedIndex)) continue
       const nested = edges[nestedIndex]
       const suffix =
         target === '.'
@@ -255,6 +272,11 @@ const scan = async (command) => {
               ? nested.lexical.slice(target.length + 1)
               : null
       if (suffix === null) continue
+      if (hasAncestor(expansion.ancestry, nestedIndex))
+        throw error(
+          'workspace.alias.cycle',
+          `directory alias cycle at ${expansion.lexical}/${suffix}`,
+        )
       charge(state, 'queuedExpansions', budgets.queuedExpansions, 'alias')
       const lexical = suffix === '' ? expansion.lexical : `${expansion.lexical}/${suffix}`
       heapPush(heap, {
