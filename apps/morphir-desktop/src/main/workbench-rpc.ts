@@ -5,10 +5,13 @@ import type {
   WorkbenchDescriptor,
 } from '@morphir/ui/workbench'
 import type { RpcRegistry } from './rpc.ts'
+import { assertDesktopWorkbenchProvider } from './workbench-source.ts'
+import { requireDesktopSourceRef } from '../shared/workbench-source.ts'
+import type { WorkbenchSourceRef } from '@morphir/workspace'
 
 interface WorkbenchHost {
-  readonly inspect: (source: string) => Promise<WorkbenchDescriptor>
-  readonly pick: (kind: SourcePickerKind) => Promise<string | null>
+  readonly inspect: (source: WorkbenchSourceRef) => Promise<WorkbenchDescriptor>
+  readonly pick: (kind: SourcePickerKind) => Promise<WorkbenchSourceRef | null>
   readonly readModel: (descriptor: ModelWorkbenchDescriptor) => Promise<{
     readonly content: string | null
     readonly manifest: Readonly<Record<string, unknown>> | null
@@ -18,19 +21,16 @@ interface WorkbenchHost {
     readonly modelSources: ReadonlyArray<string>
     readonly knowledgeBaseSources: ReadonlyArray<string>
   }>
-  readonly reveal: (source: string) => Promise<void>
-  readonly takeInitialSources: () => ReadonlyArray<string>
+  readonly reveal: (source: WorkbenchSourceRef) => Promise<void>
+  readonly takeInitialSources: () => ReadonlyArray<WorkbenchSourceRef>
 }
 
 const record = (params: unknown): Record<string, unknown> =>
   typeof params === 'object' && params !== null ? (params as Record<string, unknown>) : {}
 
-const requiredSource = (params: unknown): string => {
+const requiredSource = (params: unknown): WorkbenchSourceRef => {
   const source = record(params)['source']
-  if (typeof source !== 'string' || source.length === 0) {
-    throw new Error('Workbench source is required')
-  }
-  return source
+  return requireDesktopSourceRef(source)
 }
 
 export const registerWorkbenchHandlers = (registry: RpcRegistry, host: WorkbenchHost): void => {
@@ -46,6 +46,7 @@ export const registerWorkbenchHandlers = (registry: RpcRegistry, host: Workbench
   registry.register('morphir/workbench/readModel', (params) => {
     const descriptor = record(params)['descriptor'] as ModelWorkbenchDescriptor | undefined
     if (descriptor?.kind !== 'model') throw new Error('Model Workbench descriptor is required')
+    assertDesktopWorkbenchProvider(descriptor)
     return host.readModel(descriptor)
   })
   registry.register('morphir/workbench/inspectDevelopment', (params) => {
@@ -53,6 +54,7 @@ export const registerWorkbenchHandlers = (registry: RpcRegistry, host: Workbench
     if (descriptor?.kind !== 'development') {
       throw new Error('Development Workbench descriptor is required')
     }
+    assertDesktopWorkbenchProvider(descriptor)
     return host.inspectDevelopment(descriptor)
   })
   registry.register('morphir/workbench/reveal', async (params) => {

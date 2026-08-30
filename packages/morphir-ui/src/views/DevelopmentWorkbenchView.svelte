@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { DevelopmentWorkbenchData } from '../workbench/types.ts'
+  import { sourceKey } from '@morphir/workspace'
   let { workbench }: { workbench: DevelopmentWorkbenchData } = $props()
 </script>
 
@@ -9,19 +10,19 @@
     <dt>Root</dt>
     <dd>{workbench.descriptor.source.displayName} ({workbench.descriptor.source.providerId})</dd>
     <dt>Configuration anchor</dt>
-    <dd>{workbench.configAnchor ?? 'No project configuration found'}</dd>
+    <dd>{workbench.snapshot.configAnchor ?? 'No project configuration found'}</dd>
   </dl>
 </section>
 <section class="card">
   <h2>Models</h2>
-  {#each workbench.modelSources as source (source)}<div class="source">{source}</div>{:else}<p>
-      No model sources discovered.
-    </p>{/each}
+  {#each workbench.snapshot.modelSources as source (sourceKey(source))}<div class="source">
+      {source.displayName}
+    </div>{:else}<p>No model sources discovered.</p>{/each}
 </section>
 <section class="card">
   <h2>Knowledge bases</h2>
-  {#each workbench.knowledgeBaseSources as source (source)}<div class="source">
-      {source}
+  {#each workbench.snapshot.knowledgeBaseSources as source (sourceKey(source))}<div class="source">
+      {source.displayName}
     </div>{:else}<p>No knowledge-base sources discovered.</p>{/each}
 </section>
 

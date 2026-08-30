@@ -7,6 +7,7 @@ import { WorkbenchError } from '@morphir/ui/workbench'
 import { sourceKey } from '@morphir/workspace'
 import { access, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { requireDesktopSourceRef } from '../shared/workbench-source.ts'
 
 const PRIMARY_CONFIGS = [
   'morphir.toml',
@@ -68,6 +69,12 @@ const documentTreeManifest = async (root: string): Promise<string | null> => {
       ? join(root, 'manifest.json')
       : join(root, '.morphir-dist', 'manifest.json')
   return (await exists(candidate)) ? candidate : null
+}
+
+export const assertDesktopWorkbenchProvider = (
+  descriptor: ModelWorkbenchDescriptor | DevelopmentWorkbenchDescriptor,
+): void => {
+  requireDesktopSourceRef(descriptor.source)
 }
 
 export const inspectWorkbenchSource = async (
@@ -151,6 +158,7 @@ export const readModelSource = async (
   readonly content: string | null
   readonly manifest: Readonly<Record<string, unknown>> | null
 }> => {
+  assertDesktopWorkbenchProvider(descriptor)
   const source = descriptor.source.locator
   try {
     if (descriptor.distribution === 'single-file') {
@@ -185,6 +193,7 @@ export const inspectDevelopmentRoot = async (
   readonly modelSources: ReadonlyArray<string>
   readonly knowledgeBaseSources: ReadonlyArray<string>
 }> => {
+  assertDesktopWorkbenchProvider(descriptor)
   const source = descriptor.source.locator
   try {
     const entries = await readdir(source, { withFileTypes: true })

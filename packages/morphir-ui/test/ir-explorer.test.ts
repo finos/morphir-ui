@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import IrExplorerView from '../src/views/IrExplorerView.svelte'
-import { makeAppServices, type ModelWorkbenchData } from '../src/index.ts'
+import { legacySourceRef, makeAppServices, type ModelWorkbenchData } from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
 
 // This project imports test primitives explicitly rather than using Vitest globals, so
@@ -25,7 +25,7 @@ const irFixture = readFileSync(
 const openModel = async (): Promise<ModelWorkbenchData> => {
   const { core } = makeFakeCore({ workspaceContent: irFixture })
   const services = await makeAppServices({ core })
-  const descriptor = await services.inspectWorkbench('/models/listType.json')
+  const descriptor = await services.inspectWorkbench(legacySourceRef('/models/listType.json'))
   if (descriptor.kind !== 'model') throw new Error('expected model descriptor')
   return services.loadModelWorkbench(descriptor)
 }

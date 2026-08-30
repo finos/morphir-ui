@@ -1,10 +1,18 @@
-import { Context, Data, Effect, Layer, ManagedRuntime, Option } from 'effect'
+import { Context, Data, Effect, Layer, ManagedRuntime, Option, Stream } from 'effect'
+import type { WorkbenchProvider, WorkbenchSourceRef, WorkspaceEvent } from '@morphir/workspace'
 import type { UiConfig } from './config.ts'
 import {
   DevelopmentWorkbenchService,
   ModelWorkbenchService,
   WorkbenchSourceService,
+  WorkbenchProviderService,
+  type WorkbenchError,
   type SourcePickerKind,
+  validateDevelopmentWorkbenchData,
+  validateModelWorkbenchData,
+  validateProjectModelWorkbenchData,
+  validateProviderResult,
+  validateWorkspaceEvent,
 } from '../workbench/services.ts'
 import type {
   DevelopmentWorkbenchData,
@@ -69,6 +77,7 @@ export type CoreServices =
   | WorkspaceService
   | AppInfoService
   | WorkbenchSourceService
+  | WorkbenchProviderService
   | ModelWorkbenchService
   | DevelopmentWorkbenchService
 
@@ -79,6 +88,7 @@ export interface Capabilities {
 
 export interface AppServices {
   readonly capabilities: Capabilities
+  dispose(): Promise<void>
   version(): Promise<string>
   loadConfig(): Promise<UiConfig>
   saveConfig(config: UiConfig): Promise<void>
@@ -89,13 +99,21 @@ export interface AppServices {
    * full-object replace.
    */
   updateConfig(mutate: (config: UiConfig) => UiConfig): Promise<void>
-  inspectWorkbench(source: string): Promise<WorkbenchDescriptor>
-  pickWorkbenchSource(kind: SourcePickerKind): Promise<string | null>
-  revealWorkbenchSource(source: string): Promise<void>
+  listWorkbenchProviders(): Promise<ReadonlyArray<WorkbenchProvider>>
+  inspectWorkbench(source: WorkbenchSourceRef): Promise<WorkbenchDescriptor>
+  pickWorkbenchSource(kind: SourcePickerKind): Promise<WorkbenchSourceRef | null>
+  revealWorkbenchSource(source: WorkbenchSourceRef): Promise<void>
   loadModelWorkbench(descriptor: ModelWorkbenchDescriptor): Promise<ModelWorkbenchData>
   loadDevelopmentWorkbench(
     descriptor: DevelopmentWorkbenchDescriptor,
   ): Promise<DevelopmentWorkbenchData>
+  loadDevelopmentProjectModel(
+    descriptor: DevelopmentWorkbenchDescriptor,
+    projectId: string,
+  ): Promise<ModelWorkbenchData>
+  workspaceEvents(
+    descriptor: DevelopmentWorkbenchDescriptor,
+  ): Stream.Stream<WorkspaceEvent, WorkbenchError>
   pickWorkspace(): Promise<PickedWorkspace | null>
   readonly readWorkspace: ((ref: WorkspaceRef) => Promise<string>) | null
   readonly github: {
@@ -114,10 +132,13 @@ const buildFacade = async (
   const config = await runtime.runPromise(ConfigService)
   const workspace = await runtime.runPromise(WorkspaceService)
   const workbenchSource = await runtime.runPromise(WorkbenchSourceService)
+  const workbenchProvider = await runtime.runPromise(WorkbenchProviderService)
   const modelWorkbench = await runtime.runPromise(ModelWorkbenchService)
   const developmentWorkbench = await runtime.runPromise(DevelopmentWorkbenchService)
   const appInfo = await runtime.runPromise(AppInfoService)
   const read = Option.getOrNull(workspace.read)
+  let disposal: Promise<void> | null = null
+  let disposing = false
   // Serializes updateConfig's load -> mutate -> save cycles: each call is chained onto the
   // tail of the queue (whether the prior one succeeded or failed), so concurrent callers never
   // interleave their read-modify-write.
@@ -129,21 +150,75 @@ const buildFacade = async (
   }
   return {
     capabilities: { github: github !== null, reopenWorkspaces: read !== null },
+    dispose: () => {
+      if (disposal) return disposal
+      disposing = true
+      disposal = queue.catch(() => undefined).then(() => runtime.dispose())
+      return disposal
+    },
     version: () => runtime.runPromise(appInfo.version),
     loadConfig: () => runtime.runPromise(config.load),
     saveConfig: (c) => runtime.runPromise(config.save(c)),
-    updateConfig: (mutate) =>
-      chain(async () => {
+    updateConfig: (mutate) => {
+      if (disposing) return Promise.reject(new Error('App services are disposing'))
+      return chain(async () => {
         const current = await runtime.runPromise(config.load)
         await runtime.runPromise(config.save(mutate(current)))
-      }),
-    inspectWorkbench: (source) => runtime.runPromise(workbenchSource.inspect(source)),
+      })
+    },
+    listWorkbenchProviders: () => runtime.runPromise(workbenchProvider.list),
+    inspectWorkbench: (source) =>
+      runtime.runPromise(
+        workbenchSource
+          .inspect(source)
+          .pipe(
+            Effect.flatMap((descriptor) =>
+              validateProviderResult(
+                source.providerId,
+                descriptor.source,
+                descriptor,
+                'Workbench inspection',
+              ),
+            ),
+          ),
+      ),
     pickWorkbenchSource: (kind) =>
       runtime.runPromise(workbenchSource.pick(kind)).then(Option.getOrNull),
     revealWorkbenchSource: (source) => runtime.runPromise(workbenchSource.reveal(source)),
-    loadModelWorkbench: (descriptor) => runtime.runPromise(modelWorkbench.load(descriptor)),
+    loadModelWorkbench: (descriptor) =>
+      runtime.runPromise(
+        modelWorkbench
+          .load(descriptor)
+          .pipe(
+            Effect.flatMap((data) =>
+              validateModelWorkbenchData(descriptor, data),
+            ),
+          ),
+      ),
     loadDevelopmentWorkbench: (descriptor) =>
-      runtime.runPromise(developmentWorkbench.load(descriptor)),
+      runtime.runPromise(
+        developmentWorkbench
+          .load(descriptor)
+          .pipe(
+            Effect.flatMap((data) => validateDevelopmentWorkbenchData(descriptor, data)),
+          ),
+      ),
+    loadDevelopmentProjectModel: (descriptor, projectId) =>
+      runtime.runPromise(
+        developmentWorkbench
+          .loadProjectModel(descriptor, projectId)
+          .pipe(
+            Effect.flatMap((data) =>
+              validateProjectModelWorkbenchData(descriptor.source.providerId, data),
+            ),
+          ),
+      ),
+    workspaceEvents: (descriptor) =>
+      developmentWorkbench
+        .events(descriptor)
+        .pipe(
+          Stream.mapEffect((event) => validateWorkspaceEvent(descriptor, event)),
+        ),
     pickWorkspace: () => runtime.runPromise(workspace.pickAndRead).then(Option.getOrNull),
     readWorkspace: read ? (ref) => runtime.runPromise(read(ref)) : null,
     github: github

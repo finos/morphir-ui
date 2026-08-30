@@ -1,5 +1,11 @@
-import { Effect, Layer, Option } from 'effect'
-import { sourceKey } from '@morphir/workspace'
+import { Effect, Layer, Option, Stream } from 'effect'
+import {
+  sourceKey,
+  type WorkbenchProvider,
+  type WorkbenchSourceRef,
+  type WorkspaceEvent,
+  type WorkspaceSnapshot,
+} from '@morphir/workspace'
 import {
   AppInfoService,
   ConfigService,
@@ -8,6 +14,7 @@ import {
   GitHubService,
   ModelWorkbenchService,
   WorkbenchError,
+  WorkbenchProviderService,
   WorkbenchSourceService,
   WorkspaceError,
   WorkspaceService,
@@ -28,12 +35,19 @@ export const makeFakeCore = (opts?: {
   workbenchSources?: ReadonlyArray<string>
   failingSources?: ReadonlyArray<string>
   failingLoads?: ReadonlyArray<string>
+  inspectResultSource?: WorkbenchSourceRef
+  modelResultSource?: WorkbenchSourceRef
   canonicalSources?: Readonly<Record<string, string>>
   development?: {
     configAnchor?: string | null
     modelSources?: ReadonlyArray<string>
     knowledgeBaseSources?: ReadonlyArray<string>
+    snapshot?: WorkspaceSnapshot
+    events?: Stream.Stream<WorkspaceEvent, WorkbenchError>
+    resultSource?: WorkbenchSourceRef
+    projectResultSource?: WorkbenchSourceRef
   }
+  providers?: ReadonlyArray<WorkbenchProvider>
   configLayer?: Layer.Layer<ConfigService>
 }) => {
   const store = { config: opts?.config ?? defaultUiConfig }
@@ -42,6 +56,24 @@ export const makeFakeCore = (opts?: {
   const timestamp = '2026-08-29T12:00:00.000Z'
   const failingSources = new Set(opts?.failingSources ?? [])
   const failingLoads = new Set(opts?.failingLoads ?? [])
+  const providers =
+    opts?.providers ??
+    ([
+      {
+        id: 'legacy-local',
+        name: 'Test provider',
+        kind: 'local',
+        status: 'available',
+        capabilities: [{ name: 'morphir/model/open', version: '1' }],
+      },
+    ] satisfies ReadonlyArray<WorkbenchProvider>)
+  const providerIds = new Set(providers.map((provider) => provider.id))
+  const providerError = (source: ReturnType<typeof legacySourceRef>): WorkbenchError =>
+    new WorkbenchError({
+      code: 'unsupported-capability',
+      source,
+      message: `Workbench source belongs to provider ${source.providerId}`,
+    })
   const core = Layer.mergeAll(
     opts?.configLayer ??
       Layer.succeed(ConfigService, {
@@ -56,17 +88,18 @@ export const makeFakeCore = (opts?: {
     }),
     Layer.succeed(WorkbenchSourceService, {
       inspect: (source) => {
-        if (failingSources.has(source)) {
+        if (!providerIds.has(source.providerId)) return Effect.fail(providerError(source))
+        if (failingSources.has(source.locator)) {
           return Effect.fail(
             new WorkbenchError({
               code: 'not-found',
               source,
-              message: `Workbench source not found: ${source}`,
+              message: `Workbench source not found: ${source.locator}`,
             }),
           )
         }
-        const canonicalSource = opts?.canonicalSources?.[source] ?? source
-        const sourceRef = legacySourceRef(canonicalSource)
+        const canonicalSource = opts?.canonicalSources?.[source.locator] ?? source.locator
+        const sourceRef = opts?.inspectResultSource ?? { ...source, locator: canonicalSource }
         return Effect.succeed(
           canonicalSource.endsWith('.json')
             ? {
@@ -91,54 +124,131 @@ export const makeFakeCore = (opts?: {
         )
       },
       pick: () =>
-        Effect.succeed(Option.some(opts?.workbenchSources?.[0] ?? '/fake/morphir-ir.json')),
+        Effect.succeed(
+          Option.some(legacySourceRef(opts?.workbenchSources?.[0] ?? '/fake/morphir-ir.json')),
+        ),
       reveal: () => Effect.void,
+    }),
+    Layer.succeed(WorkbenchProviderService, {
+      list: Effect.succeed(providers),
     }),
     Layer.succeed(ModelWorkbenchService, {
       load: (descriptor) =>
-        failingLoads.has(descriptor.source.locator)
-          ? Effect.fail(
-              new WorkbenchError({
-                code: 'invalid-distribution',
-                source: descriptor.source.locator,
-                message: `Invalid Morphir distribution: ${descriptor.source.locator}`,
-              }),
-            )
-          : descriptor.distribution === 'document-tree'
-            ? Effect.succeed({
-                kind: 'model' as const,
-                descriptor,
-                library: null,
-                ir: null,
-                manifest: { formatVersion: 4, distribution: 'Library' },
-              })
-            : decodeMorphirIr(content).pipe(
-                Effect.map((library) => ({
+        !providerIds.has(descriptor.source.providerId)
+          ? Effect.fail(providerError(descriptor.source))
+          : failingLoads.has(descriptor.source.locator)
+            ? Effect.fail(
+                new WorkbenchError({
+                  code: 'invalid-distribution',
+                  source: descriptor.source.locator,
+                  message: `Invalid Morphir distribution: ${descriptor.source.locator}`,
+                }),
+              )
+            : descriptor.distribution === 'document-tree'
+              ? Effect.succeed({
                   kind: 'model' as const,
-                  descriptor,
-                  library,
-                  ir: toWorkspaceIr(library),
-                  manifest: null,
-                })),
-                Effect.mapError(
-                  (error) =>
-                    new WorkbenchError({
-                      code: 'invalid-distribution',
-                      source: descriptor.source.locator,
-                      message: error.message,
-                    }),
+                  descriptor: opts?.modelResultSource
+                    ? {
+                        ...descriptor,
+                        id: sourceKey(opts.modelResultSource),
+                        source: opts.modelResultSource,
+                      }
+                    : descriptor,
+                  library: null,
+                  ir: null,
+                  manifest: { formatVersion: 4, distribution: 'Library' },
+                })
+              : decodeMorphirIr(content).pipe(
+                  Effect.map((library) => ({
+                    kind: 'model' as const,
+                    descriptor: opts?.modelResultSource
+                      ? {
+                          ...descriptor,
+                          id: sourceKey(opts.modelResultSource),
+                          source: opts.modelResultSource,
+                        }
+                      : descriptor,
+                    library,
+                    ir: toWorkspaceIr(library),
+                    manifest: null,
+                  })),
+                  Effect.mapError(
+                    (error) =>
+                      new WorkbenchError({
+                        code: 'invalid-distribution',
+                        source: descriptor.source.locator,
+                        message: error.message,
+                      }),
+                  ),
                 ),
-              ),
     }),
     Layer.succeed(DevelopmentWorkbenchService, {
       load: (descriptor) =>
-        Effect.succeed({
-          kind: 'development' as const,
-          descriptor,
-          configAnchor: opts?.development?.configAnchor ?? descriptor.source.locator,
-          modelSources: opts?.development?.modelSources ?? [],
-          knowledgeBaseSources: opts?.development?.knowledgeBaseSources ?? [],
-        }),
+        !providerIds.has(descriptor.source.providerId)
+          ? Effect.fail(providerError(descriptor.source))
+          : Effect.succeed({
+              kind: 'development' as const,
+              descriptor: opts?.development?.resultSource
+                ? {
+                    ...descriptor,
+                    id: sourceKey(opts.development.resultSource),
+                    source: opts.development.resultSource,
+                  }
+                : descriptor,
+              snapshot:
+                opts?.development?.snapshot ??
+                ({
+                  id: descriptor.id,
+                  root: descriptor.source,
+                  name: descriptor.name,
+                  configAnchor: opts?.development?.configAnchor ?? descriptor.source.locator,
+                  state: 'open',
+                  projects: [],
+                  modelSources: (opts?.development?.modelSources ?? []).map((locator) => ({
+                    ...legacySourceRef(locator, descriptor.source.providerId),
+                    displayName: locator,
+                  })),
+                  knowledgeBaseSources: (opts?.development?.knowledgeBaseSources ?? []).map(
+                    (locator) => ({
+                      ...legacySourceRef(locator, descriptor.source.providerId),
+                      displayName: locator,
+                    }),
+                  ),
+                  diagnostics: [],
+                } satisfies WorkspaceSnapshot),
+            }),
+      loadProjectModel: (descriptor, projectId) => {
+        if (!providerIds.has(descriptor.source.providerId)) {
+          return Effect.fail(providerError(descriptor.source))
+        }
+        const source =
+          opts?.development?.projectResultSource ??
+          ({
+            ...descriptor.source,
+            locator: `${descriptor.source.locator}#${projectId}`,
+            displayName: projectId,
+          } satisfies WorkbenchSourceRef)
+        return Effect.succeed({
+          kind: 'model' as const,
+          descriptor: {
+            id: sourceKey(source),
+            source,
+            name: projectId,
+            kind: 'model' as const,
+            distribution: 'single-file' as const,
+            route: 'overview' as const,
+            openedAt: timestamp,
+            lastUsedAt: timestamp,
+          },
+          library: null,
+          ir: null,
+          manifest: null,
+        })
+      },
+      events: (descriptor) =>
+        !providerIds.has(descriptor.source.providerId)
+          ? Stream.fail(providerError(descriptor.source))
+          : (opts?.development?.events ?? Stream.empty),
     }),
     Layer.succeed(AppInfoService, { version: Effect.succeed(opts?.version ?? '0.0.0-test') }),
   )

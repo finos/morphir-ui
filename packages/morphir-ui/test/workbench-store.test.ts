@@ -2,7 +2,9 @@ import { describe, expect, test } from 'vitest'
 import { sourceKey } from '@morphir/workspace'
 import {
   WorkbenchStore,
+  WorkbenchError,
   defaultUiConfig,
+  legacySourceRef,
   makeAppServices,
   type ModelWorkbenchDescriptor,
 } from '../src/index.ts'
@@ -23,7 +25,7 @@ describe('WorkbenchStore', () => {
   test('restoration deduplicates canonical command-line sources and activates the first', async () => {
     const { core } = makeFakeCore({ canonicalSources: { '/alias.json': '/real/model.json' } })
     const services = await makeAppServices({ core })
-    const descriptor = await services.inspectWorkbench('/real/model.json')
+    const descriptor = await services.inspectWorkbench(legacySourceRef('/real/model.json'))
     const store = new WorkbenchStore(services, {
       open: [descriptor],
       recent: [],
@@ -43,7 +45,7 @@ describe('WorkbenchStore', () => {
   test('reopen disabled retains prior entries as Recent without loading them', async () => {
     const { core } = makeFakeCore({ failingLoads: ['/old.json'] })
     const services = await makeAppServices({ core })
-    const descriptor = await services.inspectWorkbench('/old.json')
+    const descriptor = await services.inspectWorkbench(legacySourceRef('/old.json'))
     const store = new WorkbenchStore(services, {
       open: [descriptor],
       recent: [],
@@ -108,7 +110,10 @@ describe('WorkbenchStore', () => {
       },
     }
     const store = new WorkbenchStore(
-      { ...services, inspectWorkbench: async (source) => descriptors[source as 'browser' | 'cli'] },
+      {
+        ...services,
+        inspectWorkbench: async (source) => descriptors[source.locator as 'browser' | 'cli'],
+      },
       defaultUiConfig.workbenches,
     )
 
@@ -161,6 +166,8 @@ describe('WorkbenchStore', () => {
     await expect(store.openPicked('folder')).resolves.toBeUndefined()
     expect(store.failedRequests).toEqual([
       {
+        kind: 'picker',
+        key: 'picker:folder',
         source: 'Open folder',
         message: 'Folder Workbenches are not available in the browser',
       },
@@ -204,7 +211,54 @@ describe('WorkbenchStore', () => {
       store.openEntries.find((entry) => entry.descriptor.source.locator === '/good.json')?.status,
     ).toBe('ready')
     expect(store.failedRequests).toEqual([
-      { source: '/missing', message: 'Workbench source not found: /missing' },
+      {
+        kind: 'source',
+        key: sourceKey(legacySourceRef('/missing')),
+        source: legacySourceRef('/missing'),
+        message: 'Workbench source not found: /missing',
+      },
+    ])
+  })
+
+  test('keeps failed requests with the same locator from different providers', async () => {
+    const { core } = makeFakeCore()
+    const services = await makeAppServices({ core })
+    const store = new WorkbenchStore(
+      {
+        ...services,
+        inspectWorkbench: async (source) => {
+          throw new WorkbenchError({
+            code: 'not-found',
+            source,
+            message: `Missing from ${source.providerId}`,
+          })
+        },
+      },
+      defaultUiConfig.workbenches,
+    )
+    const browser = {
+      providerId: 'browser-local',
+      locator: '/shared/model.json',
+      displayName: 'Browser model',
+    }
+    const cli = { ...browser, providerId: 'cli:one', displayName: 'CLI model' }
+
+    await store.open(browser)
+    await store.open(cli)
+
+    expect(store.failedRequests).toEqual([
+      {
+        kind: 'source',
+        key: sourceKey(cli),
+        source: cli,
+        message: 'Missing from cli:one',
+      },
+      {
+        kind: 'source',
+        key: sourceKey(browser),
+        source: browser,
+        message: 'Missing from browser-local',
+      },
     ])
   })
 
@@ -233,6 +287,59 @@ describe('WorkbenchStore', () => {
       descriptor,
       status: 'error',
       message: 'Invalid Morphir distribution: /bad.json',
+    })
+  })
+
+  test('a restored foreign descriptor cannot load through the local provider', async () => {
+    const local = legacySourceRef('/good.json')
+    const foreign = { providerId: 'cli:session-1', locator: '/good.json', displayName: 'good.json' }
+    const descriptor = (source: typeof local): ModelWorkbenchDescriptor => ({
+      id: sourceKey(source),
+      source,
+      name: source.displayName,
+      kind: 'model',
+      distribution: 'single-file',
+      route: 'overview',
+      openedAt: '2026-08-29T12:00:00.000Z',
+      lastUsedAt: '2026-08-29T12:00:00.000Z',
+    })
+    const { core } = makeFakeCore()
+    const services = await makeAppServices({ core })
+    let localLoads = 0
+    const store = new WorkbenchStore(
+      {
+        ...services,
+        loadModelWorkbench: async (candidate) => {
+          if (candidate.source.providerId !== 'legacy-local') {
+            throw new WorkbenchError({
+              code: 'unsupported-capability',
+              source: candidate.source,
+              message: `Workbench source belongs to provider ${candidate.source.providerId}`,
+            })
+          }
+          localLoads += 1
+          return services.loadModelWorkbench(candidate)
+        },
+      },
+      {
+        open: [descriptor(local), descriptor(foreign)],
+        recent: [],
+        activeId: sourceKey(foreign),
+        reopenOnLaunch: true,
+      },
+    )
+
+    await store.restore()
+
+    expect(localLoads).toBe(1)
+    expect(
+      store.openEntries.find((entry) => entry.descriptor.id === sourceKey(local))?.status,
+    ).toBe('ready')
+    expect(
+      store.openEntries.find((entry) => entry.descriptor.id === sourceKey(foreign)),
+    ).toMatchObject({
+      status: 'error',
+      message: 'Workbench source belongs to provider cli:session-1',
     })
   })
 

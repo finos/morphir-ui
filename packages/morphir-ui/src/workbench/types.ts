@@ -1,5 +1,5 @@
 import type { MorphirLibrary, WorkspaceIr } from '@morphir/ir'
-import { sourceKey, type WorkbenchSourceRef } from '@morphir/workspace'
+import { sourceKey, type WorkbenchSourceRef, type WorkspaceSnapshot } from '@morphir/workspace'
 
 export type WorkbenchId = string
 export type ModelRoute = 'overview' | 'explorer'
@@ -37,9 +37,7 @@ export interface ModelWorkbenchData {
 export interface DevelopmentWorkbenchData {
   readonly kind: 'development'
   readonly descriptor: DevelopmentWorkbenchDescriptor
-  readonly configAnchor: string | null
-  readonly modelSources: ReadonlyArray<string>
-  readonly knowledgeBaseSources: ReadonlyArray<string>
+  readonly snapshot: WorkspaceSnapshot
 }
 
 export type WorkbenchData = ModelWorkbenchData | DevelopmentWorkbenchData

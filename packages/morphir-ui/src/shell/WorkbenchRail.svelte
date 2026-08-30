@@ -83,13 +83,15 @@
       <div class="empty">No open Workbenches</div>
     {/each}
 
-    {#each store.failedRequests as failure (failure.source)}
+    {#each store.failedRequests as failure (failure.key)}
       <div class="failed-request">
-        <span>{failure.source}</span>
-        <small>{failure.message}</small>
-        <button type="button" onclick={() => store.removeFailedRequest(failure.source)}
-          >Remove</button
+        <span
+          >{failure.kind === 'source'
+            ? `${failure.source.displayName} (${failure.source.providerId})`
+            : failure.source}</span
         >
+        <small>{failure.message}</small>
+        <button type="button" onclick={() => store.removeFailedRequest(failure.key)}>Remove</button>
       </div>
     {/each}
   </div>

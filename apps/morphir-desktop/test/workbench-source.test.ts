@@ -169,4 +169,40 @@ describe('source loading', () => {
       knowledgeBaseSources: [join(canonical, 'knowledge')],
     })
   })
+
+  test('rejects foreign descriptors before reading their locators', async () => {
+    const root = fixtureRoot()
+    const model = fixtureFile(
+      root,
+      'model.json',
+      '{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}',
+    )
+    const development = fixtureDirectory(root, 'dev')
+    const modelDescriptor = await inspectWorkbenchSource(model, () => timestamp)
+    const developmentDescriptor = await inspectWorkbenchSource(development, () => timestamp)
+    if (modelDescriptor.kind !== 'model' || developmentDescriptor.kind !== 'development') {
+      throw new Error('Expected model and development descriptors')
+    }
+
+    await expect(
+      readModelSource({
+        ...modelDescriptor,
+        source: { ...modelDescriptor.source, providerId: 'cli:session-1' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'unsupported-capability',
+      message:
+        'Workbench source belongs to provider cli:session-1; expected provider desktop-local',
+    })
+    await expect(
+      inspectDevelopmentRoot({
+        ...developmentDescriptor,
+        source: { ...developmentDescriptor.source, providerId: 'cli:session-1' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'unsupported-capability',
+      message:
+        'Workbench source belongs to provider cli:session-1; expected provider desktop-local',
+    })
+  })
 })

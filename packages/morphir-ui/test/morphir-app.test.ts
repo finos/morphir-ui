@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import MorphirApp from '../src/shell/MorphirApp.svelte'
-import { defaultUiConfig, makeAppServices } from '../src/index.ts'
+import { defaultUiConfig, legacySourceRef, makeAppServices } from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
 
 // See ir-explorer.test.ts: readFileSync(new URL(rel, import.meta.url)) breaks under Vite's
@@ -30,7 +30,7 @@ describe('MorphirApp', () => {
         badge: 'WEB',
         version: '0.0.1',
         initialConfig: defaultUiConfig,
-        initialSources: ['/models/a.json', '/models/b.json'],
+        initialSources: [legacySourceRef('/models/a.json'), legacySourceRef('/models/b.json')],
       },
     })
 
@@ -84,7 +84,7 @@ describe('MorphirApp', () => {
         badge: 'WEB',
         version: '0.0.1',
         initialConfig: defaultUiConfig,
-        initialSources: ['/models/a.json', '/models/b.json'],
+        initialSources: [legacySourceRef('/models/a.json'), legacySourceRef('/models/b.json')],
       },
     })
 
@@ -142,7 +142,7 @@ describe('MorphirApp', () => {
         badge: 'WEB',
         version: '0.0.1',
         initialConfig: defaultUiConfig,
-        initialSources: ['/dev'],
+        initialSources: [legacySourceRef('/dev')],
       },
     })
 
@@ -156,7 +156,7 @@ describe('MorphirApp', () => {
     const { core } = makeFakeCore()
     const services = await makeAppServices({ core })
     const descriptor = {
-      ...(await services.inspectWorkbench('/model.json')),
+      ...(await services.inspectWorkbench(legacySourceRef('/model.json'))),
       distribution: 'document-tree' as const,
     }
     if (descriptor.kind !== 'model') throw new Error('expected model descriptor')
@@ -179,7 +179,7 @@ describe('MorphirApp', () => {
   test('keeps a restored load failure attached to its Workbench', async () => {
     const { core } = makeFakeCore({ failingLoads: ['/bad.json'] })
     const services = await makeAppServices({ core })
-    const inspected = await services.inspectWorkbench('/bad.json')
+    const inspected = await services.inspectWorkbench(legacySourceRef('/bad.json'))
     if (inspected.kind !== 'model') throw new Error('expected model descriptor')
     const descriptor = { ...inspected, route: 'explorer' as const }
     const config = {
