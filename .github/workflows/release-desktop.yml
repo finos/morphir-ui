@@ -1,0 +1,263 @@
+name: Release Morphir Desktop
+
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-contract:
+    name: Validate release contract
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: version
+        name: Validate tag and package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#desktop-v}"
+          package_version="$(node -p "require('./apps/morphir-desktop/package.json').version")"
+          if [[ "$version" == "$GITHUB_REF_NAME" || "$version" != "$package_version" ]]; then
+            echo "Tag $GITHUB_REF_NAME must exactly match package version desktop-v$package_version" >&2
+            exit 1
+          fi
+          prerelease=false
+          if [[ "$version" == *-* ]]; then prerelease=true; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - run: bun test apps/morphir-desktop/test/release-contract.test.ts
+
+  linux:
+    name: Build Linux x86_64
+    needs: release-contract
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - name: Build portable archive and system packages
+        working-directory: apps/morphir-desktop
+        run: bun run build && bunx electron-builder --linux tar.gz AppImage deb --x64 --publish=never
+      - name: Verify portable launch entry point
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(find apps/morphir-desktop/release -maxdepth 1 -name '*linux*x64.tar.gz' -print -quit)"
+          test -n "$archive"
+          tar -tzf "$archive" | grep -Eq '(^|/)morphir-desktop$'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux-x86_64
+          if-no-files-found: error
+          retention-days: 1
+          path: |
+            apps/morphir-desktop/release/*linux*x64.tar.gz
+            apps/morphir-desktop/release/*linux*x86_64.tar.gz
+            apps/morphir-desktop/release/*linux*x64.AppImage
+            apps/morphir-desktop/release/*linux*x86_64.AppImage
+            apps/morphir-desktop/release/*linux*x64.deb
+            apps/morphir-desktop/release/*linux*x86_64.deb
+
+  windows:
+    name: Build and sign Windows x86_64
+    needs: release-contract
+    runs-on: windows-2025
+    env:
+      WIN_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - name: Require Windows signing credentials
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK) -or
+              [string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) {
+            throw 'WINDOWS_CSC_LINK and WINDOWS_CSC_KEY_PASSWORD are required for a release'
+          }
+      - name: Build signed portable archive and NSIS installer
+        working-directory: apps/morphir-desktop
+        run: bun run build && bunx electron-builder --win zip nsis --x64 --publish=never
+      - name: Verify Authenticode and portable launch entry point
+        shell: pwsh
+        run: |
+          $release = Resolve-Path 'apps/morphir-desktop/release'
+          $archive = Get-ChildItem -LiteralPath $release -Filter '*win*x64.zip' | Select-Object -First 1
+          if ($null -eq $archive) { throw 'Windows portable zip was not produced' }
+          $expanded = Join-Path $env:RUNNER_TEMP 'desktop-windows'
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath $expanded
+          $program = Get-ChildItem -LiteralPath $expanded -Recurse -Filter 'morphir-desktop.exe' |
+            Select-Object -First 1
+          if ($null -eq $program) { throw 'Portable zip does not contain morphir-desktop.exe' }
+          $signedFiles = @($program) + @(Get-ChildItem -LiteralPath $release -Filter '*.exe')
+          foreach ($file in $signedFiles) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+            if ($signature.Status -ne 'Valid') {
+              throw "Invalid Authenticode signature for $($file.FullName): $($signature.Status)"
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-x86_64
+          if-no-files-found: error
+          retention-days: 1
+          path: |
+            apps/morphir-desktop/release/*win*x64.zip
+            apps/morphir-desktop/release/*win*x86_64.zip
+            apps/morphir-desktop/release/*.exe
+
+  macos:
+    name: Build, sign, and notarize macOS arm64
+    needs: release-contract
+    runs-on: macos-15
+    env:
+      CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
+      APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - name: Require and stage Apple signing credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_TEAM_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "$name is required for a release" >&2
+              exit 1
+            fi
+          done
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          Path(os.environ['RUNNER_TEMP'], 'AuthKey.p8').write_bytes(
+              base64.b64decode(os.environ['APPLE_API_KEY_BASE64'], validate=True)
+          )
+          PY
+          echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+      - name: Build signed and notarized portable archive and DMG
+        working-directory: apps/morphir-desktop
+        run: bun run build && bunx electron-builder --mac zip dmg --arm64 --publish=never
+      - name: Verify signature, notarization ticket, and launch entry point
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(find apps/morphir-desktop/release -maxdepth 1 -name '*mac*arm64.zip' -print -quit)"
+          test -n "$archive"
+          expanded="$RUNNER_TEMP/desktop-macos"
+          ditto -x -k "$archive" "$expanded"
+          app="$expanded/Morphir Desktop.app"
+          test -x "$app/Contents/MacOS/morphir-desktop"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos-aarch64
+          if-no-files-found: error
+          retention-days: 1
+          path: |
+            apps/morphir-desktop/release/*mac*arm64.zip
+            apps/morphir-desktop/release/*mac*aarch64.zip
+            apps/morphir-desktop/release/*.dmg
+
+  publish:
+    name: Publish durable Desktop release
+    needs: [release-contract, linux, windows, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: release-input
+      - id: assets
+        name: Locate release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          linux="$(find release-input/desktop-linux-x86_64 -maxdepth 1 \( -name '*linux*x64.tar.gz' -o -name '*linux*x86_64.tar.gz' \) -print -quit)"
+          windows="$(find release-input/desktop-windows-x86_64 -maxdepth 1 \( -name '*win*x64.zip' -o -name '*win*x86_64.zip' \) -print -quit)"
+          macos="$(find release-input/desktop-macos-aarch64 -maxdepth 1 \( -name '*mac*arm64.zip' -o -name '*mac*aarch64.zip' \) -print -quit)"
+          for artifact in "$linux" "$windows" "$macos"; do test -f "$artifact"; done
+          echo "linux=$linux" >> "$GITHUB_OUTPUT"
+          echo "windows=$windows" >> "$GITHUB_OUTPUT"
+          echo "macos=$macos" >> "$GITHUB_OUTPUT"
+      - name: Stage Morphir release targets
+        run: |
+          bun apps/morphir-desktop/scripts/release-contract.ts \
+            --version '${{ needs.release-contract.outputs.version }}' \
+            --morphir-cli '>=0.4.0-alpha.5, <0.5.0' \
+            --output tool-repository \
+            --windows-x86-64 '${{ steps.assets.outputs.windows }}' \
+            --macos-aarch64 '${{ steps.assets.outputs.macos }}' \
+            --linux-x86-64 '${{ steps.assets.outputs.linux }}'
+      - name: Assemble release assets and checksums
+        shell: bash
+        env:
+          VERSION: ${{ needs.release-contract.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          cp 'tool-repository/artifacts/desktop/'"$VERSION"'/windows-x86_64.zip' \
+            "release-assets/morphir-desktop-$VERSION-windows-x86_64.zip"
+          cp 'tool-repository/artifacts/desktop/'"$VERSION"'/macos-aarch64.zip' \
+            "release-assets/morphir-desktop-$VERSION-macos-aarch64.zip"
+          cp 'tool-repository/artifacts/desktop/'"$VERSION"'/linux-x86_64.tar.gz' \
+            "release-assets/morphir-desktop-$VERSION-linux-x86_64.tar.gz"
+          cp 'tool-repository/releases/desktop/'"$VERSION"'.json' \
+            "release-assets/morphir-desktop-$VERSION.release.json"
+          cp tool-repository/release-targets.json \
+            "release-assets/morphir-desktop-$VERSION.release-targets.json"
+          find release-input -type f ! -name '*.blockmap' -exec cp '{}' release-assets/ \;
+          (cd release-assets && sha256sum * > SHA256SUMS)
+      - name: Attest release provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: release-assets/*
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.release-contract.outputs.prerelease }}
+          VERSION: ${{ needs.release-contract.outputs.version }}
+        run: |
+          set -euo pipefail
+          flags=(--verify-tag --generate-notes --title "Morphir Desktop $VERSION")
+          if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" release-assets/* "${flags[@]}"

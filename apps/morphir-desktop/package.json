@@ -18,7 +18,8 @@
     "build": "electron-vite build",
     "dev": "electron-vite dev",
     "smoke": "electron-vite build && MORPHIR_SMOKE=1 electron .",
-    "package": "electron-vite build && electron-builder --publish=never"
+    "package": "electron-vite build && electron-builder --publish=never",
+    "release:contract": "bun scripts/release-contract.ts"
   },
   "dependencies": {
     "@morphir/ir": "workspace:*",
