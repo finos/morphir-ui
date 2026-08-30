@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { WorkbenchDescriptor } from '@morphir/ui/workbench'
-import { sourceKey, type WorkbenchSourceRef } from '@morphir/workspace'
+import { sourceKey, type WorkbenchSourceRef, type WorkspaceSnapshot } from '@morphir/workspace'
 import { RpcRegistry } from '../src/main/rpc.ts'
 import { registerWorkbenchHandlers } from '../src/main/workbench-rpc.ts'
 
@@ -15,6 +15,84 @@ const descriptor: WorkbenchDescriptor = {
   openedAt: timestamp,
   lastUsedAt: timestamp,
 }
+const developmentSource = {
+  providerId: 'desktop-local',
+  locator: '/workspace',
+  displayName: 'workspace',
+}
+const developmentDescriptor = {
+  id: sourceKey(developmentSource),
+  source: developmentSource,
+  name: 'workspace',
+  kind: 'development' as const,
+  route: 'overview' as const,
+  openedAt: timestamp,
+  lastUsedAt: timestamp,
+}
+const developmentSnapshot: WorkspaceSnapshot = {
+  id: sourceKey(developmentSource),
+  root: developmentSource,
+  name: 'Payments workspace',
+  configAnchor: '.config/morphir/config.toml',
+  state: 'error',
+  projects: [
+    {
+      id: JSON.stringify(['desktop-local', '/workspace', '.']),
+      name: 'payments',
+      version: '2.0.0',
+      relativePath: '.',
+      configAnchor: 'morphir.toml',
+      sourceDirectory: 'src',
+      state: 'unloaded',
+      modelSources: [
+        {
+          providerId: 'desktop-local',
+          locator: '/workspace/.morphir-dist',
+          displayName: '.morphir-dist',
+        },
+      ],
+      knowledgeBaseSources: [],
+      diagnostics: [
+        {
+          severity: 'warning',
+          code: 'workspace.project.warning',
+          message: 'Project warning',
+          path: 'morphir.toml',
+          projectId: JSON.stringify(['desktop-local', '/workspace', '.']),
+        },
+      ],
+    },
+    {
+      id: JSON.stringify(['desktop-local', '/workspace', 'packages/risk']),
+      name: 'risk',
+      version: null,
+      relativePath: 'packages/risk',
+      configAnchor: 'packages/risk/morphir.yaml',
+      sourceDirectory: 'packages/risk/src',
+      state: 'error',
+      modelSources: [],
+      knowledgeBaseSources: [
+        {
+          providerId: 'desktop-local',
+          locator: '/workspace/packages/risk/knowledge',
+          displayName: 'knowledge',
+        },
+      ],
+      diagnostics: [],
+    },
+  ],
+  modelSources: [],
+  knowledgeBaseSources: [],
+  diagnostics: [
+    {
+      severity: 'error',
+      code: 'workspace.project.invalid',
+      message: 'A project is invalid',
+      path: 'packages/risk/morphir.yaml',
+      projectId: JSON.stringify(['desktop-local', '/workspace', 'packages/risk']),
+    },
+  ],
+}
 
 describe('Workbench RPC handlers', () => {
   test('dispatches inspection, picker, loading, reveal, and initial sources', async () => {
@@ -28,11 +106,7 @@ describe('Workbench RPC handlers', () => {
         displayName: 'picked.json',
       }),
       readModel: async () => ({ content: '{"formatVersion":3}', manifest: null }),
-      inspectDevelopment: async () => ({
-        configAnchor: null,
-        modelSources: [],
-        knowledgeBaseSources: [],
-      }),
+      inspectDevelopment: async () => developmentSnapshot,
       reveal: async (source) => void revealed.push(source),
       takeInitialSources: () => [
         {
@@ -79,6 +153,15 @@ describe('Workbench RPC handlers', () => {
     expect(
       (
         await registry.dispatch({
+          id: 6,
+          method: 'morphir/workbench/inspectDevelopment',
+          params: { descriptor: developmentDescriptor },
+        })
+      ).result,
+    ).toEqual(developmentSnapshot)
+    expect(
+      (
+        await registry.dispatch({
           id: 4,
           method: 'morphir/workbench/initialSources',
         })
@@ -106,11 +189,7 @@ describe('Workbench RPC handlers', () => {
       inspect: async () => descriptor,
       pick: async () => null,
       readModel: async () => ({ content: null, manifest: null }),
-      inspectDevelopment: async () => ({
-        configAnchor: null,
-        modelSources: [],
-        knowledgeBaseSources: [],
-      }),
+      inspectDevelopment: async () => developmentSnapshot,
       reveal: async () => undefined,
       takeInitialSources: () => [],
     })
@@ -129,11 +208,7 @@ describe('Workbench RPC handlers', () => {
       inspect: async () => descriptor,
       pick: async () => ({ ...descriptor.source, providerId: 'cli:session-1' }),
       readModel: async () => ({ content: null, manifest: null }),
-      inspectDevelopment: async () => ({
-        configAnchor: null,
-        modelSources: [],
-        knowledgeBaseSources: [],
-      }),
+      inspectDevelopment: async () => developmentSnapshot,
       reveal: async () => undefined,
       takeInitialSources: () => [],
     })
@@ -167,7 +242,7 @@ describe('Workbench RPC handlers', () => {
       },
       inspectDevelopment: async () => {
         developmentCalls += 1
-        return { configAnchor: null, modelSources: [], knowledgeBaseSources: [] }
+        return developmentSnapshot
       },
       reveal: async () => void (revealCalls += 1),
       takeInitialSources: () => [],

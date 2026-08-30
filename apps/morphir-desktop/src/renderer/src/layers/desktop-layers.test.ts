@@ -10,7 +10,7 @@ import {
   type DevelopmentWorkbenchDescriptor,
   type ModelWorkbenchDescriptor,
 } from '@morphir/ui'
-import { sourceKey } from '@morphir/workspace'
+import { projectKey, sourceKey, type WorkspaceSnapshot } from '@morphir/workspace'
 import { desktopCore } from './desktop-layers.ts'
 import { RpcClient, type MorphirIpc } from './rpc-client.ts'
 
@@ -48,6 +48,64 @@ const localDevelopmentDescriptor: DevelopmentWorkbenchDescriptor = {
   ...developmentDescriptor,
   id: sourceKey(localDevelopmentSource),
   source: localDevelopmentSource,
+}
+const canonicalSnapshot: WorkspaceSnapshot = {
+  id: sourceKey(localDevelopmentSource),
+  root: localDevelopmentSource,
+  name: 'Canonical workspace',
+  configAnchor: '.config/morphir/config.toml',
+  state: 'error',
+  projects: [
+    {
+      id: projectKey(localDevelopmentSource, '.'),
+      name: 'orders',
+      version: '1.2.3',
+      relativePath: '.',
+      configAnchor: 'morphir.toml',
+      sourceDirectory: 'src',
+      state: 'unloaded',
+      modelSources: [],
+      knowledgeBaseSources: [],
+      diagnostics: [
+        {
+          severity: 'warning',
+          code: 'workspace.project.warning',
+          message: 'Project warning',
+          path: 'morphir.toml',
+          projectId: projectKey(localDevelopmentSource, '.'),
+        },
+      ],
+    },
+    {
+      id: projectKey(localDevelopmentSource, 'packages/risk'),
+      name: 'risk',
+      version: null,
+      relativePath: 'packages/risk',
+      configAnchor: 'packages/risk/morphir.yaml',
+      sourceDirectory: 'packages/risk/src',
+      state: 'error',
+      modelSources: [],
+      knowledgeBaseSources: [],
+      diagnostics: [],
+    },
+  ],
+  modelSources: [
+    {
+      providerId: 'desktop-local',
+      locator: '/workspace/.morphir-dist',
+      displayName: '.morphir-dist',
+    },
+  ],
+  knowledgeBaseSources: [],
+  diagnostics: [
+    {
+      severity: 'error',
+      code: 'workspace.project.invalid',
+      message: 'A project is invalid',
+      path: 'packages/risk/morphir.yaml',
+      projectId: projectKey(localDevelopmentSource, 'packages/risk'),
+    },
+  ],
 }
 
 const pickerErrorFor = async (source: unknown) => {
@@ -198,11 +256,7 @@ describe('desktopCore provider pinning', () => {
           queueMicrotask(() =>
             onMessage({
               id: request.id,
-              result: {
-                configAnchor: '/workspace/morphir.toml',
-                modelSources: [],
-                knowledgeBaseSources: [],
-              },
+              result: canonicalSnapshot,
             }),
           )
         }
@@ -242,20 +296,11 @@ describe('desktopCore provider pinning', () => {
         capabilities: [
           { name: 'morphir/model/open', version: '1' },
           { name: 'morphir/development/inspect', version: '1' },
+          { name: 'morphir/workspace/open', version: '1' },
         ],
       },
     ])
-    expect(workspace.snapshot).toEqual({
-      id: localDevelopmentDescriptor.id,
-      root: localDevelopmentSource,
-      name: 'workspace',
-      configAnchor: '/workspace/morphir.toml',
-      state: 'open',
-      projects: [],
-      modelSources: [],
-      knowledgeBaseSources: [],
-      diagnostics: [],
-    })
+    expect(workspace.snapshot).toEqual(canonicalSnapshot)
     expect(projectError).toMatchObject({ code: 'unsupported-capability' })
     expect(Array.from(events)).toEqual([])
   })

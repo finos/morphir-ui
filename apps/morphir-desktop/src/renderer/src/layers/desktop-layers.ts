@@ -1,4 +1,4 @@
-import { Effect, Layer, Option, Stream } from 'effect'
+import { Effect, Layer, Option, Schema, Stream } from 'effect'
 import {
   AppInfoService,
   ConfigService,
@@ -9,6 +9,7 @@ import {
   WorkbenchError,
   WorkbenchProviderService,
   WorkbenchSourceService,
+  validateWorkspaceSnapshot,
   unsupportedProviderError,
   WorkspaceError,
   WorkspaceService,
@@ -23,8 +24,9 @@ import {
   type WorkbenchDescriptor,
 } from '@morphir/ui'
 import { decodeMorphirIr, toWorkspaceIr } from '@morphir/ir'
+import { WorkspaceSnapshotSchema } from '@morphir/workspace'
 import type { RpcClient } from './rpc-client.ts'
-import { desktopSourceRef, requireDesktopSourceRef } from '../../../shared/workbench-source.ts'
+import { requireDesktopSourceRef } from '../../../shared/workbench-source.ts'
 
 const decodeModelSource = (
   descriptor: ModelWorkbenchDescriptor,
@@ -162,6 +164,7 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
           capabilities: [
             { name: 'morphir/model/open', version: '1' },
             { name: 'morphir/development/inspect', version: '1' },
+            { name: 'morphir/workspace/open', version: '1' },
           ],
         },
       ]),
@@ -192,27 +195,8 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
         descriptor.source.providerId !== 'desktop-local'
           ? Effect.fail(unsupportedProviderError('desktop-local', descriptor.source))
           : rpc
-              .effect<{
-                configAnchor: string | null
-                modelSources: ReadonlyArray<string>
-                knowledgeBaseSources: ReadonlyArray<string>
-              }>('morphir/workbench/inspectDevelopment', { descriptor })
+              .effect<unknown>('morphir/workbench/inspectDevelopment', { descriptor })
               .pipe(
-                Effect.map((summary) => ({
-                  kind: 'development' as const,
-                  descriptor,
-                  snapshot: {
-                    id: descriptor.id,
-                    root: descriptor.source,
-                    name: descriptor.name,
-                    configAnchor: summary.configAnchor,
-                    state: 'open' as const,
-                    projects: [],
-                    modelSources: summary.modelSources.map(desktopSourceRef),
-                    knowledgeBaseSources: summary.knowledgeBaseSources.map(desktopSourceRef),
-                    diagnostics: [],
-                  },
-                })),
                 Effect.mapError(
                   (error) =>
                     new WorkbenchError({
@@ -221,6 +205,23 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
                       message: error.message,
                     }),
                 ),
+                Effect.flatMap((snapshot) =>
+                  Effect.try({
+                    try: () => Schema.decodeUnknownSync(WorkspaceSnapshotSchema)(snapshot),
+                    catch: (error) =>
+                      new WorkbenchError({
+                        code: 'read-failed',
+                        source: descriptor.source,
+                        message: error instanceof Error ? error.message : String(error),
+                      }),
+                  }),
+                ),
+                Effect.flatMap((snapshot) => validateWorkspaceSnapshot(descriptor, snapshot)),
+                Effect.map((snapshot) => ({
+                  kind: 'development' as const,
+                  descriptor,
+                  snapshot,
+                })),
               ),
       loadProjectModel: (descriptor) =>
         Effect.fail(

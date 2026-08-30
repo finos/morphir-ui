@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { sourceKey } from '@morphir/workspace'
 import {
-  inspectDevelopmentRoot,
+  inspectDevelopment,
   inspectWorkbenchSource,
   readModelSource,
 } from '../src/main/workbench-source.ts'
@@ -92,6 +92,54 @@ describe('inspectWorkbenchSource', () => {
     })
   })
 
+  test('uses the exact modern primary candidates plus the root legacy configuration', async () => {
+    const candidates = [
+      'morphir.toml',
+      'morphir.yaml',
+      '.morphir/morphir.toml',
+      '.morphir/morphir.yaml',
+      '.config/morphir/config.toml',
+      '.config/morphir/config.yaml',
+      'morphir.json',
+    ]
+
+    for (const [index, candidate] of candidates.entries()) {
+      const root = fixtureRoot()
+      const development = fixtureDirectory(root, `dev-${index}`)
+      fixtureFile(root, `dev-${index}/${candidate}`, '{}')
+      fixtureFile(root, `dev-${index}/.morphir-dist/manifest.json`, '{"formatVersion":4}')
+
+      expect(await inspectWorkbenchSource(development, () => timestamp)).toMatchObject({
+        kind: 'development',
+      })
+    }
+  })
+
+  test('does not treat non-primary legacy variants as Development configurations', async () => {
+    const root = fixtureRoot()
+    const model = fixtureDirectory(root, 'model')
+    fixtureFile(root, 'model/.morphir/morphir.json', '{}')
+    fixtureFile(root, 'model/.morphir-dist/manifest.json', '{"formatVersion":4}')
+
+    expect(await inspectWorkbenchSource(model, () => timestamp)).toMatchObject({
+      kind: 'model',
+      distribution: 'document-tree',
+    })
+  })
+
+  test('reports ambiguous modern primary configurations before Document Tree detection', async () => {
+    const root = fixtureRoot()
+    const development = fixtureDirectory(root, 'ambiguous')
+    fixtureFile(root, 'ambiguous/morphir.toml', '[project]\nname = "toml"')
+    fixtureFile(root, 'ambiguous/.morphir/morphir.yaml', 'project:\n  name: yaml')
+    fixtureFile(root, 'ambiguous/.morphir-dist/manifest.json', '{"formatVersion":4}')
+
+    await expect(inspectWorkbenchSource(development, () => timestamp)).rejects.toMatchObject({
+      code: 'detection-failed',
+      message: expect.stringContaining('workspace.config.ambiguous'),
+    })
+  })
+
   test('detects any other directory as Development', async () => {
     const root = fixtureRoot()
     const knowledgeBase = fixtureDirectory(root, 'knowledge')
@@ -152,21 +200,65 @@ describe('source loading', () => {
     })
   })
 
-  test('summarizes a Development root without recursively crawling it', async () => {
+  test('qualifies the canonical discovery snapshot for the desktop provider', async () => {
     const root = fixtureRoot()
     const development = fixtureDirectory(root, 'dev')
     fixtureFile(root, 'dev/morphir.toml', '[project]\nname = "dev"')
-    fixtureFile(root, 'dev/model/.morphir-dist/manifest.json', '{"formatVersion":4}')
-    fixtureFile(root, 'dev/knowledge/bundle.json', '{}')
 
     const descriptor = await inspectWorkbenchSource(development, () => timestamp)
     if (descriptor.kind !== 'development') throw new Error('Expected Development descriptor')
-    const canonical = realpathSync(development)
 
-    expect(await inspectDevelopmentRoot(descriptor)).toEqual({
-      configAnchor: join(canonical, 'morphir.toml'),
-      modelSources: [join(canonical, 'model')],
-      knowledgeBaseSources: [join(canonical, 'knowledge')],
+    expect(
+      await inspectDevelopment(descriptor, async () => ({
+        status: 'success',
+        snapshot: {
+          protocolVersion: 1,
+          configAnchor: 'morphir.toml',
+          name: 'Development root',
+          state: 'error',
+          projects: [
+            {
+              name: 'dev',
+              version: '1.0.0',
+              relativePath: '.',
+              configAnchor: 'morphir.toml',
+              sourceDirectory: 'src',
+              state: 'unloaded',
+              diagnostics: [
+                {
+                  severity: 'warning',
+                  code: 'workspace.project.warning',
+                  message: 'Project warning',
+                  path: 'morphir.toml',
+                  projectPath: '.',
+                },
+              ],
+            },
+          ],
+          diagnostics: [],
+        },
+      })),
+    ).toMatchObject({
+      id: descriptor.id,
+      root: descriptor.source,
+      name: 'Development root',
+      configAnchor: 'morphir.toml',
+      state: 'error',
+      projects: [
+        {
+          id: JSON.stringify(['desktop-local', descriptor.source.locator, '.']),
+          relativePath: '.',
+          configAnchor: 'morphir.toml',
+          sourceDirectory: 'src',
+          state: 'unloaded',
+          diagnostics: [
+            {
+              path: 'morphir.toml',
+              projectId: JSON.stringify(['desktop-local', descriptor.source.locator, '.']),
+            },
+          ],
+        },
+      ],
     })
   })
 
@@ -195,7 +287,7 @@ describe('source loading', () => {
         'Workbench source belongs to provider cli:session-1; expected provider desktop-local',
     })
     await expect(
-      inspectDevelopmentRoot({
+      inspectDevelopment({
         ...developmentDescriptor,
         source: { ...developmentDescriptor.source, providerId: 'cli:session-1' },
       }),
