@@ -1,4 +1,5 @@
-import { BrowserWindow, app, dialog, ipcMain, safeStorage, shell } from 'electron'
+import { BrowserWindow, app, crashReporter, dialog, ipcMain, safeStorage, shell } from 'electron'
+import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { redactToken, Token } from '@morphir/ui/token'
 import { RPC_CHANNEL, RpcRegistry } from './rpc.ts'
@@ -7,16 +8,66 @@ import { readWorkspaceFile } from './workspace.ts'
 import { decodeUiConfig } from '@morphir/ui/config'
 import { GH_SECRET_KEY, SecretStore } from './secrets.ts'
 import { ghCliToken, verifyGitHubToken } from './github.ts'
-import { inspectDevelopment, inspectWorkbenchSource, readModelSource } from './workbench-source.ts'
+import { createDesktopLogSession, desktopCrashDirectory, redactLogText } from './logging.ts'
+import {
+  inspectDevelopment,
+  inspectWorkbenchSource,
+  readModelSource,
+} from './workbench-source.ts'
 import { registerWorkbenchHandlers } from './workbench-rpc.ts'
 import { LaunchRequestQueue, parseOpenSources } from './launch-requests.ts'
 import { desktopSourceRef } from '../shared/workbench-source.ts'
+import { enforceDesktopCrashRetention, type DesktopRetentionResult } from './logging-retention.ts'
 
 const smoke = process.env['MORPHIR_SMOKE'] === '1'
 const registry = new RpcRegistry()
 const hasSingleInstanceLock = smoke || app.requestSingleInstanceLock()
 const launchRequests = new LaunchRequestQueue(parseOpenSources(process.argv, app.isPackaged))
 let mainWindow: BrowserWindow | null = null
+const logSession = createDesktopLogSession()
+const logger = logSession.logger
+const crashDirectory = desktopCrashDirectory()
+let crashRetention: DesktopRetentionResult = {
+  removedFiles: 0,
+  removedBytes: 0,
+  skippedEntries: 0,
+}
+
+try {
+  mkdirSync(crashDirectory, { recursive: true })
+  crashRetention = enforceDesktopCrashRetention(crashDirectory)
+  app.setPath('crashDumps', crashDirectory)
+  crashReporter.start({ uploadToServer: false })
+} catch (error) {
+  logger.warn('desktop.crash-reporter.unavailable', {
+    error_type: error instanceof Error ? error.name : 'UnknownError',
+  })
+}
+
+logger.info('desktop.session.start', { log_path: logSession.logPath })
+logger.debug('desktop.logs.retention', {
+  removed_files: logSession.retention.removedFiles,
+  removed_bytes: logSession.retention.removedBytes,
+  skipped_entries: logSession.retention.skippedEntries,
+})
+logger.debug('desktop.crashes.retention', {
+  removed_files: crashRetention.removedFiles,
+  removed_bytes: crashRetention.removedBytes,
+  skipped_entries: crashRetention.skippedEntries,
+})
+process.on('uncaughtExceptionMonitor', (error) => {
+  logger.error('desktop.main.uncaught-exception', {
+    error_type: error.name,
+    message: redactLogText(error.message),
+  })
+})
+process.on('unhandledRejection', (reason) => {
+  logger.error('desktop.main.unhandled-rejection', {
+    error_type: reason instanceof Error ? reason.name : typeof reason,
+    message: reason instanceof Error ? redactLogText(reason.message) : '[omitted]',
+  })
+  app.exit(1)
+})
 
 if (!hasSingleInstanceLock) app.quit()
 
@@ -98,6 +149,13 @@ function createWindow(): BrowserWindow {
       query: smoke ? { smoke: '1' } : undefined,
     })
   }
+  win.webContents.on('did-finish-load', () => logger.info('desktop.renderer.ready'))
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    logger.error('desktop.renderer.load-failed', {
+      error_code: errorCode,
+      message: errorDescription,
+    })
+  })
   return win
 }
 
@@ -185,6 +243,26 @@ if (hasSingleInstanceLock)
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })
   })
+
+app.on('render-process-gone', (_event, _webContents, details) => {
+  logger.error('desktop.renderer.gone', {
+    reason: details.reason,
+    exit_code: details.exitCode,
+  })
+})
+
+app.on('child-process-gone', (_event, details) => {
+  logger.error('desktop.child.gone', {
+    process_type: details.type,
+    reason: details.reason,
+    exit_code: details.exitCode,
+  })
+})
+
+app.on('before-quit', () => {
+  logger.info('desktop.session.exit')
+  logSession.close()
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' || smoke) app.quit()

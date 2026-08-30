@@ -12,12 +12,12 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # moon resolves changed files against the default branch; a shallow
           # clone has no 'main' ref and fails with git exit code 128.
           fetch-depth: 0
-      - uses: jdx/mise-action@v3
+      - uses: jdx/mise-action@v4
       - run: bun install --frozen-lockfile
       - run: moon run :lint :typecheck :test :build
       - name: Install xvfb
@@ -41,7 +41,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.0
@@ -49,10 +49,12 @@ jobs:
       - name: Package
         working-directory: apps/morphir-desktop
         shell: bash
-        run: bun run package
-      - uses: actions/upload-artifact@v4
+        # Branch and pull-request artifacts belong to the unsigned developer-insider channel.
+        # Production tags use release-desktop.yml, which requires signing and notarization.
+        run: bun run package:developer-insider
+      - uses: actions/upload-artifact@v7
         with:
-          name: morphir-desktop-${{ matrix.os }}
+          name: morphir-desktop-developer-insider-${{ matrix.os }}
           path: |
             apps/morphir-desktop/release/*.tar.gz
             apps/morphir-desktop/release/*.AppImage
