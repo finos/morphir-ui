@@ -135,12 +135,12 @@ const scan = async (command) => {
   const entries = new Map([['.', { kind: 'directory' }]])
   const aliases = []
   const visited = new Set([command.canonicalRoot])
-  const queue = [{ handle: rootHandle, path: '.', depth: 0 }]
-  for (let cursor = 0; cursor < queue.length; cursor += 1) {
-    const directory = queue[cursor]
-    if (cursor) await boundary('directory', directory.path)
+  const scanDirectory = async (directoryPath, depth, directoryHandle, directoryIdentity) => {
     const names = []
-    for await (const child of directory.handle) {
+    for await (const child of directoryHandle) {
+      const currentDirectory = await stat('.', { bigint: true })
+      if (!sameIdentity(identity(currentDirectory), directoryIdentity))
+        throw error('workspace.path.not-confined', 'bound directory identity changed')
       charge(state, 'realEntries', budgets.realEntries)
       if (!segment(child.name))
         throw error(
@@ -151,28 +151,68 @@ const scan = async (command) => {
     }
     names.sort()
     for (const name of names) {
-      const lexical = directory.path === '.' ? name : `${directory.path}/${name}`
-      const native = `./${lexical.split('/').join(sep)}`
-      const metadata = await lstat(native, { bigint: true })
-      const resolved = await realpath(native)
+      const lexical = directoryPath === '.' ? name : `${directoryPath}/${name}`
+      const metadata = await lstat(name, { bigint: true })
+      const resolved = await realpath(name)
       const targetPath = confined(command.canonicalRoot, resolved)
       const target = await stat(resolved, { bigint: true })
       if (metadata.isSymbolicLink() && target.isDirectory()) {
         charge(state, 'aliasEdges', budgets.aliasEdges, 'alias')
         aliases.push({ lexical, target: targetPath })
       } else if (target.isDirectory()) {
-        if (directory.depth >= budgets.maxDepth) exceed('traversal', 'maxDepth', budgets.maxDepth)
+        if (depth >= budgets.maxDepth) exceed('traversal', 'maxDepth', budgets.maxDepth)
         if (!visited.has(resolved)) {
           charge(state, 'realDirectories', budgets.realDirectories)
-          const handle = await opendir(native)
-          visited.add(resolved)
-          entries.set(lexical, { kind: 'directory' })
-          queue.push({ handle, path: lexical, depth: directory.depth + 1 })
+          const validatedIdentity = identity(target)
+          await boundary('before-directory', lexical)
+          const noFollow = process.platform === 'win32' ? 0 : constants.O_NOFOLLOW
+          let capability = null
+          let bound = target
+          if (process.platform !== 'win32') {
+            try {
+              capability = await open(
+                name,
+                constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | noFollow,
+              )
+              bound = await capability.stat({ bigint: true })
+            } catch (cause) {
+              throw error(
+                'workspace.path.not-confined',
+                `directory changed before open: ${cause instanceof Error ? cause.message : 'open failed'}`,
+              )
+            }
+          }
+          try {
+            if (!bound.isDirectory() || !sameIdentity(identity(bound), validatedIdentity))
+              throw error('workspace.path.not-confined', 'directory identity changed before open')
+            const currentResolved = await realpath(name)
+            confined(command.canonicalRoot, currentResolved)
+            const current = await stat(currentResolved, { bigint: true })
+            if (!sameIdentity(identity(current), identity(bound)))
+              throw error('workspace.path.not-confined', 'directory path changed before open')
+            process.chdir(name)
+            const entered = await stat('.', { bigint: true })
+            if (!sameIdentity(identity(entered), identity(bound)))
+              throw error('workspace.path.not-confined', 'entered directory identity changed')
+            await boundary('directory', lexical)
+            visited.add(resolved)
+            entries.set(lexical, { kind: 'directory' })
+            await scanDirectory(lexical, depth + 1, await opendir('.'), identity(bound))
+            const afterEnumeration = await stat('.', { bigint: true })
+            if (!sameIdentity(identity(afterEnumeration), identity(bound)))
+              throw error('workspace.path.not-confined', 'directory identity changed during scan')
+            process.chdir('..')
+            const returned = await stat('.', { bigint: true })
+            if (!sameIdentity(identity(returned), directoryIdentity))
+              throw error('workspace.path.not-confined', 'parent directory identity changed')
+          } finally {
+            await capability?.close()
+          }
         }
       } else if (target.isFile() && recognized(lexical)) {
         const validatedIdentity = identity(target)
         await boundary('before-config', lexical)
-        const openPath = metadata.isSymbolicLink() ? resolved : native
+        const openPath = metadata.isSymbolicLink() ? resolved : name
         const handle = await open(
           openPath,
           constants.O_RDONLY |
@@ -182,7 +222,7 @@ const scan = async (command) => {
           const bound = await handle.stat({ bigint: true })
           if (!bound.isFile() || !sameIdentity(identity(bound), validatedIdentity))
             throw error('workspace.path.not-confined', 'configuration identity changed')
-          const currentResolved = await realpath(native)
+          const currentResolved = await realpath(name)
           confined(command.canonicalRoot, currentResolved)
           const current = await stat(currentResolved, { bigint: true })
           if (!sameIdentity(identity(current), identity(bound)))
@@ -190,7 +230,7 @@ const scan = async (command) => {
           await boundary('config', lexical)
           const payload = await readHandle(handle, budgets.configBytes - state.configBytes)
           const afterRead = await handle.stat({ bigint: true })
-          const afterResolved = await realpath(native)
+          const afterResolved = await realpath(name)
           confined(command.canonicalRoot, afterResolved)
           const afterPath = await stat(afterResolved, { bigint: true })
           if (
@@ -205,7 +245,11 @@ const scan = async (command) => {
         }
       }
     }
+    const afterDirectory = await stat('.', { bigint: true })
+    if (!sameIdentity(identity(afterDirectory), directoryIdentity))
+      throw error('workspace.path.not-confined', 'bound directory identity changed after scan')
   }
+  await scanDirectory('.', 0, rootHandle, identity(rootStat))
   const realEntries = []
   const edges = []
   if (aliases.length > 0) {

@@ -7,6 +7,7 @@ import type { DiscoveryRequest, FileEntry, FileTree } from '@morphir/workspace'
 import {
   NodeFileTreeError,
   fileTreeFromNodeRoot,
+  hasPrimaryConfiguration,
   sameFileIdentity,
   type NodeFileTreeOptions,
 } from '../src/main/workspace/node-file-tree.ts'
@@ -280,6 +281,35 @@ describe('confined Node FileTree adapter', () => {
     },
   )
 
+  test.skipIf(process.platform === 'win32')(
+    'never enumerates an external directory after its validated ancestor is replaced',
+    async () => {
+      const base = await temporaryDirectory('directory-open-race')
+      const outside = await temporaryDirectory('directory-open-race-outside')
+      const root = join(base, 'root')
+      const packages = join(root, 'packages')
+      const held = join(root, 'held-packages')
+      await mkdir(packages, { recursive: true })
+      await mkdir(join(outside, 'packages'))
+      await writeFile(join(outside, 'packages', 'morphir.toml'), 'outside-secret')
+
+      await expect(
+        fileTreeFromNodeRoot(root, {
+          hooks: {
+            beforeDirectoryOpen: async (path) => {
+              if (path !== 'packages') return
+              await rename(packages, held)
+              await symlink(join(outside, 'packages'), packages)
+            },
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'workspace.path.not-confined' })
+
+      await unlink(packages)
+      await rename(held, packages)
+    },
+  )
+
   test('normalizes missing and unreadable roots to stable typed errors', async () => {
     const root = await temporaryDirectory('missing-root')
     await rm(root, { recursive: true })
@@ -401,6 +431,23 @@ describe('confined Node FileTree adapter', () => {
         { dev: '9007199254740992', ino: '9007199254740994' },
       ),
     ).toBe(false)
+  })
+
+  test('detects only exact root primary candidates with modern ambiguity and legacy fallback', () => {
+    const tree = (...paths: ReadonlyArray<string>): FileTree => ({
+      entries: Object.fromEntries([
+        ['.', { kind: 'directory' }],
+        ...paths.map((path) => [path, { kind: 'file', text: '' }] as const),
+      ]),
+    })
+
+    expect(hasPrimaryConfiguration(tree('packages/member/morphir.toml'))).toBe(false)
+    expect(hasPrimaryConfiguration(tree('.config/morphir/config.toml'))).toBe(true)
+    expect(hasPrimaryConfiguration(tree('morphir.json'))).toBe(true)
+    expect(hasPrimaryConfiguration(tree('morphir.toml', 'morphir.json'))).toBe(true)
+    expect(() => hasPrimaryConfiguration(tree('morphir.toml', '.morphir/morphir.yaml'))).toThrow(
+      expect.objectContaining({ code: 'workspace.config.ambiguous' }),
+    )
   })
 
   test.skipIf(process.platform === 'win32')(

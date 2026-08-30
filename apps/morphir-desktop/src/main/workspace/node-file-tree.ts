@@ -54,6 +54,7 @@ export interface NodeFileTreeOptions {
   readonly budgets?: Partial<NodeFileTreeBudgets>
   readonly hooks?: {
     readonly afterDirectoryBound?: (path: string) => Promise<void> | void
+    readonly beforeDirectoryOpen?: (path: string) => Promise<void> | void
     readonly beforeConfigOpen?: (path: string) => Promise<void> | void
     readonly afterConfigBound?: (path: string) => Promise<void> | void
   }
@@ -92,7 +93,7 @@ const codes = new Set<NodeFileTreeErrorCode>([
 interface Message {
   readonly type: 'ready' | 'boundary' | 'result' | 'error'
   readonly directory?: FileIdentity
-  readonly kind?: 'directory' | 'before-config' | 'config'
+  readonly kind?: 'before-directory' | 'directory' | 'before-config' | 'config'
   readonly path?: string
   readonly tree?: unknown
   readonly chargedConfigBytes?: number
@@ -167,7 +168,9 @@ const runWorker = async (
                 await options.hooks?.afterDirectoryBound?.('.')
                 child.stdin.write('go\n')
               } else if (message.type === 'boundary') {
-                if (message.kind === 'directory')
+                if (message.kind === 'before-directory')
+                  await options.hooks?.beforeDirectoryOpen?.(message.path ?? '')
+                else if (message.kind === 'directory')
                   await options.hooks?.afterDirectoryBound?.(message.path ?? '')
                 else if (message.kind === 'before-config')
                   await options.hooks?.beforeConfigOpen?.(message.path ?? '')
@@ -288,7 +291,23 @@ export const fileTreeFromNodeConfigCandidates = async (
   options: NodeFileTreeOptions = {},
 ): Promise<FileTree | null> =>
   (await scanNodeConfigCandidates(candidates, description, options)).tree
-export const hasPrimaryConfiguration = (tree: FileTree): boolean =>
-  Object.keys(tree.entries).some((path) =>
-    ['morphir.toml', 'morphir.yaml', 'morphir.json'].includes(path.split('/').at(-1) ?? ''),
+const ROOT_MODERN_PRIMARY_CONFIGURATIONS = [
+  'morphir.toml',
+  'morphir.yaml',
+  '.morphir/morphir.toml',
+  '.morphir/morphir.yaml',
+  '.config/morphir/config.toml',
+  '.config/morphir/config.yaml',
+] as const
+
+export const hasPrimaryConfiguration = (tree: FileTree): boolean => {
+  const modern = ROOT_MODERN_PRIMARY_CONFIGURATIONS.filter(
+    (path) => tree.entries[path]?.kind === 'file',
   )
+  if (modern.length > 1)
+    throw typed(
+      'workspace.config.ambiguous',
+      `multiple Morphir configurations found for workspace root: ${modern.join(', ')}`,
+    )
+  return modern.length === 1 || tree.entries['morphir.json']?.kind === 'file'
+}
