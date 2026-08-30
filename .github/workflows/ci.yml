@@ -49,10 +49,12 @@ jobs:
       - name: Package
         working-directory: apps/morphir-desktop
         shell: bash
-        run: bun run package
+        # Branch and pull-request artifacts belong to the unsigned developer-insider channel.
+        # Production tags use release-desktop.yml, which requires signing and notarization.
+        run: bun run package:developer-insider
       - uses: actions/upload-artifact@v4
         with:
-          name: morphir-desktop-${{ matrix.os }}
+          name: morphir-desktop-developer-insider-${{ matrix.os }}
           path: |
             apps/morphir-desktop/release/*.tar.gz
             apps/morphir-desktop/release/*.AppImage

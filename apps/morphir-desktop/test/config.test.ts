@@ -20,7 +20,9 @@ describe('morphirHome', () => {
   test('respects MORPHIR_HOME and falls back to ~/.morphir', () => {
     expect(morphirHome({ MORPHIR_HOME: '/custom/home' })).toBe('/custom/home')
     expect(morphirHome({})).toContain('.morphir')
-    expect(uiConfigPath({ MORPHIR_HOME: '/custom/home' })).toBe('/custom/home/ui/config.toml')
+    expect(uiConfigPath({ MORPHIR_HOME: '/custom/home' })).toBe(
+      join('/custom/home', 'ui', 'config.toml'),
+    )
   })
 })
 
