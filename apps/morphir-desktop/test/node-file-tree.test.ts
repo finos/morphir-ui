@@ -7,6 +7,7 @@ import type { DiscoveryRequest, FileEntry, FileTree } from '@morphir/workspace'
 import {
   NodeFileTreeError,
   fileTreeFromNodeRoot,
+  sameFileIdentity,
   type NodeFileTreeOptions,
 } from '../src/main/workspace/node-file-tree.ts'
 
@@ -274,6 +275,156 @@ describe('confined Node FileTree adapter', () => {
       const root = await temporaryDirectory('drive-segment')
       await mkdir(join(root, 'nested', 'C:escape'), { recursive: true })
 
+      await expect(fileTreeFromNodeRoot(root)).rejects.toMatchObject({
+        code: 'workspace.path.not-confined',
+      })
+    },
+  )
+
+  test('uses one scanner process for 100 directories and reaps it', async () => {
+    const root = await temporaryDirectory('one-worker')
+    await Promise.all(
+      Array.from({ length: 100 }, (_, index) =>
+        mkdir(join(root, `dir-${index.toString().padStart(3, '0')}`)),
+      ),
+    )
+    const started = new Set<number>()
+    const exited = new Set<number>()
+    const began = performance.now()
+
+    await fileTreeFromNodeRoot(root, {
+      lifecycle: { started: (pid) => started.add(pid), exited: (pid) => exited.add(pid) },
+    })
+
+    expect(started.size).toBe(1)
+    expect(exited).toEqual(started)
+    expect(performance.now() - began).toBeLessThan(5_000)
+    for (const pid of exited) expect(() => process.kill(pid, 0)).toThrow()
+  })
+
+  test('uses one scanner process for 1000 directories within a practical bound', async () => {
+    const root = await temporaryDirectory('one-worker-large')
+    await Promise.all(
+      Array.from({ length: 1_000 }, (_, index) =>
+        mkdir(join(root, `dir-${index.toString().padStart(4, '0')}`)),
+      ),
+    )
+    const started = new Set<number>()
+    const exited = new Set<number>()
+    const began = performance.now()
+
+    await fileTreeFromNodeRoot(root, {
+      lifecycle: { started: (pid) => started.add(pid), exited: (pid) => exited.add(pid) },
+    })
+
+    expect(started.size).toBe(1)
+    expect(exited).toEqual(started)
+    expect(performance.now() - began).toBeLessThan(10_000)
+  })
+
+  test.skipIf(process.platform === 'win32')(
+    'reaps the scanner after a confinement error',
+    async () => {
+      const root = await temporaryDirectory('worker-error')
+      const outside = await temporaryDirectory('worker-error-outside')
+      await symlink(outside, join(root, 'escape'))
+      const started = new Set<number>()
+      const exited = new Set<number>()
+
+      await expect(
+        fileTreeFromNodeRoot(root, {
+          lifecycle: { started: (pid) => started.add(pid), exited: (pid) => exited.add(pid) },
+        }),
+      ).rejects.toMatchObject({ code: 'workspace.path.not-confined' })
+      expect(started.size).toBe(1)
+      expect(exited).toEqual(started)
+      for (const pid of exited) expect(() => process.kill(pid, 0)).toThrow()
+    },
+  )
+
+  test('kills and reaps a timed-out scanner process', async () => {
+    const root = await temporaryDirectory('worker-timeout')
+    const started = new Set<number>()
+    const exited = new Set<number>()
+
+    await expect(
+      fileTreeFromNodeRoot(root, {
+        timeoutMs: 20,
+        hooks: { afterDirectoryBound: () => new Promise(() => undefined) },
+        lifecycle: { started: (pid) => started.add(pid), exited: (pid) => exited.add(pid) },
+      }),
+    ).rejects.toMatchObject({ code: 'workspace.traversal.unreadable' })
+    expect(started.size).toBe(1)
+    expect(exited).toEqual(started)
+  })
+
+  test.skipIf(process.platform === 'win32')(
+    'charges alias-generated configuration text to the payload budget',
+    async () => {
+      const root = await temporaryDirectory('alias-payload')
+      const real = join(root, 'real')
+      await mkdir(real)
+      await writeFile(join(real, 'morphir.toml'), 'abc')
+      await symlink(real, join(root, 'alias'))
+
+      await expect(
+        fileTreeFromNodeRoot(root, { budgets: { configBytes: 3 } }),
+      ).rejects.toMatchObject({ code: 'workspace.traversal.resource-limit' })
+      expect(await fileTreeFromNodeRoot(root, { budgets: { configBytes: 6 } })).toBeDefined()
+    },
+  )
+
+  test('compares bigint file identities without precision loss', () => {
+    expect(
+      sameFileIdentity(
+        { dev: '9007199254740992', ino: '9007199254740993' },
+        { dev: '9007199254740992', ino: '9007199254740994' },
+      ),
+    ).toBe(false)
+  })
+
+  test.skipIf(process.platform === 'win32')(
+    'materializes 100 root aliases with one bounded scanner process',
+    async () => {
+      const root = await temporaryDirectory('many-aliases')
+      const real = join(root, 'real')
+      await mkdir(real)
+      await writeFile(join(real, 'morphir.toml'), 'x')
+      await Promise.all(
+        Array.from({ length: 100 }, (_, index) =>
+          symlink(real, join(root, `alias-${index.toString().padStart(3, '0')}`)),
+        ),
+      )
+      const started = new Set<number>()
+      const began = performance.now()
+
+      const tree = await fileTreeFromNodeRoot(root, {
+        budgets: { configBytes: 101 },
+        lifecycle: { started: (pid) => started.add(pid) },
+      })
+
+      expect(started.size).toBe(1)
+      expect(
+        Object.keys(tree.entries).filter((path) => path.endsWith('morphir.toml')),
+      ).toHaveLength(101)
+      expect(performance.now() - began).toBeLessThan(5_000)
+      await expect(
+        fileTreeFromNodeRoot(root, { budgets: { configBytes: 100 } }),
+      ).rejects.toMatchObject({ code: 'workspace.traversal.resource-limit' })
+    },
+  )
+
+  test.skipIf(process.platform !== 'win32')(
+    'accepts a Windows root and file while rejecting an external junction',
+    async () => {
+      const root = await temporaryDirectory('windows-junction-root')
+      const outside = await temporaryDirectory('windows-junction-outside')
+      await writeFile(join(root, 'morphir.toml'), 'inside')
+      expect((await fileTreeFromNodeRoot(root)).entries['morphir.toml']).toEqual({
+        kind: 'file',
+        text: 'inside',
+      })
+      await symlink(outside, join(root, 'escape'), 'junction')
       await expect(fileTreeFromNodeRoot(root)).rejects.toMatchObject({
         code: 'workspace.path.not-confined',
       })

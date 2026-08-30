@@ -2,7 +2,11 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, posix, win32 } from 'node:path'
 import type { DiscoveryRequest, DiscoveryResponse } from '@morphir/workspace'
 import type { WorkspaceDiscoveryEngine } from '@morphir/workspace-engine'
-import { fileTreeFromNodeConfigCandidates, fileTreeFromNodeRoot } from './node-file-tree.ts'
+import {
+  DEFAULT_NODE_FILE_TREE_BUDGETS,
+  scanNodeConfigCandidates,
+  scanNodeRoot,
+} from './node-file-tree.ts'
 import { getWorkspaceDiscoveryEngine } from './wasm-engine.ts'
 
 export interface NodeWorkspaceDiscoveryOptions {
@@ -10,6 +14,7 @@ export interface NodeWorkspaceDiscoveryOptions {
   readonly globalConfigCandidates?: ReadonlyArray<string>
   readonly systemConfigCandidates?: ReadonlyArray<string>
   readonly engine?: Promise<WorkspaceDiscoveryEngine>
+  readonly configBytes?: number
 }
 
 export const nodeGlobalConfigCandidates = (
@@ -80,16 +85,23 @@ export const buildNodeWorkspaceDiscoveryRequest = async (
             join(options.systemConfigRoot, 'morphir.toml'),
             join(options.systemConfigRoot, 'morphir.yaml'),
           ])
-  const [developmentRootTree, morphirHomeTree, systemConfig] = await Promise.all([
-    fileTreeFromNodeRoot(developmentRoot),
-    fileTreeFromNodeConfigCandidates(globalCandidates, 'global Morphir configuration'),
-    fileTreeFromNodeConfigCandidates(systemCandidates, 'system Morphir configuration'),
-  ])
+  let remaining = options.configBytes ?? DEFAULT_NODE_FILE_TREE_BUDGETS.configBytes
+  const development = await scanNodeRoot(developmentRoot, { budgets: { configBytes: remaining } })
+  remaining -= development.chargedConfigBytes
+  const morphirHome = await scanNodeConfigCandidates(
+    globalCandidates,
+    'global Morphir configuration',
+    { budgets: { configBytes: remaining } },
+  )
+  remaining -= morphirHome.chargedConfigBytes
+  const system = await scanNodeConfigCandidates(systemCandidates, 'system Morphir configuration', {
+    budgets: { configBytes: remaining },
+  })
   return {
     protocolVersion: 1,
-    developmentRoot: developmentRootTree,
-    morphirHome: morphirHomeTree,
-    systemConfig,
+    developmentRoot: development.tree!,
+    morphirHome: morphirHome.tree,
+    systemConfig: system.tree,
     environment: morphirEnvironment(env),
     cliOverlay: {},
   }

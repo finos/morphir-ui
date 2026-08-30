@@ -1,15 +1,12 @@
 /* global Buffer, TextDecoder, process */
 import { constants } from 'node:fs'
 import { lstat, open, opendir, realpath, stat } from 'node:fs/promises'
+import { isAbsolute, relative, sep } from 'node:path'
 
 const send = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
-const fail = (code, message) => {
-  send({ type: 'error', code, message })
-  process.exitCode = 1
-}
-const identity = (value) => ({ dev: value.dev, ino: value.ino })
-const sameIdentity = (left, right) => left.dev === right.dev && left.ino === right.ino
-const childSegment = (value) =>
+const identity = (value) => ({ dev: value.dev.toString(), ino: value.ino.toString() })
+const error = (code, message) => Object.assign(new Error(message), { code })
+const segment = (value) =>
   typeof value === 'string' &&
   value !== '' &&
   value !== '.' &&
@@ -19,136 +16,301 @@ const childSegment = (value) =>
   !/^[A-Za-z]:/.test(value)
 const waitForGo = () =>
   new Promise((resolve, reject) => {
+    const cleanup = () => {
+      process.stdin.off('data', data)
+      process.stdin.off('error', failed)
+    }
+    const data = (value) => {
+      cleanup()
+      if (value.trim() === 'go') resolve()
+      else reject(new Error('invalid scanner command'))
+    }
+    const failed = (cause) => {
+      cleanup()
+      reject(cause)
+    }
     process.stdin.setEncoding('utf8')
-    process.stdin.once('data', (value) =>
-      value.trim() === 'go' ? resolve() : reject(new Error('invalid scanner command')),
-    )
-    process.stdin.once('error', reject)
+    process.stdin.once('data', data)
+    process.stdin.once('error', failed)
   })
-const kind = (metadata) =>
-  metadata.isDirectory() ? 'directory' : metadata.isFile() ? 'file' : 'other'
-
-const list = async (command) => {
-  if (
-    !Number.isSafeInteger(command.maxEntries) ||
-    command.maxEntries < 0 ||
-    !Number.isSafeInteger(command.maxAliases) ||
-    command.maxAliases < 0
-  ) {
-    throw new Error('invalid constrained list command')
-  }
-  const directory = await opendir('.')
-  const directoryStat = await stat('.')
-  send({ type: 'ready', directory: identity(directoryStat) })
+const boundary = async (kind, path) => {
+  send({ type: 'boundary', kind, path })
   await waitForGo()
-  const entries = []
-  let aliases = 0
-  for await (const entry of directory) {
-    if (entries.length >= command.maxEntries) {
-      throw Object.assign(new Error(`real entries budget ${command.maxEntries}`), {
-        code: 'workspace.traversal.resource-limit',
-      })
-    }
-    if (!childSegment(entry.name)) {
-      throw Object.assign(
-        new Error(`invalid workspace path segment ${JSON.stringify(entry.name)}`),
-        {
-          code: 'workspace.path.not-confined',
-        },
-      )
-    }
-    const metadata = await lstat(entry.name)
-    const resolved = await realpath(entry.name)
-    const target = await stat(resolved)
-    if (metadata.isSymbolicLink() && target.isDirectory()) {
-      if (aliases >= command.maxAliases) {
-        throw Object.assign(new Error(`alias edges budget ${command.maxAliases}`), {
-          code: 'workspace.alias.resource-limit',
-        })
-      }
-      aliases += 1
-    }
-    entries.push({
-      name: entry.name,
-      kind: metadata.isSymbolicLink() ? 'symlink' : kind(metadata),
-      identity: identity(metadata),
-      resolved,
-      targetKind: kind(target),
-      targetIdentity: identity(target),
-    })
+}
+const recognized = (path) => {
+  const parts = path.split('/')
+  const name = parts.at(-1)
+  return (
+    [
+      'morphir.toml',
+      'morphir.yaml',
+      'morphir.json',
+      'morphir.user.toml',
+      'morphir.user.yaml',
+    ].includes(name) ||
+    (['config.toml', 'config.yaml', 'config.user.toml', 'config.user.yaml'].includes(name) &&
+      parts.slice(-3, -1).join('/') === '.config/morphir')
+  )
+}
+const confined = (root, target) => {
+  const value = relative(root, target)
+  if (isAbsolute(value) || value === '..' || value.startsWith(`..${sep}`))
+    throw error('workspace.path.not-confined', `${target} is outside granted root`)
+  return value === '' ? '.' : value.split(sep).join('/')
+}
+const exceed = (kind, resource, maximum) => {
+  throw error(`workspace.${kind}.resource-limit`, `${resource} budget ${maximum}`)
+}
+const charge = (state, resource, maximum, kind = 'traversal') => {
+  if (state[resource] >= maximum) exceed(kind, resource, maximum)
+  state[resource] += 1
+}
+const readHandle = async (handle, maximum) => {
+  const chunks = []
+  let bytes = 0
+  while (true) {
+    const buffer = Buffer.allocUnsafe(Math.max(1, Math.min(64 * 1024, maximum - bytes + 1)))
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, null)
+    if (!bytesRead) break
+    if (bytes + bytesRead > maximum) exceed('traversal', 'configBytes', maximum)
+    bytes += bytesRead
+    chunks.push(buffer.subarray(0, bytesRead))
   }
-  entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
-  send({ type: 'result', entries })
+  return {
+    text: new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks, bytes)),
+    bytes,
+  }
+}
+const heapPush = (heap, item) => {
+  heap.push(item)
+  let index = heap.length - 1
+  while (index) {
+    const parent = (index - 1) >> 1
+    if (heap[parent].key <= item.key) break
+    heap[index] = heap[parent]
+    index = parent
+  }
+  heap[index] = item
+}
+const heapPop = (heap) => {
+  const first = heap[0]
+  const last = heap.pop()
+  if (heap.length && last) {
+    let index = 0
+    while (true) {
+      let child = index * 2 + 1
+      if (child >= heap.length) break
+      if (child + 1 < heap.length && heap[child + 1].key < heap[child].key) child += 1
+      if (heap[child].key >= last.key) break
+      heap[index] = heap[child]
+      index = child
+    }
+    heap[index] = last
+  }
+  return first
+}
+const hasAncestor = (node, edge) => {
+  for (let cursor = node; cursor; cursor = cursor.parent) if (cursor.edge === edge) return true
+  return false
 }
 
-const inspect = async (command) => {
-  if (!Array.isArray(command.names) || command.names.some((name) => !childSegment(name))) {
-    throw new Error('invalid constrained inspect command')
+const scan = async (command) => {
+  const budgets = command.budgets
+  const rootHandle = await opendir('.')
+  const rootStat = await stat('.', { bigint: true })
+  send({ type: 'ready', directory: identity(rootStat) })
+  await waitForGo()
+  const state = {
+    realDirectories: 0,
+    realEntries: 0,
+    configBytes: 0,
+    aliasEdges: 0,
+    queuedExpansions: 0,
+    processedExpansions: 0,
+    generatedEntries: 0,
+    totalWork: 0,
   }
-  const directory = await stat('.')
+  charge(state, 'realDirectories', budgets.realDirectories)
+  const entries = new Map([['.', { kind: 'directory' }]])
+  const aliases = []
+  const visited = new Set([command.canonicalRoot])
+  const queue = [{ handle: rootHandle, path: '.', depth: 0 }]
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const directory = queue[cursor]
+    if (cursor) await boundary('directory', directory.path)
+    const names = []
+    for await (const child of directory.handle) {
+      charge(state, 'realEntries', budgets.realEntries)
+      if (!segment(child.name))
+        throw error(
+          'workspace.path.not-confined',
+          `invalid path segment ${JSON.stringify(child.name)}`,
+        )
+      names.push(child.name)
+    }
+    names.sort()
+    for (const name of names) {
+      const lexical = directory.path === '.' ? name : `${directory.path}/${name}`
+      const native = `./${lexical.split('/').join(sep)}`
+      const metadata = await lstat(native, { bigint: true })
+      const resolved = await realpath(native)
+      const targetPath = confined(command.canonicalRoot, resolved)
+      const target = await stat(resolved, { bigint: true })
+      if (metadata.isSymbolicLink() && target.isDirectory()) {
+        charge(state, 'aliasEdges', budgets.aliasEdges, 'alias')
+        aliases.push({ lexical, target: targetPath })
+      } else if (target.isDirectory()) {
+        if (directory.depth >= budgets.maxDepth) exceed('traversal', 'maxDepth', budgets.maxDepth)
+        if (!visited.has(resolved)) {
+          charge(state, 'realDirectories', budgets.realDirectories)
+          const handle = await opendir(native)
+          visited.add(resolved)
+          entries.set(lexical, { kind: 'directory' })
+          queue.push({ handle, path: lexical, depth: directory.depth + 1 })
+        }
+      } else if (target.isFile() && recognized(lexical)) {
+        const handle = await open(
+          metadata.isSymbolicLink() ? resolved : native,
+          constants.O_RDONLY |
+            (metadata.isSymbolicLink() || process.platform === 'win32' ? 0 : constants.O_NOFOLLOW),
+        )
+        try {
+          const bound = await handle.stat({ bigint: true })
+          if (!bound.isFile())
+            throw error('workspace.path.not-confined', 'configuration identity changed')
+          await boundary('config', lexical)
+          const payload = await readHandle(handle, budgets.configBytes - state.configBytes)
+          state.configBytes += payload.bytes
+          entries.set(lexical, { kind: 'file', text: payload.text })
+        } finally {
+          await handle.close()
+        }
+      }
+    }
+  }
+  const realEntries = []
+  const edges = []
+  if (aliases.length > 0) {
+    for (const entry of entries) {
+      charge(state, 'totalWork', budgets.totalWork, 'alias')
+      realEntries.push(entry)
+    }
+    for (const alias of aliases) {
+      charge(state, 'totalWork', budgets.totalWork, 'alias')
+      edges.push(alias)
+    }
+    realEntries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    edges.sort((a, b) => (a.lexical < b.lexical ? -1 : a.lexical > b.lexical ? 1 : 0))
+  }
+  const heap = []
+  edges.forEach((edge, index) => {
+    charge(state, 'queuedExpansions', budgets.queuedExpansions, 'alias')
+    heapPush(heap, {
+      key: `${edge.lexical}\0${index}`,
+      lexical: edge.lexical,
+      edge: index,
+      ancestry: { edge: index, parent: null },
+    })
+  })
+  while (heap.length) {
+    const expansion = heapPop(heap)
+    charge(state, 'processedExpansions', budgets.processedExpansions, 'alias')
+    charge(state, 'totalWork', budgets.totalWork, 'alias')
+    const target = edges[expansion.edge].target
+    for (const [path, entry] of realEntries) {
+      charge(state, 'totalWork', budgets.totalWork, 'alias')
+      const suffix =
+        target === '.'
+          ? path === '.'
+            ? ''
+            : path
+          : path === target
+            ? ''
+            : path.startsWith(`${target}/`)
+              ? path.slice(target.length + 1)
+              : null
+      if (suffix === null) continue
+      const aliasPath = suffix === '' ? expansion.lexical : `${expansion.lexical}/${suffix}`
+      if (!entries.has(aliasPath)) {
+        charge(state, 'generatedEntries', budgets.generatedEntries, 'alias')
+        if (entry.kind === 'file') {
+          const bytes = Buffer.byteLength(entry.text)
+          if (state.configBytes + bytes > budgets.configBytes)
+            exceed('traversal', 'configBytes', budgets.configBytes)
+          state.configBytes += bytes
+        }
+        entries.set(aliasPath, entry)
+      }
+    }
+    for (let nestedIndex = 0; nestedIndex < edges.length; nestedIndex += 1) {
+      charge(state, 'totalWork', budgets.totalWork, 'alias')
+      if (hasAncestor(expansion.ancestry, nestedIndex)) continue
+      const nested = edges[nestedIndex]
+      const suffix =
+        target === '.'
+          ? nested.lexical
+          : nested.lexical === target
+            ? ''
+            : nested.lexical.startsWith(`${target}/`)
+              ? nested.lexical.slice(target.length + 1)
+              : null
+      if (suffix === null) continue
+      charge(state, 'queuedExpansions', budgets.queuedExpansions, 'alias')
+      const lexical = suffix === '' ? expansion.lexical : `${expansion.lexical}/${suffix}`
+      heapPush(heap, {
+        key: `${lexical}\0${nestedIndex}`,
+        lexical,
+        edge: nestedIndex,
+        ancestry: { edge: nestedIndex, parent: expansion.ancestry },
+      })
+    }
+  }
+  const sorted = [...entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  let finalBytes = 0
+  for (const [, entry] of sorted)
+    if (entry.kind === 'file') finalBytes += Buffer.byteLength(entry.text)
+  if (finalBytes !== state.configBytes) throw new Error('configuration byte accounting mismatch')
+  send({
+    type: 'result',
+    tree: { entries: Object.fromEntries(sorted) },
+    chargedConfigBytes: finalBytes,
+  })
+}
+
+const mount = async (command) => {
+  const directory = await stat('.', { bigint: true })
   send({ type: 'ready', directory: identity(directory) })
   await waitForGo()
-  const entries = []
+  const found = []
   for (const name of [...new Set(command.names)].sort()) {
-    let metadata
+    if (!segment(name)) throw error('workspace.path.not-confined', 'invalid candidate name')
     try {
-      metadata = await lstat(name)
+      await lstat(name, { bigint: true })
+      const resolved = await realpath(name)
+      if ((await stat(resolved, { bigint: true })).isFile()) found.push({ name, resolved })
     } catch (cause) {
-      if (cause?.code === 'ENOENT') continue
-      throw cause
+      if (cause?.code !== 'ENOENT') throw cause
     }
-    if (metadata.isSymbolicLink()) continue
-    const resolved = await realpath(name)
-    const target = await stat(resolved)
-    entries.push({
-      name,
-      kind: kind(metadata),
-      identity: identity(metadata),
-      resolved,
-      targetKind: kind(target),
-      targetIdentity: identity(target),
-    })
   }
-  send({ type: 'result', entries })
-}
-
-const read = async (command) => {
-  if (
-    !childSegment(command.name) ||
-    !Number.isSafeInteger(command.maxBytes) ||
-    command.maxBytes < 0
-  ) {
-    throw new Error('invalid constrained read command')
+  if (found.length > 1) throw error('workspace.config.ambiguous', command.description)
+  if (!found.length) {
+    send({ type: 'result', tree: null, chargedConfigBytes: 0 })
+    return
   }
-  const directory = await stat('.')
-  const noFollow = process.platform === 'win32' ? 0 : constants.O_NOFOLLOW
-  const handle = await open(command.name, constants.O_RDONLY | noFollow)
+  const selected = found[0]
+  const handle = await open(selected.resolved, constants.O_RDONLY)
   try {
-    const file = await handle.stat()
-    if (!file.isFile() || !sameIdentity(identity(file), command.file)) {
-      throw Object.assign(new Error('configuration identity changed'), {
-        code: 'workspace.path.not-confined',
-      })
-    }
-    send({ type: 'ready', directory: identity(directory), file: identity(file) })
-    await waitForGo()
-    const chunks = []
-    let total = 0
-    while (true) {
-      const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, command.maxBytes - total + 1))
-      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null)
-      if (bytesRead === 0) break
-      total += bytesRead
-      if (total > command.maxBytes) {
-        throw Object.assign(new Error(`configuration bytes budget ${command.maxBytes}`), {
-          code: 'workspace.traversal.resource-limit',
-        })
-      }
-      chunks.push(buffer.subarray(0, bytesRead))
-    }
-    const bytes = Buffer.concat(chunks, total)
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-    send({ type: 'result', text, bytes: total })
+    const payload = await readHandle(handle, command.maxBytes)
+    send({
+      type: 'result',
+      tree: {
+        entries: {
+          '.': { kind: 'directory' },
+          [selected.name]: { kind: 'file', text: payload.text },
+        },
+      },
+      chargedConfigBytes: payload.bytes,
+    })
   } finally {
     await handle.close()
   }
@@ -156,10 +318,17 @@ const read = async (command) => {
 
 try {
   const command = JSON.parse(process.argv[2] ?? 'null')
-  if (command?.mode === 'list') await list(command)
-  else if (command?.mode === 'inspect') await inspect(command)
-  else if (command?.mode === 'read') await read(command)
+  if (command?.mode === 'scan') await scan(command)
+  else if (command?.mode === 'mount') await mount(command)
   else throw new Error('unsupported scanner command')
 } catch (cause) {
-  fail(cause?.code, cause instanceof Error ? cause.message : 'confined scanner failed')
+  send({
+    type: 'error',
+    code: cause?.code,
+    message: cause instanceof Error ? cause.message : 'scanner failed',
+  })
+  process.exitCode = 1
+} finally {
+  process.stdin.pause()
+  process.stdin.destroy()
 }

@@ -207,7 +207,7 @@ describe('Electron workspace discovery host', () => {
     ).toBe(String.raw`D:\ProgramData\morphir\morphir.yaml`)
   })
 
-  test('rejects unreadable selected config and skips candidate symlinks', async () => {
+  test('rejects unreadable selected config and follows candidate symlinks', async () => {
     const root = await temporaryDirectory('candidate-errors-root')
     const home = await temporaryDirectory('candidate-errors-home')
     const outside = await temporaryDirectory('candidate-errors-outside')
@@ -237,7 +237,51 @@ describe('Electron workspace discovery host', () => {
           systemConfigRoot: null,
         },
       )
-      expect(request.morphirHome).toBeNull()
+      expect(request.morphirHome?.entries['morphir.toml']).toEqual({
+        kind: 'file',
+        text: 'outside',
+      })
+      await symlink(join(outside, 'morphir.toml'), join(home, 'morphir.yaml'))
+      await expect(
+        buildNodeWorkspaceDiscoveryRequest(
+          root,
+          {},
+          {
+            globalConfigCandidates: [join(home, 'morphir.toml'), join(home, 'morphir.yaml')],
+            systemConfigRoot: null,
+          },
+        ),
+      ).rejects.toMatchObject({ code: 'workspace.config.ambiguous' })
     }
+  })
+
+  test('shares one payload budget across development, global, and system mounts', async () => {
+    const root = await temporaryDirectory('combined-budget-root')
+    const home = await temporaryDirectory('combined-budget-home')
+    const system = await temporaryDirectory('combined-budget-system')
+    await writeFile(join(root, 'morphir.toml'), 'abc')
+    await writeFile(join(home, 'morphir.toml'), 'def')
+    await writeFile(join(system, 'morphir.toml'), 'ghi')
+
+    await expect(
+      buildNodeWorkspaceDiscoveryRequest(
+        root,
+        { MORPHIR_HOME: home },
+        {
+          systemConfigRoot: system,
+          configBytes: 8,
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'workspace.traversal.resource-limit' })
+    expect(
+      await buildNodeWorkspaceDiscoveryRequest(
+        root,
+        { MORPHIR_HOME: home },
+        {
+          systemConfigRoot: system,
+          configBytes: 9,
+        },
+      ),
+    ).toBeDefined()
   })
 })
