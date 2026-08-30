@@ -1,4 +1,5 @@
 import type { MorphirLibrary, WorkspaceIr } from '@morphir/ir'
+import { sourceKey, type WorkbenchSourceRef, type WorkspaceSnapshot } from '@morphir/workspace'
 
 export type WorkbenchId = string
 export type ModelRoute = 'overview' | 'explorer'
@@ -6,7 +7,7 @@ export type DevelopmentRoute = 'overview'
 
 export interface WorkbenchBase {
   readonly id: WorkbenchId
-  readonly source: string
+  readonly source: WorkbenchSourceRef
   readonly name: string
   readonly openedAt: string
   readonly lastUsedAt: string
@@ -36,9 +37,7 @@ export interface ModelWorkbenchData {
 export interface DevelopmentWorkbenchData {
   readonly kind: 'development'
   readonly descriptor: DevelopmentWorkbenchDescriptor
-  readonly configAnchor: string | null
-  readonly modelSources: ReadonlyArray<string>
-  readonly knowledgeBaseSources: ReadonlyArray<string>
+  readonly snapshot: WorkspaceSnapshot
 }
 
 export type WorkbenchData = ModelWorkbenchData | DevelopmentWorkbenchData
@@ -56,19 +55,36 @@ export type WorkbenchEntry =
       readonly message: string
     }
 
-export const sourceName = (source: string): string =>
-  source
+export const sourceName = (source: WorkbenchSourceRef): string => source.displayName
+
+const sourceDisplayName = (locator: string): string =>
+  locator
     .replace(/[\\/]+$/, '')
     .split(/[\\/]/)
-    .at(-1) || source
+    .at(-1) || locator
 
-export const legacyModelDescriptor = (source: string): ModelWorkbenchDescriptor => ({
-  id: source,
-  source,
-  name: sourceName(source),
-  kind: 'model',
-  distribution: 'single-file',
-  route: 'overview',
-  openedAt: new Date(0).toISOString(),
-  lastUsedAt: new Date(0).toISOString(),
+export const legacySourceRef = (
+  locator: string,
+  providerId = 'legacy-local',
+): WorkbenchSourceRef => ({
+  providerId,
+  locator,
+  displayName: sourceDisplayName(locator),
 })
+
+export const legacyModelDescriptor = (
+  locator: string,
+  providerId?: string,
+): ModelWorkbenchDescriptor => {
+  const source = legacySourceRef(locator, providerId)
+  return {
+    id: sourceKey(source),
+    source,
+    name: sourceName(source),
+    kind: 'model',
+    distribution: 'single-file',
+    route: 'overview',
+    openedAt: new Date(0).toISOString(),
+    lastUsedAt: new Date(0).toISOString(),
+  }
+}

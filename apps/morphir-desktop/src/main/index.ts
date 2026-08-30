@@ -14,6 +14,7 @@ import {
 } from './workbench-source.ts'
 import { registerWorkbenchHandlers } from './workbench-rpc.ts'
 import { LaunchRequestQueue, parseOpenSources } from './launch-requests.ts'
+import { desktopSourceRef } from '../shared/workbench-source.ts'
 
 const smoke = process.env['MORPHIR_SMOKE'] === '1'
 const registry = new RpcRegistry()
@@ -33,7 +34,9 @@ registry.register('morphir/shell/smokeReport', async (params) => {
 })
 registry.register('morphir/config/load', async () => loadConfigFile())
 registry.register('morphir/config/save', async (params) => {
-  const config = decodeUiConfig((params as { config?: unknown })?.config)
+  const config = decodeUiConfig((params as { config?: unknown })?.config, {
+    legacyProviderId: 'desktop-local',
+  })
   await saveConfigFile(config)
   return {}
 })
@@ -51,7 +54,7 @@ registry.register('morphir/workspace/read', async (params) => {
   return { content: await readWorkspaceFile(path) }
 })
 registerWorkbenchHandlers(registry, {
-  inspect: inspectWorkbenchSource,
+  inspect: (source) => inspectWorkbenchSource(source.locator),
   pick: async (kind) => {
     const result = await dialog.showOpenDialog({
       title: kind === 'model-file' ? 'Open Morphir model' : 'Open Morphir Workbench',
@@ -62,12 +65,13 @@ registerWorkbenchHandlers(registry, {
           }
         : { properties: ['openDirectory'] as const }),
     })
-    return result.canceled ? null : (result.filePaths[0] ?? null)
+    const path = result.canceled ? null : (result.filePaths[0] ?? null)
+    return path === null ? null : desktopSourceRef(path)
   },
   readModel: readModelSource,
   inspectDevelopment: inspectDevelopmentRoot,
-  reveal: async (source) => void shell.showItemInFolder(source),
-  takeInitialSources: () => launchRequests.takeInitial(),
+  reveal: async (source) => void shell.showItemInFolder(source.locator),
+  takeInitialSources: () => launchRequests.takeInitial().map(desktopSourceRef),
 })
 
 function createWindow(): BrowserWindow {
@@ -106,7 +110,7 @@ const forwardOpenSources = (sources: ReadonlyArray<string>): void => {
   if (batch.length === 0 || !mainWindow || mainWindow.isDestroyed()) return
   mainWindow.webContents.send(RPC_CHANNEL, {
     method: 'morphir/workbench/openSources',
-    params: { sources: batch },
+    params: { sources: batch.map(desktopSourceRef) },
   })
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.show()

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { sourceKey } from '@morphir/workspace'
 import {
   inspectDevelopmentRoot,
   inspectWorkbenchSource,
@@ -45,8 +46,16 @@ describe('inspectWorkbenchSource', () => {
     const canonical = realpathSync(path)
 
     expect(await inspectWorkbenchSource(path, () => timestamp)).toMatchObject({
-      id: canonical,
-      source: canonical,
+      id: sourceKey({
+        providerId: 'desktop-local',
+        locator: canonical,
+        displayName: 'model.json',
+      }),
+      source: {
+        providerId: 'desktop-local',
+        locator: canonical,
+        displayName: 'model.json',
+      },
       name: 'model.json',
       kind: 'model',
       distribution: 'single-file',
@@ -64,7 +73,7 @@ describe('inspectWorkbenchSource', () => {
     const canonical = realpathSync(distribution)
 
     expect(await inspectWorkbenchSource(distribution, () => timestamp)).toMatchObject({
-      source: canonical,
+      source: { providerId: 'desktop-local', locator: canonical, displayName: '.morphir-dist' },
       kind: 'model',
       distribution: 'document-tree',
     })
@@ -78,7 +87,7 @@ describe('inspectWorkbenchSource', () => {
     const canonical = realpathSync(development)
 
     expect(await inspectWorkbenchSource(development, () => timestamp)).toMatchObject({
-      source: canonical,
+      source: { providerId: 'desktop-local', locator: canonical, displayName: 'dev' },
       kind: 'development',
     })
   })
@@ -158,6 +167,42 @@ describe('source loading', () => {
       configAnchor: join(canonical, 'morphir.toml'),
       modelSources: [join(canonical, 'model')],
       knowledgeBaseSources: [join(canonical, 'knowledge')],
+    })
+  })
+
+  test('rejects foreign descriptors before reading their locators', async () => {
+    const root = fixtureRoot()
+    const model = fixtureFile(
+      root,
+      'model.json',
+      '{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}',
+    )
+    const development = fixtureDirectory(root, 'dev')
+    const modelDescriptor = await inspectWorkbenchSource(model, () => timestamp)
+    const developmentDescriptor = await inspectWorkbenchSource(development, () => timestamp)
+    if (modelDescriptor.kind !== 'model' || developmentDescriptor.kind !== 'development') {
+      throw new Error('Expected model and development descriptors')
+    }
+
+    await expect(
+      readModelSource({
+        ...modelDescriptor,
+        source: { ...modelDescriptor.source, providerId: 'cli:session-1' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'unsupported-capability',
+      message:
+        'Workbench source belongs to provider cli:session-1; expected provider desktop-local',
+    })
+    await expect(
+      inspectDevelopmentRoot({
+        ...developmentDescriptor,
+        source: { ...developmentDescriptor.source, providerId: 'cli:session-1' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'unsupported-capability',
+      message:
+        'Workbench source belongs to provider cli:session-1; expected provider desktop-local',
     })
   })
 })

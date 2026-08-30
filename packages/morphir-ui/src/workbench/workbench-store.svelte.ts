@@ -1,6 +1,8 @@
 import type { UiConfig } from '../services/config.ts'
 import type { AppServices } from '../services/services.ts'
+import { sourceKey, type WorkbenchSourceRef } from '@morphir/workspace'
 import type { SourcePickerKind } from './services.ts'
+import { legacySourceRef } from './types.ts'
 import type {
   DevelopmentRoute,
   ModelRoute,
@@ -19,15 +21,35 @@ const matchesQuery = (descriptor: WorkbenchDescriptor, query: string): boolean =
   return (
     normalized.length === 0 ||
     descriptor.name.toLocaleLowerCase().includes(normalized) ||
-    descriptor.source.toLocaleLowerCase().includes(normalized)
+    descriptor.source.displayName.toLocaleLowerCase().includes(normalized) ||
+    descriptor.source.locator.toLocaleLowerCase().includes(normalized)
   )
 }
+
+const withSourceKey = (descriptor: WorkbenchDescriptor): WorkbenchDescriptor => ({
+  ...descriptor,
+  id: sourceKey(descriptor.source),
+})
+
+export type FailedWorkbenchRequest =
+  | {
+      readonly kind: 'source'
+      readonly key: string
+      readonly source: WorkbenchSourceRef
+      readonly message: string
+    }
+  | {
+      readonly kind: 'picker'
+      readonly key: string
+      readonly source: string
+      readonly message: string
+    }
 
 export class WorkbenchStore {
   openEntries = $state<ReadonlyArray<WorkbenchEntry>>([])
   recent = $state<ReadonlyArray<WorkbenchDescriptor>>([])
   activeId = $state<WorkbenchId | null>(null)
-  failedRequests = $state<ReadonlyArray<{ source: string; message: string }>>([])
+  failedRequests = $state<ReadonlyArray<FailedWorkbenchRequest>>([])
   query = $state('')
   recentExpanded = $state(false)
 
@@ -58,27 +80,14 @@ export class WorkbenchStore {
     return this.recent.filter((descriptor) => matchesQuery(descriptor, this.query))
   }
 
-  async open(source: string): Promise<WorkbenchId | null> {
-    const requested = source.trim()
-    if (requested.length === 0) return null
-
-    const existing = this.openEntries.find((entry) => entry.descriptor.source === requested)
-    if (existing) {
-      this.activate(existing.descriptor.id)
-      if (existing.status === 'error') {
-        this.#replace(existing.descriptor.id, {
-          descriptor: existing.descriptor,
-          status: 'loading',
-        })
-        await this.#load(existing.descriptor)
-      }
-      return existing.descriptor.id
-    }
+  async open(source: WorkbenchSourceRef | string): Promise<WorkbenchId | null> {
+    const requested = typeof source === 'string' ? legacySourceRef(source.trim()) : source
+    if (requested.locator.length === 0) return null
 
     try {
-      const descriptor = await this.#services.inspectWorkbench(requested)
+      const descriptor = withSourceKey(await this.#services.inspectWorkbench(requested))
       const canonicalExisting = this.openEntries.find(
-        (entry) => entry.descriptor.source === descriptor.source,
+        (entry) => entry.descriptor.id === descriptor.id,
       )
       if (canonicalExisting) {
         this.activate(canonicalExisting.descriptor.id)
@@ -92,22 +101,27 @@ export class WorkbenchStore {
         return canonicalExisting.descriptor.id
       }
 
+      const requestedKey = sourceKey(requested)
+      const descriptorKey = sourceKey(descriptor.source)
       this.failedRequests = this.failedRequests.filter(
-        (failure) => failure.source !== requested && failure.source !== descriptor.source,
+        (failure) => failure.key !== requestedKey && failure.key !== descriptorKey,
       )
-      this.recent = this.recent.filter(
-        (candidate) => candidate.id !== descriptor.id && candidate.source !== descriptor.source,
-      )
+      this.recent = this.recent.filter((candidate) => candidate.id !== descriptor.id)
       this.openEntries = [{ descriptor, status: 'loading' }, ...this.openEntries]
       this.activeId = descriptor.id
       this.#persist()
       await this.#load(descriptor)
       return descriptor.id
     } catch (error) {
-      const failure = { source: requested, message: messageOf(error) }
+      const failure: FailedWorkbenchRequest = {
+        kind: 'source',
+        key: sourceKey(requested),
+        source: requested,
+        message: messageOf(error),
+      }
       this.failedRequests = [
         failure,
-        ...this.failedRequests.filter((candidate) => candidate.source !== requested),
+        ...this.failedRequests.filter((candidate) => candidate.key !== failure.key),
       ]
       return null
     }
@@ -119,15 +133,22 @@ export class WorkbenchStore {
       if (source) await this.open(source)
     } catch (error) {
       const source = kind === 'folder' ? 'Open folder' : 'Open model file'
-      const failure = { source, message: messageOf(error) }
+      const failure: FailedWorkbenchRequest = {
+        kind: 'picker',
+        key: `picker:${kind}`,
+        source,
+        message: messageOf(error),
+      }
       this.failedRequests = [
         failure,
-        ...this.failedRequests.filter((candidate) => candidate.source !== source),
+        ...this.failedRequests.filter((candidate) => candidate.key !== failure.key),
       ]
     }
   }
 
-  async restore(commandLineSources: ReadonlyArray<string> = []): Promise<void> {
+  async restore(
+    commandLineSources: ReadonlyArray<WorkbenchSourceRef | string> = [],
+  ): Promise<void> {
     if (this.#reopenOnLaunch) {
       for (const entry of this.openEntries) await this.#load(entry.descriptor)
     }
@@ -180,8 +201,8 @@ export class WorkbenchStore {
     if (entry) await this.#services.revealWorkbenchSource(entry.descriptor.source)
   }
 
-  removeFailedRequest(source: string): void {
-    this.failedRequests = this.failedRequests.filter((failure) => failure.source !== source)
+  removeFailedRequest(key: string): void {
+    this.failedRequests = this.failedRequests.filter((failure) => failure.key !== key)
   }
 
   selectRoute(id: WorkbenchId, route: ModelRoute | DevelopmentRoute): void {

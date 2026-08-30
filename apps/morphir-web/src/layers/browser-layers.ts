@@ -1,11 +1,13 @@
-import { Effect, Layer, Option } from 'effect'
+import { Effect, Layer, Option, Stream } from 'effect'
 import {
   AppInfoService,
   ConfigService,
   DevelopmentWorkbenchService,
   ModelWorkbenchService,
   WorkbenchError,
+  WorkbenchProviderService,
   WorkbenchSourceService,
+  unsupportedProviderError,
   WorkspaceError,
   WorkspaceService,
   decodeUiConfig,
@@ -14,18 +16,95 @@ import {
   type PickedWorkspace,
 } from '@morphir/ui'
 import { decodeMorphirIr, toWorkspaceIr } from '@morphir/ir'
+import { sourceKey, type WorkbenchSourceRef } from '@morphir/workspace'
 
 const CONFIG_KEY = 'morphir-ui.config'
+const MODEL_SOURCE_COUNTER_KEY = 'morphir-ui.browser-local.model-source-counter.v1'
+const MODEL_SOURCE_COUNTER_LOCK = `${MODEL_SOURCE_COUNTER_KEY}.lock`
+const MODEL_LOCATOR_PATTERN = /^model:(\d+)$/
+const fallbackModelLocators = new Set<string>()
+
+const recordOf = (value: unknown): Readonly<Record<string, unknown>> | null =>
+  typeof value === 'object' && value !== null ? (value as Readonly<Record<string, unknown>>) : null
+
+const counterValue = (value: string | null): bigint | null => {
+  if (value === null || !/^\d+$/.test(value)) return null
+  try {
+    return BigInt(value)
+  } catch {
+    return null
+  }
+}
+
+const locatorCounter = (value: unknown): bigint | null => {
+  if (typeof value !== 'string') return null
+  const match = MODEL_LOCATOR_PATTERN.exec(value)
+  return match ? counterValue(match[1] ?? null) : null
+}
+
+const persistedBrowserModelCounter = (storage: Storage): bigint => {
+  const raw = storage.getItem(CONFIG_KEY)
+  if (raw === null) return 0n
+  const config = recordOf(JSON.parse(raw))
+  const workbenches = recordOf(config?.['workbenches'])
+  const entries = [workbenches?.['open'], workbenches?.['recent']].flatMap((value) =>
+    Array.isArray(value) ? value : [],
+  )
+  return entries.reduce((maximum, entry) => {
+    const source = recordOf(recordOf(entry)?.['source'])
+    if (source?.['providerId'] !== 'browser-local') return maximum
+    const candidate = locatorCounter(source['locator'])
+    return candidate !== null && candidate > maximum ? candidate : maximum
+  }, 0n)
+}
+
+const fallbackModelLocator = (): string => {
+  let locator: string
+  do {
+    const values = new Uint32Array(4)
+    globalThis.crypto.getRandomValues(values)
+    const token = values.reduce((value, part) => (value << 32n) | BigInt(part), 0n)
+    locator = `model:${token}`
+  } while (fallbackModelLocators.has(locator))
+  fallbackModelLocators.add(locator)
+  return locator
+}
+
+const allocatePersistentBrowserModelLocator = (): string => {
+  const storage = globalThis.localStorage
+  const storedCounter = counterValue(storage.getItem(MODEL_SOURCE_COUNTER_KEY)) ?? 0n
+  const persistedCounter = persistedBrowserModelCounter(storage)
+  const nextCounter = (storedCounter > persistedCounter ? storedCounter : persistedCounter) + 1n
+  storage.setItem(MODEL_SOURCE_COUNTER_KEY, nextCounter.toString())
+  return `model:${nextCounter}`
+}
+
+const allocateBrowserModelLocator = async (): Promise<string> => {
+  try {
+    const locks = globalThis.navigator?.locks
+    if (!locks) return fallbackModelLocator()
+    return await locks.request(MODEL_SOURCE_COUNTER_LOCK, () => {
+      // Keep the lock around only this synchronous storage transaction.
+      return allocatePersistentBrowserModelLocator()
+    })
+  } catch {
+    return fallbackModelLocator()
+  }
+}
 
 export const browserCore = (version: string): Layer.Layer<CoreServices> => {
   const selectedModels = new Map<string, { name: string; content: string }>()
-  let nextSelectedModelId = 0
+  const selectedModelNameCounts = new Map<string, number>()
+  const providerError = (source: WorkbenchSourceRef): WorkbenchError =>
+    unsupportedProviderError('browser-local', source)
 
   return Layer.mergeAll(
     Layer.succeed(ConfigService, {
       load: Effect.sync(() => {
         try {
-          return decodeUiConfig(JSON.parse(localStorage.getItem(CONFIG_KEY) ?? '{}'))
+          return decodeUiConfig(JSON.parse(localStorage.getItem(CONFIG_KEY) ?? '{}'), {
+            legacyProviderId: 'browser-local',
+          })
         } catch {
           return defaultUiConfig
         }
@@ -56,20 +135,28 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
     }),
     Layer.succeed(WorkbenchSourceService, {
       inspect: (source) => {
-        const selectedModel = selectedModels.get(source)
+        if (source.providerId !== 'browser-local') {
+          return Effect.fail(providerError(source))
+        }
+        const selectedModel = selectedModels.get(sourceKey(source))
         if (!selectedModel) {
           return Effect.fail(
             new WorkbenchError({
               code: 'not-found',
               source,
-              message: `Workbench source not found in this browser session: ${source}`,
+              message: `Workbench source not found in this browser session: ${source.locator}`,
             }),
           )
         }
         const timestamp = new Date().toISOString()
+        const sourceRef = {
+          providerId: 'browser-local',
+          locator: source.locator,
+          displayName: selectedModel.name,
+        }
         return Effect.succeed({
-          id: source,
-          source,
+          id: sourceKey(sourceRef),
+          source: sourceRef,
           name: selectedModel.name,
           kind: 'model' as const,
           distribution: 'single-file' as const,
@@ -82,26 +169,35 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
         if (kind === 'folder') {
           return Effect.fail(
             new WorkbenchError({
-              code: 'unsupported-file',
+              code: 'unsupported-capability',
               source: '<browser-folder>',
               message: 'Folder Workbenches are not available in the browser',
             }),
           )
         }
-        return Effect.async<Option.Option<string>, WorkbenchError>((resume) => {
+        return Effect.async<Option.Option<WorkbenchSourceRef>, WorkbenchError>((resume) => {
           const input = document.createElement('input')
           input.type = 'file'
           input.accept = 'application/json,.json'
           input.onchange = () => {
             const file = input.files?.[0]
             if (!file) return resume(Effect.succeed(Option.none()))
-            file.text().then(
-              (content) => {
-                const source = `browser-model:${++nextSelectedModelId}:${file.name}`
-                selectedModels.set(source, { name: file.name, content })
-                resume(Effect.succeed(Option.some(source)))
-              },
-              (error) =>
+            void file
+              .text()
+              .then(async (content) => {
+                const source = await allocateBrowserModelLocator()
+                const nameCount = (selectedModelNameCounts.get(file.name) ?? 0) + 1
+                selectedModelNameCounts.set(file.name, nameCount)
+                const name = nameCount === 1 ? file.name : `${file.name} (${nameCount})`
+                const sourceRef = {
+                  providerId: 'browser-local',
+                  locator: source,
+                  displayName: name,
+                }
+                selectedModels.set(sourceKey(sourceRef), { name, content })
+                resume(Effect.succeed(Option.some(sourceRef)))
+              })
+              .catch((error) =>
                 resume(
                   Effect.fail(
                     new WorkbenchError({
@@ -111,7 +207,7 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
                     }),
                   ),
                 ),
-            )
+              )
           }
           input.oncancel = () => resume(Effect.succeed(Option.none()))
           input.click()
@@ -124,21 +220,38 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
       reveal: (source) =>
         Effect.fail(
           new WorkbenchError({
-            code: 'unsupported-file',
+            code: 'unsupported-capability',
             source,
-            message: 'Reveal in file manager is not available in the browser',
+            message:
+              source.providerId === 'browser-local'
+                ? 'Reveal in file manager is not available in the browser'
+                : `Workbench source belongs to provider ${source.providerId}`,
           }),
         ),
     }),
+    Layer.succeed(WorkbenchProviderService, {
+      list: Effect.succeed([
+        {
+          id: 'browser-local',
+          name: 'This browser',
+          kind: 'local' as const,
+          status: 'available' as const,
+          capabilities: [{ name: 'morphir/model/open', version: '1' }],
+        },
+      ]),
+    }),
     Layer.succeed(ModelWorkbenchService, {
       load: (descriptor) => {
-        const selectedModel = selectedModels.get(descriptor.source)
+        if (descriptor.source.providerId !== 'browser-local') {
+          return Effect.fail(providerError(descriptor.source))
+        }
+        const selectedModel = selectedModels.get(sourceKey(descriptor.source))
         if (!selectedModel) {
           return Effect.fail(
             new WorkbenchError({
               code: 'not-found',
               source: descriptor.source,
-              message: `Workbench source not found in this browser session: ${descriptor.source}`,
+              message: `Workbench source not found in this browser session: ${descriptor.source.locator}`,
             }),
           )
         }
@@ -164,12 +277,34 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
     Layer.succeed(DevelopmentWorkbenchService, {
       load: (descriptor) =>
         Effect.fail(
-          new WorkbenchError({
-            code: 'unsupported-file',
-            source: descriptor.source,
-            message: 'Development Workbenches are not available in the browser',
-          }),
+          descriptor.source.providerId === 'browser-local'
+            ? new WorkbenchError({
+                code: 'unsupported-capability',
+                source: descriptor.source,
+                message: 'Development Workbenches are not available in the browser',
+              })
+            : providerError(descriptor.source),
         ),
+      loadProjectModel: (descriptor) =>
+        Effect.fail(
+          descriptor.source.providerId === 'browser-local'
+            ? new WorkbenchError({
+                code: 'unsupported-capability',
+                source: descriptor.source,
+                message: 'Project model loading is not available in the browser',
+              })
+            : providerError(descriptor.source),
+        ),
+      events: (descriptor) =>
+        descriptor.source.providerId === 'browser-local'
+          ? Stream.fail(
+              new WorkbenchError({
+                code: 'unsupported-capability',
+                source: descriptor.source,
+                message: 'Workspace events are not available in the browser',
+              }),
+            )
+          : Stream.fail(providerError(descriptor.source)),
     }),
     Layer.succeed(AppInfoService, { version: Effect.succeed(version) }),
   )

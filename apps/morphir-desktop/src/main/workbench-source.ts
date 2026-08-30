@@ -4,8 +4,10 @@ import type {
   WorkbenchDescriptor,
 } from '@morphir/ui/workbench'
 import { WorkbenchError } from '@morphir/ui/workbench'
+import { sourceKey } from '@morphir/workspace'
 import { access, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { requireDesktopSourceRef } from '../shared/workbench-source.ts'
 
 const PRIMARY_CONFIGS = [
   'morphir.toml',
@@ -69,6 +71,12 @@ const documentTreeManifest = async (root: string): Promise<string | null> => {
   return (await exists(candidate)) ? candidate : null
 }
 
+export const assertDesktopWorkbenchProvider = (
+  descriptor: ModelWorkbenchDescriptor | DevelopmentWorkbenchDescriptor,
+): void => {
+  requireDesktopSourceRef(descriptor.source)
+}
+
 export const inspectWorkbenchSource = async (
   source: string,
   now: () => Date = () => new Date(),
@@ -77,10 +85,15 @@ export const inspectWorkbenchSource = async (
     const canonical = await realpath(source)
     const info = await stat(canonical)
     const timestamp = now().toISOString()
+    const sourceRef = {
+      providerId: 'desktop-local',
+      locator: canonical,
+      displayName: basename(canonical),
+    }
     const base = {
-      id: canonical,
-      source: canonical,
-      name: basename(canonical),
+      id: sourceKey(sourceRef),
+      source: sourceRef,
+      name: sourceRef.displayName,
       openedAt: timestamp,
       lastUsedAt: timestamp,
     }
@@ -145,29 +158,31 @@ export const readModelSource = async (
   readonly content: string | null
   readonly manifest: Readonly<Record<string, unknown>> | null
 }> => {
+  assertDesktopWorkbenchProvider(descriptor)
+  const source = descriptor.source.locator
   try {
     if (descriptor.distribution === 'single-file') {
-      return { content: await readFile(descriptor.source, 'utf8'), manifest: null }
+      return { content: await readFile(source, 'utf8'), manifest: null }
     }
-    const manifestPath = await documentTreeManifest(descriptor.source)
+    const manifestPath = await documentTreeManifest(source)
     if (!manifestPath) {
       throw new WorkbenchError({
         code: 'not-found',
-        source: descriptor.source,
-        message: `Document Tree manifest not found: ${descriptor.source}`,
+        source,
+        message: `Document Tree manifest not found: ${source}`,
       })
     }
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as unknown
     if (typeof manifest !== 'object' || manifest === null || Array.isArray(manifest)) {
       throw new WorkbenchError({
         code: 'invalid-distribution',
-        source: descriptor.source,
+        source,
         message: `Invalid Document Tree manifest: ${manifestPath}`,
       })
     }
     return { content: null, manifest: manifest as Readonly<Record<string, unknown>> }
   } catch (error) {
-    throw workbenchError(descriptor.source, error, 'read-failed')
+    throw workbenchError(source, error, 'read-failed')
   }
 }
 
@@ -178,14 +193,16 @@ export const inspectDevelopmentRoot = async (
   readonly modelSources: ReadonlyArray<string>
   readonly knowledgeBaseSources: ReadonlyArray<string>
 }> => {
+  assertDesktopWorkbenchProvider(descriptor)
+  const source = descriptor.source.locator
   try {
-    const entries = await readdir(descriptor.source, { withFileTypes: true })
+    const entries = await readdir(source, { withFileTypes: true })
     const directories = entries.filter((entry) => entry.isDirectory())
     const modelSources: string[] = []
     const knowledgeBaseSources: string[] = []
 
     for (const entry of directories) {
-      const child = join(descriptor.source, entry.name)
+      const child = join(source, entry.name)
       if (entry.name !== '.morphir-dist' && (await documentTreeManifest(child))) {
         modelSources.push(child)
       }
@@ -195,11 +212,11 @@ export const inspectDevelopmentRoot = async (
     }
 
     return {
-      configAnchor: await configAnchor(descriptor.source),
+      configAnchor: await configAnchor(source),
       modelSources,
       knowledgeBaseSources,
     }
   } catch (error) {
-    throw workbenchError(descriptor.source, error, 'read-failed')
+    throw workbenchError(source, error, 'read-failed')
   }
 }

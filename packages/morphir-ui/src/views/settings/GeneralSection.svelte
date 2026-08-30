@@ -25,7 +25,11 @@
 </script>
 
 <SettingsRow label="Active Workbench" description="The Workbench currently active in the shell.">
-  {#snippet trailing()}<span>{store.active?.descriptor.source ?? '—'}</span>{/snippet}
+  {#snippet trailing()}<span
+      >{store.active
+        ? `${store.active.descriptor.source.displayName} (${store.active.descriptor.source.providerId})`
+        : '—'}</span
+    >{/snippet}
 </SettingsRow>
 <SettingsRow
   label="Reopen Workbenches on launch"
@@ -39,6 +43,10 @@
 </SettingsRow>
 <SettingsRow label="Recent Workbenches" description="Workbenches you opened recently.">
   {#snippet trailing()}<span
-      >{store.recent.length === 0 ? '—' : store.recent.map((item) => item.source).join(' · ')}</span
+      >{store.recent.length === 0
+        ? '—'
+        : store.recent
+            .map((item) => `${item.source.displayName} (${item.source.providerId})`)
+            .join(' · ')}</span
     >{/snippet}
 </SettingsRow>

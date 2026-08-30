@@ -32,11 +32,13 @@
         <button
           type="button"
           class="workbench-select"
-          aria-label={`${entry.descriptor.name}, ${entry.descriptor.kind} Workbench, ${entry.descriptor.source}`}
+          aria-label={`${entry.descriptor.name}, ${entry.descriptor.kind} Workbench, ${entry.descriptor.source.displayName} (${entry.descriptor.source.providerId})`}
           onclick={() => store.activate(entry.descriptor.id)}
         >
           <span class="row-top">
-            <span class="source">{entry.descriptor.source}</span>
+            <span class="source"
+              >{entry.descriptor.source.displayName} ({entry.descriptor.source.providerId})</span
+            >
             <span class="status" class:error={entry.status === 'error'}>
               {entry.status === 'loading' ? 'loading' : entry.status}
             </span>
@@ -81,13 +83,15 @@
       <div class="empty">No open Workbenches</div>
     {/each}
 
-    {#each store.failedRequests as failure (failure.source)}
+    {#each store.failedRequests as failure (failure.key)}
       <div class="failed-request">
-        <span>{failure.source}</span>
-        <small>{failure.message}</small>
-        <button type="button" onclick={() => store.removeFailedRequest(failure.source)}
-          >Remove</button
+        <span
+          >{failure.kind === 'source'
+            ? `${failure.source.displayName} (${failure.source.providerId})`
+            : failure.source}</span
         >
+        <small>{failure.message}</small>
+        <button type="button" onclick={() => store.removeFailedRequest(failure.key)}>Remove</button>
       </div>
     {/each}
   </div>
@@ -113,7 +117,9 @@
             aria-label={`Reopen ${descriptor.name}`}
             onclick={() => void store.reopen(descriptor.id)}
           >
-            <span>{descriptor.name}</span><small>{descriptor.source}</small>
+            <span>{descriptor.name}</span><small
+              >{descriptor.source.displayName} ({descriptor.source.providerId})</small
+            >
           </button>
         {:else}
           <div class="empty">No Recent Workbenches</div>

@@ -3,7 +3,7 @@ import { Effect } from 'effect'
 export interface MorphirIpc {
   platform: string
   postMessage(message: unknown): void
-  onMessage(handler: (message: unknown) => void): void
+  onMessage(handler: (message: unknown) => void): () => void
 }
 
 declare global {
@@ -29,12 +29,15 @@ interface WireNotification {
 export class RpcClient {
   readonly #pending = new Map<number, Pending>()
   #nextId = 1
+  #disposed = false
   readonly #ipc: MorphirIpc
+  readonly #removeTransportListener: () => void
   readonly #notificationHandlers = new Map<string, Set<(params: unknown) => void>>()
 
   constructor(ipc: MorphirIpc = window.morphirIpc) {
     this.#ipc = ipc
-    ipc.onMessage((message) => {
+    this.#removeTransportListener = ipc.onMessage((message) => {
+      if (this.#disposed) return
       const notification = message as Partial<WireNotification>
       if (typeof notification.method === 'string') {
         for (const handler of this.#notificationHandlers.get(notification.method) ?? []) {
@@ -67,11 +70,21 @@ export class RpcClient {
     }
   }
 
+  get pendingRequestCount(): number {
+    return this.#pending.size
+  }
+
   call(method: string, params?: unknown): Promise<unknown> {
+    if (this.#disposed) return Promise.reject(new Error('RPC client disposed'))
     return new Promise((resolve, reject) => {
       const id = this.#nextId++
       this.#pending.set(id, { resolve, reject })
-      this.#ipc.postMessage({ id, method, params })
+      try {
+        this.#ipc.postMessage({ id, method, params })
+      } catch (error) {
+        this.#pending.delete(id)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
     })
   }
 
@@ -80,5 +93,14 @@ export class RpcClient {
       try: () => this.call(method, params) as Promise<A>,
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })
+  }
+
+  dispose(): void {
+    if (this.#disposed) return
+    this.#disposed = true
+    this.#removeTransportListener()
+    this.#notificationHandlers.clear()
+    for (const pending of this.#pending.values()) pending.reject(new Error('RPC client disposed'))
+    this.#pending.clear()
   }
 }

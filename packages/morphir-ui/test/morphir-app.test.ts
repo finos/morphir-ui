@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import MorphirApp from '../src/shell/MorphirApp.svelte'
-import { defaultUiConfig, makeAppServices } from '../src/index.ts'
+import { defaultUiConfig, legacySourceRef, makeAppServices } from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
 
 // See ir-explorer.test.ts: readFileSync(new URL(rel, import.meta.url)) breaks under Vite's
@@ -30,15 +30,15 @@ describe('MorphirApp', () => {
         badge: 'WEB',
         version: '0.0.1',
         initialConfig: defaultUiConfig,
-        initialSources: ['/models/a.json', '/models/b.json'],
+        initialSources: [legacySourceRef('/models/a.json'), legacySourceRef('/models/b.json')],
       },
     })
 
     const aRow = await screen.findByRole('button', {
-      name: 'a.json, model Workbench, /models/a.json',
+      name: 'a.json, model Workbench, a.json (legacy-local)',
     })
     const bRow = await screen.findByRole('button', {
-      name: 'b.json, model Workbench, /models/b.json',
+      name: 'b.json, model Workbench, b.json (legacy-local)',
     })
     await waitFor(() => {
       expect(aRow.closest('.workbench-row')?.classList.contains('active')).toBe(true)
@@ -59,14 +59,14 @@ describe('MorphirApp', () => {
     ).toBe(true)
     expect(container.querySelector('.ir-explorer')).toBeTruthy()
     await userEvent.click(
-      screen.getByRole('button', { name: 'b.json, model Workbench, /models/b.json' }),
+      screen.getByRole('button', { name: 'b.json, model Workbench, b.json (legacy-local)' }),
     )
     expect(screen.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected')).toBe('true')
     expect(
       container.querySelector('.workbench-view')?.classList.contains('workbench-view-explorer'),
     ).toBe(false)
     await userEvent.click(
-      screen.getByRole('button', { name: 'a.json, model Workbench, /models/a.json' }),
+      screen.getByRole('button', { name: 'a.json, model Workbench, a.json (legacy-local)' }),
     )
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: 'IR Explorer' }).getAttribute('aria-selected')).toBe(
@@ -84,22 +84,25 @@ describe('MorphirApp', () => {
         badge: 'WEB',
         version: '0.0.1',
         initialConfig: defaultUiConfig,
-        initialSources: ['/models/a.json', '/models/b.json'],
+        initialSources: [legacySourceRef('/models/a.json'), legacySourceRef('/models/b.json')],
       },
     })
 
-    await screen.findByRole('button', { name: 'a.json, model Workbench, /models/a.json' })
+    await screen.findByRole('button', {
+      name: 'a.json, model Workbench, a.json (legacy-local)',
+    })
     await waitFor(() =>
       expect(
-        screen.getByRole('button', { name: 'b.json, model Workbench, /models/b.json' }).textContent,
+        screen.getByRole('button', { name: 'b.json, model Workbench, b.json (legacy-local)' })
+          .textContent,
       ).toContain('ready'),
     )
     await userEvent.click(
-      screen.getByRole('button', { name: 'b.json, model Workbench, /models/b.json' }),
+      screen.getByRole('button', { name: 'b.json, model Workbench, b.json (legacy-local)' }),
     )
     await userEvent.click(screen.getByRole('tab', { name: 'IR Explorer' }))
     await userEvent.click(
-      screen.getByRole('button', { name: 'a.json, model Workbench, /models/a.json' }),
+      screen.getByRole('button', { name: 'a.json, model Workbench, a.json (legacy-local)' }),
     )
     await userEvent.click(screen.getByRole('tab', { name: 'IR Explorer' }))
     await userEvent.click(await screen.findByRole('treeitem', { name: 'usesHelper' }))
@@ -110,7 +113,7 @@ describe('MorphirApp', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Types' }))
 
     await userEvent.click(
-      screen.getByRole('button', { name: 'b.json, model Workbench, /models/b.json' }),
+      screen.getByRole('button', { name: 'b.json, model Workbench, b.json (legacy-local)' }),
     )
 
     expect(screen.getByRole('tab', { name: 'IR Explorer' }).getAttribute('aria-selected')).toBe(
@@ -139,7 +142,7 @@ describe('MorphirApp', () => {
         badge: 'WEB',
         version: '0.0.1',
         initialConfig: defaultUiConfig,
-        initialSources: ['/dev'],
+        initialSources: [legacySourceRef('/dev')],
       },
     })
 
@@ -153,7 +156,7 @@ describe('MorphirApp', () => {
     const { core } = makeFakeCore()
     const services = await makeAppServices({ core })
     const descriptor = {
-      ...(await services.inspectWorkbench('/model.json')),
+      ...(await services.inspectWorkbench(legacySourceRef('/model.json'))),
       distribution: 'document-tree' as const,
     }
     if (descriptor.kind !== 'model') throw new Error('expected model descriptor')
@@ -176,7 +179,7 @@ describe('MorphirApp', () => {
   test('keeps a restored load failure attached to its Workbench', async () => {
     const { core } = makeFakeCore({ failingLoads: ['/bad.json'] })
     const services = await makeAppServices({ core })
-    const inspected = await services.inspectWorkbench('/bad.json')
+    const inspected = await services.inspectWorkbench(legacySourceRef('/bad.json'))
     if (inspected.kind !== 'model') throw new Error('expected model descriptor')
     const descriptor = { ...inspected, route: 'explorer' as const }
     const config = {

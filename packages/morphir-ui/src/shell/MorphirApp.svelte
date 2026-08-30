@@ -9,6 +9,7 @@
   import { configToSnapshot, withSnapshot, type UiConfig } from '../services/config.ts'
   import type { AppServices } from '../services/services.ts'
   import type { InspectMeta } from '../views/insight/insight-context.ts'
+  import type { WorkbenchSourceRef } from '@morphir/workspace'
 
   let {
     services,
@@ -23,8 +24,10 @@
     badge: string
     version: string
     initialConfig: UiConfig
-    initialSources?: ReadonlyArray<string>
-    registerOpenSources?: (handler: (sources: ReadonlyArray<string>) => void) => () => void
+    initialSources?: ReadonlyArray<WorkbenchSourceRef>
+    registerOpenSources?: (
+      handler: (sources: ReadonlyArray<WorkbenchSourceRef>) => void,
+    ) => () => void
     macChrome?: boolean
   } = $props()
 

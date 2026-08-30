@@ -1,4 +1,4 @@
-import { Effect, Layer, Option } from 'effect'
+import { Effect, Layer, Option, Stream } from 'effect'
 import {
   AppInfoService,
   ConfigService,
@@ -7,7 +7,9 @@ import {
   GitHubService,
   ModelWorkbenchService,
   WorkbenchError,
+  WorkbenchProviderService,
   WorkbenchSourceService,
+  unsupportedProviderError,
   WorkspaceError,
   WorkspaceService,
   defaultUiConfig,
@@ -22,6 +24,7 @@ import {
 } from '@morphir/ui'
 import { decodeMorphirIr, toWorkspaceIr } from '@morphir/ir'
 import type { RpcClient } from './rpc-client.ts'
+import { desktopSourceRef, requireDesktopSourceRef } from '../../../shared/workbench-source.ts'
 
 const decodeModelSource = (
   descriptor: ModelWorkbenchDescriptor,
@@ -57,6 +60,8 @@ const decodeModelSource = (
     ),
   )
 }
+
+export { desktopSourceRef } from '../../../shared/workbench-source.ts'
 
 export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
   Layer.mergeAll(
@@ -94,21 +99,24 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
     }),
     Layer.succeed(WorkbenchSourceService, {
       inspect: (source) =>
-        rpc.effect<WorkbenchDescriptor>('morphir/workbench/inspect', { source }).pipe(
-          Effect.mapError(
-            (error) =>
-              new WorkbenchError({
-                code: 'detection-failed',
+        source.providerId !== 'desktop-local'
+          ? Effect.fail(unsupportedProviderError('desktop-local', source))
+          : rpc
+              .effect<WorkbenchDescriptor>('morphir/workbench/inspect', {
                 source,
-                message: error.message,
-              }),
-          ),
-        ),
+              })
+              .pipe(
+                Effect.mapError(
+                  (error) =>
+                    new WorkbenchError({
+                      code: 'detection-failed',
+                      source,
+                      message: error.message,
+                    }),
+                ),
+              ),
       pick: (kind) =>
-        rpc.effect<{ source: string } | null>('morphir/workbench/pick', { kind }).pipe(
-          Effect.map((result) =>
-            result === null ? Option.none<string>() : Option.some(result.source),
-          ),
+        rpc.effect<{ source: unknown } | null>('morphir/workbench/pick', { kind }).pipe(
           Effect.mapError(
             (error) =>
               new WorkbenchError({
@@ -117,53 +125,117 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
                 message: error.message,
               }),
           ),
-        ),
-      reveal: (source) =>
-        rpc.effect('morphir/workbench/reveal', { source }).pipe(
-          Effect.asVoid,
-          Effect.mapError(
-            (error) => new WorkbenchError({ code: 'read-failed', source, message: error.message }),
+          Effect.flatMap((result) =>
+            result === null
+              ? Effect.succeed(Option.none())
+              : Effect.try({
+                  try: () => Option.some(requireDesktopSourceRef(result.source)),
+                  catch: (error) =>
+                    error instanceof WorkbenchError
+                      ? error
+                      : new WorkbenchError({
+                          code: 'detection-failed',
+                          source: '<picker>',
+                          message: error instanceof Error ? error.message : String(error),
+                        }),
+                }),
           ),
         ),
+      reveal: (source) =>
+        source.providerId !== 'desktop-local'
+          ? Effect.fail(unsupportedProviderError('desktop-local', source))
+          : rpc.effect('morphir/workbench/reveal', { source }).pipe(
+              Effect.asVoid,
+              Effect.mapError(
+                (error) =>
+                  new WorkbenchError({ code: 'read-failed', source, message: error.message }),
+              ),
+            ),
+    }),
+    Layer.succeed(WorkbenchProviderService, {
+      list: Effect.succeed([
+        {
+          id: 'desktop-local',
+          name: 'This computer',
+          kind: 'local' as const,
+          status: 'available' as const,
+          capabilities: [
+            { name: 'morphir/model/open', version: '1' },
+            { name: 'morphir/development/inspect', version: '1' },
+          ],
+        },
+      ]),
     }),
     Layer.succeed(ModelWorkbenchService, {
       load: (descriptor: ModelWorkbenchDescriptor) =>
-        rpc
-          .effect<{
-            content: string | null
-            manifest: Readonly<Record<string, unknown>> | null
-          }>('morphir/workbench/readModel', { descriptor })
-          .pipe(
-            Effect.mapError(
-              (error) =>
-                new WorkbenchError({
-                  code: 'read-failed',
-                  source: descriptor.source,
-                  message: error.message,
-                }),
-            ),
-            Effect.flatMap((source) => decodeModelSource(descriptor, source)),
-          ),
+        descriptor.source.providerId !== 'desktop-local'
+          ? Effect.fail(unsupportedProviderError('desktop-local', descriptor.source))
+          : rpc
+              .effect<{
+                content: string | null
+                manifest: Readonly<Record<string, unknown>> | null
+              }>('morphir/workbench/readModel', { descriptor })
+              .pipe(
+                Effect.mapError(
+                  (error) =>
+                    new WorkbenchError({
+                      code: 'read-failed',
+                      source: descriptor.source,
+                      message: error.message,
+                    }),
+                ),
+                Effect.flatMap((source) => decodeModelSource(descriptor, source)),
+              ),
     }),
     Layer.succeed(DevelopmentWorkbenchService, {
       load: (descriptor: DevelopmentWorkbenchDescriptor) =>
-        rpc
-          .effect<{
-            configAnchor: string | null
-            modelSources: ReadonlyArray<string>
-            knowledgeBaseSources: ReadonlyArray<string>
-          }>('morphir/workbench/inspectDevelopment', { descriptor })
-          .pipe(
-            Effect.map((summary) => ({ kind: 'development' as const, descriptor, ...summary })),
-            Effect.mapError(
-              (error) =>
-                new WorkbenchError({
-                  code: 'read-failed',
-                  source: descriptor.source,
-                  message: error.message,
-                }),
-            ),
-          ),
+        descriptor.source.providerId !== 'desktop-local'
+          ? Effect.fail(unsupportedProviderError('desktop-local', descriptor.source))
+          : rpc
+              .effect<{
+                configAnchor: string | null
+                modelSources: ReadonlyArray<string>
+                knowledgeBaseSources: ReadonlyArray<string>
+              }>('morphir/workbench/inspectDevelopment', { descriptor })
+              .pipe(
+                Effect.map((summary) => ({
+                  kind: 'development' as const,
+                  descriptor,
+                  snapshot: {
+                    id: descriptor.id,
+                    root: descriptor.source,
+                    name: descriptor.name,
+                    configAnchor: summary.configAnchor,
+                    state: 'open' as const,
+                    projects: [],
+                    modelSources: summary.modelSources.map(desktopSourceRef),
+                    knowledgeBaseSources: summary.knowledgeBaseSources.map(desktopSourceRef),
+                    diagnostics: [],
+                  },
+                })),
+                Effect.mapError(
+                  (error) =>
+                    new WorkbenchError({
+                      code: 'read-failed',
+                      source: descriptor.source,
+                      message: error.message,
+                    }),
+                ),
+              ),
+      loadProjectModel: (descriptor) =>
+        Effect.fail(
+          descriptor.source.providerId === 'desktop-local'
+            ? new WorkbenchError({
+                code: 'unsupported-capability',
+                source: descriptor.source,
+                message: 'Project model loading is not available yet',
+              })
+            : unsupportedProviderError('desktop-local', descriptor.source),
+        ),
+      events: (descriptor) =>
+        descriptor.source.providerId === 'desktop-local'
+          ? Stream.empty
+          : Stream.fail(unsupportedProviderError('desktop-local', descriptor.source)),
     }),
   )
 
