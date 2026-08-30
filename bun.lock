@@ -23,6 +23,7 @@
         "@morphir/ir": "workspace:*",
         "@morphir/ui": "workspace:*",
         "@morphir/workspace": "workspace:*",
+        "@morphir/workspace-engine": "workspace:*",
         "effect": "^3.22.1",
         "smol-toml": "^1.8.0",
         "svelte": "^5.56.10",
