@@ -568,7 +568,7 @@ describe('browserCore', () => {
   })
 
   test('reserves opaque directory IDs across concurrent upload selections', async () => {
-    installDirectoryIds(1, 1, 2)
+    installDirectoryIds(201, 201, 202)
     const uploads = ['first', 'second'].map((name) => ({
       kind: 'upload' as const,
       name,
@@ -599,12 +599,102 @@ describe('browserCore', () => {
     ])
 
     expect(new Set([first?.locator, second?.locator])).toEqual(
-      new Set([directoryLocator(1), directoryLocator(2)]),
+      new Set([directoryLocator(201), directoryLocator(202)]),
     )
   })
 
+  test('serializes handle source allocation across independent provider Layers', async () => {
+    installDirectoryIds(401, 401, 402)
+    const firstHandle = directoryHandle('first-handle', { 'morphir.toml': '[project]' })
+    const secondHandle = directoryHandle('second-handle', { 'morphir.toml': '[project]' })
+    const handles = new Map<string, FileSystemDirectoryHandle>()
+    const sharedHandles = {
+      has: async (key: string) => handles.has(key),
+      put: async (key: string, handle: FileSystemDirectoryHandle) => {
+        handles.set(key, handle)
+      },
+      get: async (key: string) => handles.get(key) ?? null,
+      delete: async (key: string) => {
+        handles.delete(key)
+      },
+    }
+    const dependencies = (handle: DirectoryPermissionHandle): BrowserWorkspaceDependencies => ({
+      engine: { discover: async () => Promise.reject(new Error('not used')) },
+      handles: sharedHandles,
+      home: {
+        read: async () => ({ entries: { '.': { kind: 'directory' } } }),
+        writeConfig: async () => undefined,
+      },
+      pickDirectory: async () => ({ kind: 'handle', handle }),
+    })
+    const firstServices = await makeAppServices({
+      core: browserCoreWith('1.0.0', dependencies(firstHandle)),
+    })
+    const secondServices = await makeAppServices({
+      core: browserCoreWith('1.0.0', dependencies(secondHandle)),
+    })
+
+    const [first, second] = await Promise.all([
+      firstServices.pickWorkbenchSource('folder'),
+      secondServices.pickWorkbenchSource('folder'),
+    ])
+
+    expect(new Set([first?.locator, second?.locator])).toEqual(
+      new Set([directoryLocator(401), directoryLocator(402)]),
+    )
+    expect(handles).toEqual(
+      new Map([
+        [directoryLocator(401), firstHandle],
+        [directoryLocator(402), secondHandle],
+      ]),
+    )
+  })
+
+  test('serializes upload source allocation across independent provider Layers', async () => {
+    installDirectoryIds(501, 501, 502)
+    const upload = (name: string) => ({
+      kind: 'upload' as const,
+      name,
+      files: [
+        { relativePath: `${name}/morphir.toml`, text: async () => `[project]\nname = "${name}"` },
+      ],
+    })
+    const sharedHandles = {
+      has: async () => false,
+      put: async () => undefined,
+      get: async () => null,
+      delete: async () => undefined,
+    }
+    const dependencies = (name: string): BrowserWorkspaceDependencies => ({
+      engine: { discover: async () => Promise.reject(new Error('not used')) },
+      handles: sharedHandles,
+      home: {
+        read: async () => ({ entries: { '.': { kind: 'directory' } } }),
+        writeConfig: async () => undefined,
+      },
+      pickDirectory: async () => upload(name),
+    })
+    const firstServices = await makeAppServices({
+      core: browserCoreWith('1.0.0', dependencies('first-upload')),
+    })
+    const secondServices = await makeAppServices({
+      core: browserCoreWith('1.0.0', dependencies('second-upload')),
+    })
+
+    const [first, second] = await Promise.all([
+      firstServices.pickWorkbenchSource('folder'),
+      secondServices.pickWorkbenchSource('folder'),
+    ])
+
+    expect(new Set([first?.locator, second?.locator])).toEqual(
+      new Set([directoryLocator(501), directoryLocator(502)]),
+    )
+    expect((await firstServices.inspectWorkbench(first!)).name).toBe('first-upload')
+    expect((await secondServices.inspectWorkbench(second!)).name).toBe('second-upload')
+  })
+
   test('returns a typed failure when opaque directory IDs remain exhausted', async () => {
-    installDirectoryIds(1)
+    installDirectoryIds(301)
     const upload = {
       kind: 'upload' as const,
       name: 'workspace',
@@ -640,6 +730,11 @@ describe('browserCore', () => {
       code: 'read-failed',
       source: '<browser-folder>',
       message: 'Unable to allocate a unique browser directory source after 32 attempts',
+    })
+
+    installDirectoryIds(302)
+    await expect(services.pickWorkbenchSource('folder')).resolves.toMatchObject({
+      locator: directoryLocator(302),
     })
   })
 

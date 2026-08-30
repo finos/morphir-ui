@@ -63,6 +63,18 @@ interface UploadedTree {
   readonly tree: Awaited<ReturnType<typeof fileTreeFromDirectoryUpload>>
 }
 
+const sessionUploads = new Map<string, UploadedTree>()
+let allocationTail: Promise<void> = Promise.resolve()
+
+const serializeAllocation = <Value>(operation: () => Promise<Value>): Promise<Value> => {
+  const result = allocationTail.then(operation, operation)
+  allocationTail = result.then(
+    () => undefined,
+    () => undefined,
+  )
+  return result
+}
+
 const providerError = (source: WorkbenchSourceRef): WorkbenchError =>
   unsupportedProviderError(PROVIDER_ID, source)
 
@@ -178,11 +190,8 @@ export const makeBrowserWorkbenchLayers = (
   dependencies: BrowserWorkspaceDependencies,
   models: BrowserModelSourceProvider,
 ): Layer.Layer<WorkbenchSourceService | WorkbenchProviderService | DevelopmentWorkbenchService> => {
-  const uploads = new Map<string, UploadedTree>()
-  const reservedLocators = new Set<string>()
-
   const findDirectory = async (source: WorkbenchSourceRef): Promise<UploadedTree['tree']> => {
-    const uploaded = uploads.get(source.locator)
+    const uploaded = sessionUploads.get(source.locator)
     if (uploaded) return uploaded.tree
     const handle = await dependencies.handles.get(source.locator)
     if (handle === null) {
@@ -198,7 +207,7 @@ export const makeBrowserWorkbenchLayers = (
   const inspectDirectory = (source: WorkbenchSourceRef) =>
     Effect.tryPromise({
       try: async () => {
-        const uploaded = uploads.get(source.locator)
+        const uploaded = sessionUploads.get(source.locator)
         if (!uploaded && (await dependencies.handles.get(source.locator)) === null) {
           throw new WorkbenchError({
             code: 'not-found',
@@ -226,38 +235,37 @@ export const makeBrowserWorkbenchLayers = (
       try: async () => {
         const picked = await dependencies.pickDirectory()
         if (picked === null) return Option.none<WorkbenchSourceRef>()
-        let locator: string | null = null
-        for (let attempt = 0; attempt < DIRECTORY_LOCATOR_ATTEMPTS; attempt += 1) {
-          const candidate = opaqueDirectoryLocator()
-          if (uploads.has(candidate) || reservedLocators.has(candidate)) continue
-          if (await dependencies.handles.has(candidate)) continue
-          if (uploads.has(candidate) || reservedLocators.has(candidate)) continue
-          reservedLocators.add(candidate)
-          locator = candidate
-          break
-        }
-        if (locator === null) {
-          throw new WorkbenchError({
-            code: 'read-failed',
-            source: '<browser-folder>',
-            message: `Unable to allocate a unique browser directory source after ${DIRECTORY_LOCATOR_ATTEMPTS} attempts`,
-          })
-        }
-        try {
+        const uploadedTree =
+          picked.kind === 'upload' ? await fileTreeFromDirectoryUpload(picked.files) : null
+        const locator = await serializeAllocation(async () => {
+          let allocated: string | null = null
+          for (let attempt = 0; attempt < DIRECTORY_LOCATOR_ATTEMPTS; attempt += 1) {
+            const candidate = opaqueDirectoryLocator()
+            if (sessionUploads.has(candidate)) continue
+            if (await dependencies.handles.has(candidate)) continue
+            allocated = candidate
+            break
+          }
+          if (allocated === null) {
+            throw new WorkbenchError({
+              code: 'read-failed',
+              source: '<browser-folder>',
+              message: `Unable to allocate a unique browser directory source after ${DIRECTORY_LOCATOR_ATTEMPTS} attempts`,
+            })
+          }
           if (picked.kind === 'handle') {
             await dependencies.handles.put(
-              locator,
+              allocated,
               picked.handle as unknown as FileSystemDirectoryHandle,
             )
           } else {
-            uploads.set(locator, {
+            sessionUploads.set(allocated, {
               name: picked.name,
-              tree: await fileTreeFromDirectoryUpload(picked.files),
+              tree: uploadedTree!,
             })
           }
-        } finally {
-          reservedLocators.delete(locator)
-        }
+          return allocated
+        })
         return Option.some({
           providerId: PROVIDER_ID,
           locator,
