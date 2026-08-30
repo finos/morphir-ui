@@ -9,9 +9,10 @@ import {
   type WorkbenchError,
   type SourcePickerKind,
   validateDevelopmentWorkbenchData,
+  validateCanonicalDescriptor,
+  validateInspectionResult,
   validateModelWorkbenchData,
   validateProjectModelWorkbenchData,
-  validateProviderResult,
   validateWorkspaceEvent,
 } from '../workbench/services.ts'
 import type {
@@ -171,54 +172,42 @@ const buildFacade = async (
       runtime.runPromise(
         workbenchSource
           .inspect(source)
-          .pipe(
-            Effect.flatMap((descriptor) =>
-              validateProviderResult(
-                source.providerId,
-                descriptor.source,
-                descriptor,
-                'Workbench inspection',
-              ),
-            ),
-          ),
+          .pipe(Effect.flatMap((descriptor) => validateInspectionResult(source, descriptor))),
       ),
     pickWorkbenchSource: (kind) =>
       runtime.runPromise(workbenchSource.pick(kind)).then(Option.getOrNull),
     revealWorkbenchSource: (source) => runtime.runPromise(workbenchSource.reveal(source)),
     loadModelWorkbench: (descriptor) =>
       runtime.runPromise(
-        modelWorkbench
-          .load(descriptor)
-          .pipe(
-            Effect.flatMap((data) =>
-              validateModelWorkbenchData(descriptor, data),
-            ),
-          ),
+        validateCanonicalDescriptor(descriptor, 'Model Workbench load').pipe(
+          Effect.andThen(modelWorkbench.load(descriptor)),
+          Effect.flatMap((data) => validateModelWorkbenchData(descriptor, data)),
+        ),
       ),
     loadDevelopmentWorkbench: (descriptor) =>
       runtime.runPromise(
-        developmentWorkbench
-          .load(descriptor)
-          .pipe(
-            Effect.flatMap((data) => validateDevelopmentWorkbenchData(descriptor, data)),
-          ),
+        validateCanonicalDescriptor(descriptor, 'Development Workbench load').pipe(
+          Effect.andThen(developmentWorkbench.load(descriptor)),
+          Effect.flatMap((data) => validateDevelopmentWorkbenchData(descriptor, data)),
+        ),
       ),
     loadDevelopmentProjectModel: (descriptor, projectId) =>
       runtime.runPromise(
-        developmentWorkbench
-          .loadProjectModel(descriptor, projectId)
-          .pipe(
-            Effect.flatMap((data) =>
-              validateProjectModelWorkbenchData(descriptor.source.providerId, data),
-            ),
+        validateCanonicalDescriptor(descriptor, 'Development project model load').pipe(
+          Effect.andThen(
+            Effect.suspend(() => developmentWorkbench.loadProjectModel(descriptor, projectId)),
           ),
+          Effect.flatMap((data) =>
+            validateProjectModelWorkbenchData(descriptor.source.providerId, data),
+          ),
+        ),
       ),
     workspaceEvents: (descriptor) =>
-      developmentWorkbench
-        .events(descriptor)
-        .pipe(
-          Stream.mapEffect((event) => validateWorkspaceEvent(descriptor, event)),
+      Stream.unwrap(
+        validateCanonicalDescriptor(descriptor, 'Workspace events').pipe(
+          Effect.map(() => developmentWorkbench.events(descriptor)),
         ),
+      ).pipe(Stream.mapEffect((event) => validateWorkspaceEvent(descriptor, event))),
     pickWorkspace: () => runtime.runPromise(workspace.pickAndRead).then(Option.getOrNull),
     readWorkspace: read ? (ref) => runtime.runPromise(read(ref)) : null,
     github: github

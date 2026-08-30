@@ -103,6 +103,41 @@ const providerLayer = Layer.succeed(WorkbenchProviderService, {
 const services = Layer.mergeAll(sourceLayer, modelLayer, developmentLayer, providerLayer)
 
 describe('Workbench Effect services', () => {
+  test('open workflow rejects a non-canonical inspection descriptor before loading', async () => {
+    const requested = legacySourceRef('/model.json', 'browser-local')
+    let loadCalls = 0
+    const malformedSourceLayer = Layer.succeed(WorkbenchSourceService, {
+      inspect: () => Effect.succeed({ ...modelDescriptor, id: 'stale-id', source: requested }),
+      pick: () => Effect.succeed(Option.none()),
+      reveal: () => Effect.void,
+    })
+    const trackingModelLayer = Layer.succeed(ModelWorkbenchService, {
+      load: (descriptor) => {
+        loadCalls += 1
+        return Effect.succeed({
+          kind: 'model' as const,
+          descriptor,
+          library: null,
+          ir: null,
+          manifest: null,
+        })
+      },
+    })
+
+    const error = await Effect.runPromise(
+      Effect.flip(
+        openWorkbench(requested).pipe(
+          Effect.provide(
+            Layer.mergeAll(malformedSourceLayer, trackingModelLayer, developmentLayer),
+          ),
+        ),
+      ),
+    )
+
+    expect(error.message).toContain('descriptor identity does not match its source')
+    expect(loadCalls).toBe(0)
+  })
+
   test('open workflow rejects inspection results from another provider before loading', async () => {
     const requested = legacySourceRef('/model.json', 'browser-local')
     const foreignSource = { ...requested, providerId: 'cli:session-1' }
@@ -165,6 +200,41 @@ describe('Workbench Effect services', () => {
     )
 
     expect(result.descriptor).toEqual(modelDescriptor)
+  })
+
+  test('project workflow rejects a malformed descriptor before invoking its provider', async () => {
+    const malformed = { ...developmentDescriptor, id: 'stale-development-id' }
+    let providerCalls = 0
+    const trackingDevelopmentLayer = Layer.succeed(DevelopmentWorkbenchService, {
+      load: (descriptor) =>
+        Effect.succeed({
+          kind: 'development' as const,
+          descriptor,
+          snapshot: workspaceSnapshot,
+        }),
+      loadProjectModel: () => {
+        providerCalls += 1
+        return Effect.succeed({
+          kind: 'model' as const,
+          descriptor: modelDescriptor,
+          library: null,
+          ir: null,
+          manifest: null,
+        })
+      },
+      events: () => Stream.empty,
+    })
+
+    const error = await Effect.runPromise(
+      Effect.flip(
+        loadDevelopmentProjectModel(malformed, 'packages/orders').pipe(
+          Effect.provide(trackingDevelopmentLayer),
+        ),
+      ),
+    )
+
+    expect(error.message).toContain('descriptor identity does not match its source')
+    expect(providerCalls).toBe(0)
   })
 
   test('typed source failures remain in the Effect error channel', async () => {

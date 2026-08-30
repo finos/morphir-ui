@@ -62,6 +62,33 @@ export const validateProviderResult = <A>(
     ? Effect.succeed(value)
     : Effect.fail(providerContinuityError(expectedProviderId, source, operation))
 
+export const validateCanonicalDescriptor = <A extends WorkbenchDescriptor>(
+  descriptor: A,
+  operation: string,
+): Effect.Effect<A, WorkbenchError> =>
+  descriptor.id === sourceKey(descriptor.source)
+    ? Effect.succeed(descriptor)
+    : Effect.fail(
+        new WorkbenchError({
+          code: 'detection-failed',
+          source: descriptor.source,
+          message: `${operation} descriptor identity does not match its source`,
+        }),
+      )
+
+export const validateInspectionResult = (
+  requestedSource: WorkbenchSourceRef,
+  descriptor: WorkbenchDescriptor,
+): Effect.Effect<WorkbenchDescriptor, WorkbenchError> =>
+  validateProviderResult(
+    requestedSource.providerId,
+    descriptor.source,
+    descriptor,
+    'Workbench inspection',
+  ).pipe(
+    Effect.flatMap((valid) => validateCanonicalDescriptor(valid, 'Workbench inspection')),
+  )
+
 const workbenchIdentityError = (
   expected: WorkbenchDescriptor,
   actual: WorkbenchDescriptor | WorkspaceSnapshot,
@@ -82,12 +109,16 @@ const validateWorkbenchIdentity = <A>(
   value: A,
   operation: string,
 ): Effect.Effect<A, WorkbenchError> =>
-  validateProviderResult(
-    expected.source.providerId,
-    actual.source,
-    value,
-    operation,
-  ).pipe(
+  validateCanonicalDescriptor(expected, `${operation} request`).pipe(
+    Effect.andThen(validateCanonicalDescriptor(actual, `${operation} result`)),
+    Effect.andThen(
+      validateProviderResult(
+        expected.source.providerId,
+        actual.source,
+        value,
+        operation,
+      ),
+    ),
     Effect.flatMap((valid) =>
       actual.id === expected.id && sourceKey(actual.source) === sourceKey(expected.source)
         ? Effect.succeed(valid)
@@ -150,6 +181,12 @@ export const validateProjectModelWorkbenchData = (
     data.descriptor.source,
     data,
     'Development project model load',
+  ).pipe(
+    Effect.flatMap((valid) =>
+      validateCanonicalDescriptor(valid.descriptor, 'Development project model load').pipe(
+        Effect.as(valid),
+      ),
+    ),
   )
 
 export const validateDevelopmentWorkbenchData = (

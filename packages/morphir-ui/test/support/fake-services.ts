@@ -35,6 +35,7 @@ export const makeFakeCore = (opts?: {
   workbenchSources?: ReadonlyArray<string>
   failingSources?: ReadonlyArray<string>
   failingLoads?: ReadonlyArray<string>
+  inspectResultId?: string
   inspectResultSource?: WorkbenchSourceRef
   modelResultSource?: WorkbenchSourceRef
   canonicalSources?: Readonly<Record<string, string>>
@@ -44,7 +45,10 @@ export const makeFakeCore = (opts?: {
     knowledgeBaseSources?: ReadonlyArray<string>
     snapshot?: WorkspaceSnapshot
     events?: Stream.Stream<WorkspaceEvent, WorkbenchError>
+    onEvents?: () => void
+    onProjectModelLoad?: () => void
     resultSource?: WorkbenchSourceRef
+    projectResultId?: string
     projectResultSource?: WorkbenchSourceRef
   }
   providers?: ReadonlyArray<WorkbenchProvider>
@@ -103,7 +107,7 @@ export const makeFakeCore = (opts?: {
         return Effect.succeed(
           canonicalSource.endsWith('.json')
             ? {
-                id: sourceKey(sourceRef),
+                id: opts?.inspectResultId ?? sourceKey(sourceRef),
                 source: sourceRef,
                 name: canonicalSource.split('/').at(-1) ?? canonicalSource,
                 kind: 'model' as const,
@@ -113,7 +117,7 @@ export const makeFakeCore = (opts?: {
                 lastUsedAt: timestamp,
               }
             : {
-                id: sourceKey(sourceRef),
+                id: opts?.inspectResultId ?? sourceKey(sourceRef),
                 source: sourceRef,
                 name: canonicalSource.split('/').at(-1) ?? canonicalSource,
                 kind: 'development' as const,
@@ -218,6 +222,7 @@ export const makeFakeCore = (opts?: {
                 } satisfies WorkspaceSnapshot),
             }),
       loadProjectModel: (descriptor, projectId) => {
+        opts?.development?.onProjectModelLoad?.()
         if (!providerIds.has(descriptor.source.providerId)) {
           return Effect.fail(providerError(descriptor.source))
         }
@@ -231,7 +236,7 @@ export const makeFakeCore = (opts?: {
         return Effect.succeed({
           kind: 'model' as const,
           descriptor: {
-            id: sourceKey(source),
+            id: opts?.development?.projectResultId ?? sourceKey(source),
             source,
             name: projectId,
             kind: 'model' as const,
@@ -245,10 +250,12 @@ export const makeFakeCore = (opts?: {
           manifest: null,
         })
       },
-      events: (descriptor) =>
-        !providerIds.has(descriptor.source.providerId)
+      events: (descriptor) => {
+        opts?.development?.onEvents?.()
+        return !providerIds.has(descriptor.source.providerId)
           ? Stream.fail(providerError(descriptor.source))
-          : (opts?.development?.events ?? Stream.empty),
+          : (opts?.development?.events ?? Stream.empty)
+      },
     }),
     Layer.succeed(AppInfoService, { version: Effect.succeed(opts?.version ?? '0.0.0-test') }),
   )

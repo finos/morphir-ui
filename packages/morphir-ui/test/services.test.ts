@@ -39,6 +39,189 @@ describe('UiConfig', () => {
 })
 
 describe('makeAppServices', () => {
+  test('rejects an inspection descriptor whose id does not match its canonical source', async () => {
+    const source = legacySourceRef('/fake/model.json', 'browser-local')
+    const { core } = makeFakeCore({
+      providers: [
+        {
+          id: 'browser-local',
+          name: 'This browser',
+          kind: 'local',
+          status: 'available',
+          capabilities: [],
+        },
+      ],
+      inspectResultId: 'stale-id',
+    })
+    const services = await makeAppServices({ core })
+
+    await expect(services.inspectWorkbench(source)).rejects.toThrow(
+      'descriptor identity does not match its source',
+    )
+  })
+
+  test('allows inspection to canonicalize a locator with a matching canonical id', async () => {
+    const requested = legacySourceRef('/alias.json', 'browser-local')
+    const { core } = makeFakeCore({
+      providers: [
+        {
+          id: 'browser-local',
+          name: 'This browser',
+          kind: 'local',
+          status: 'available',
+          capabilities: [],
+        },
+      ],
+      canonicalSources: { '/alias.json': '/canonical/model.json' },
+    })
+    const services = await makeAppServices({ core })
+
+    const descriptor = await services.inspectWorkbench(requested)
+    expect(descriptor.source.locator).toBe('/canonical/model.json')
+    expect(descriptor.id).toBe(sourceKey(descriptor.source))
+  })
+
+  test('rejects a project model descriptor whose id does not match its source', async () => {
+    const source = legacySourceRef('/fake/workspace', 'browser-local')
+    const descriptor: DevelopmentWorkbenchDescriptor = {
+      id: sourceKey(source),
+      source,
+      name: 'workspace',
+      kind: 'development',
+      route: 'overview',
+      openedAt: '2026-08-29T12:00:00.000Z',
+      lastUsedAt: '2026-08-29T12:00:00.000Z',
+    }
+    const { core } = makeFakeCore({
+      providers: [
+        {
+          id: 'browser-local',
+          name: 'This browser',
+          kind: 'local',
+          status: 'available',
+          capabilities: [],
+        },
+      ],
+      development: { projectResultId: 'stale-project-id' },
+    })
+    const services = await makeAppServices({ core })
+
+    await expect(
+      services.loadDevelopmentProjectModel(descriptor, 'orders'),
+    ).rejects.toThrow('descriptor identity does not match its source')
+  })
+
+  test('rejects malformed requested model and development descriptors', async () => {
+    const modelSource = legacySourceRef('/fake/model.json', 'browser-local')
+    const developmentSource = legacySourceRef('/fake/workspace', 'browser-local')
+    const modelDescriptor: ModelWorkbenchDescriptor = {
+      id: 'stale-model-id',
+      source: modelSource,
+      name: 'model.json',
+      kind: 'model',
+      distribution: 'single-file',
+      route: 'overview',
+      openedAt: '2026-08-29T12:00:00.000Z',
+      lastUsedAt: '2026-08-29T12:00:00.000Z',
+    }
+    const developmentDescriptor: DevelopmentWorkbenchDescriptor = {
+      id: 'stale-development-id',
+      source: developmentSource,
+      name: 'workspace',
+      kind: 'development',
+      route: 'overview',
+      openedAt: '2026-08-29T12:00:00.000Z',
+      lastUsedAt: '2026-08-29T12:00:00.000Z',
+    }
+    const { core } = makeFakeCore({
+      providers: [
+        {
+          id: 'browser-local',
+          name: 'This browser',
+          kind: 'local',
+          status: 'available',
+          capabilities: [],
+        },
+      ],
+    })
+    const services = await makeAppServices({ core })
+
+    await expect(services.loadModelWorkbench(modelDescriptor)).rejects.toThrow(
+      'descriptor identity does not match its source',
+    )
+    await expect(services.loadDevelopmentWorkbench(developmentDescriptor)).rejects.toThrow(
+      'descriptor identity does not match its source',
+    )
+  })
+
+  test('rejects a malformed project-load descriptor before invoking its provider', async () => {
+    const source = legacySourceRef('/fake/workspace', 'browser-local')
+    const descriptor: DevelopmentWorkbenchDescriptor = {
+      id: 'stale-development-id',
+      source,
+      name: 'workspace',
+      kind: 'development',
+      route: 'overview',
+      openedAt: '2026-08-29T12:00:00.000Z',
+      lastUsedAt: '2026-08-29T12:00:00.000Z',
+    }
+    let providerCalls = 0
+    const { core } = makeFakeCore({
+      providers: [
+        {
+          id: 'browser-local',
+          name: 'This browser',
+          kind: 'local',
+          status: 'available',
+          capabilities: [],
+        },
+      ],
+      development: { onProjectModelLoad: () => void (providerCalls += 1) },
+    })
+    const services = await makeAppServices({ core })
+
+    await expect(
+      services.loadDevelopmentProjectModel(descriptor, 'orders'),
+    ).rejects.toThrow('descriptor identity does not match its source')
+    expect(providerCalls).toBe(0)
+  })
+
+  test('rejects malformed workspace events before invoking an empty provider stream', async () => {
+    const source = legacySourceRef('/fake/workspace', 'browser-local')
+    const descriptor: DevelopmentWorkbenchDescriptor = {
+      id: 'stale-development-id',
+      source,
+      name: 'workspace',
+      kind: 'development',
+      route: 'overview',
+      openedAt: '2026-08-29T12:00:00.000Z',
+      lastUsedAt: '2026-08-29T12:00:00.000Z',
+    }
+    let providerCalls = 0
+    const { core } = makeFakeCore({
+      providers: [
+        {
+          id: 'browser-local',
+          name: 'This browser',
+          kind: 'local',
+          status: 'available',
+          capabilities: [],
+        },
+      ],
+      development: {
+        events: Stream.empty,
+        onEvents: () => void (providerCalls += 1),
+      },
+    })
+    const services = await makeAppServices({ core })
+
+    await expect(
+      Effect.runPromise(Stream.runCollect(services.workspaceEvents(descriptor))),
+    ).rejects.toThrow('descriptor identity does not match its source')
+    expect(providerCalls).toBe(0)
+  })
+
+
   test('rejects a model result that switches same-provider workbench identity', async () => {
     const source = legacySourceRef('/fake/model-a.json', 'browser-local')
     const switched = legacySourceRef('/fake/model-b.json', 'browser-local')

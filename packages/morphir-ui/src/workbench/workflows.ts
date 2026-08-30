@@ -5,10 +5,11 @@ import {
   ModelWorkbenchService,
   WorkbenchSourceService,
   type WorkbenchError,
+  validateCanonicalDescriptor,
   validateDevelopmentWorkbenchData,
   validateModelWorkbenchData,
   validateProjectModelWorkbenchData,
-  validateProviderResult,
+  validateInspectionResult,
 } from './services.ts'
 import type {
   DevelopmentWorkbenchDescriptor,
@@ -25,10 +26,14 @@ export const loadWorkbench = (
   ModelWorkbenchService | DevelopmentWorkbenchService
 > =>
   descriptor.kind === 'model'
-    ? Effect.flatMap(ModelWorkbenchService, (service) => service.load(descriptor)).pipe(
+    ? validateCanonicalDescriptor(descriptor, 'Model Workbench load').pipe(
+        Effect.andThen(Effect.flatMap(ModelWorkbenchService, (service) => service.load(descriptor))),
         Effect.flatMap((data) => validateModelWorkbenchData(descriptor, data)),
       )
-    : Effect.flatMap(DevelopmentWorkbenchService, (service) => service.load(descriptor)).pipe(
+    : validateCanonicalDescriptor(descriptor, 'Development Workbench load').pipe(
+        Effect.andThen(
+          Effect.flatMap(DevelopmentWorkbenchService, (service) => service.load(descriptor)),
+        ),
         Effect.flatMap((data) => validateDevelopmentWorkbenchData(descriptor, data)),
       )
 
@@ -40,14 +45,7 @@ export const openWorkbench = (
   WorkbenchSourceService | ModelWorkbenchService | DevelopmentWorkbenchService
 > =>
   Effect.flatMap(WorkbenchSourceService, (service) => service.inspect(source)).pipe(
-    Effect.flatMap((descriptor) =>
-      validateProviderResult(
-        source.providerId,
-        descriptor.source,
-        descriptor,
-        'Workbench inspection',
-      ),
-    ),
+    Effect.flatMap((descriptor) => validateInspectionResult(source, descriptor)),
     Effect.flatMap((descriptor) =>
       loadWorkbench(descriptor).pipe(Effect.map((data) => ({ descriptor, data }))),
     ),
@@ -57,9 +55,12 @@ export const loadDevelopmentProjectModel = (
   descriptor: DevelopmentWorkbenchDescriptor,
   projectId: string,
 ): Effect.Effect<ModelWorkbenchData, WorkbenchError, DevelopmentWorkbenchService> =>
-  Effect.flatMap(DevelopmentWorkbenchService, (service) =>
-    service.loadProjectModel(descriptor, projectId),
-  ).pipe(
+  validateCanonicalDescriptor(descriptor, 'Development project model load').pipe(
+    Effect.andThen(
+      Effect.flatMap(DevelopmentWorkbenchService, (service) =>
+        Effect.suspend(() => service.loadProjectModel(descriptor, projectId)),
+      ),
+    ),
     Effect.flatMap((data) =>
       validateProjectModelWorkbenchData(descriptor.source.providerId, data),
     ),
