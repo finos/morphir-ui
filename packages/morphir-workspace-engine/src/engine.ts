@@ -11,17 +11,21 @@ export interface WorkspaceDiscoveryEngine {
   readonly discover: (request: DiscoveryRequest) => Promise<DiscoveryResponse>
 }
 
-const copyBytes = (source: BufferSource): Uint8Array => {
+const copyBytes = (source: BufferSource): Uint8Array<ArrayBuffer> => {
   const view = ArrayBuffer.isView(source)
     ? new Uint8Array(source.buffer, source.byteOffset, source.byteLength)
     : new Uint8Array(source)
-  return Uint8Array.from(view)
+  const copy = new Uint8Array(view.byteLength)
+  copy.set(view)
+  return copy
 }
 
 const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean =>
   left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index])
 
-const initializeEngine = async (bytes: Uint8Array): Promise<WorkspaceDiscoveryEngine> => {
+const initializeEngine = async (
+  bytes: Uint8Array<ArrayBuffer>,
+): Promise<WorkspaceDiscoveryEngine> => {
   const module = await WebAssembly.compile(bytes)
   initSync({ module })
 
