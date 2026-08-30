@@ -38,6 +38,11 @@ try {
 }
 
 logger.info('desktop.session.start', { log_path: logSession.logPath })
+logger.debug('desktop.logs.retention', {
+  removed_files: logSession.retention.removedFiles,
+  removed_bytes: logSession.retention.removedBytes,
+  skipped_entries: logSession.retention.skippedEntries,
+})
 process.on('uncaughtExceptionMonitor', (error) => {
   logger.error('desktop.main.uncaught-exception', {
     error_type: error.name,
@@ -242,7 +247,10 @@ app.on('child-process-gone', (_event, details) => {
   })
 })
 
-app.on('before-quit', () => logger.info('desktop.session.exit'))
+app.on('before-quit', () => {
+  logger.info('desktop.session.exit')
+  logSession.close()
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' || smoke) app.quit()

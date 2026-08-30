@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   DesktopLogger,
+  createDesktopLogSession,
   desktopCrashDirectory,
   desktopLogLocation,
   inheritedCorrelation,
@@ -29,6 +32,21 @@ describe('desktop log location', () => {
     expect(desktopCrashDirectory({ MORPHIR_HOME: '/morphir-home' })).toBe(
       join('/morphir-home', 'logs', 'desktop', 'crashes'),
     )
+  })
+
+  test('marks a live session and removes the marker on close', () => {
+    const root = mkdtempSync(join(tmpdir(), 'morphir-desktop-session-'))
+    try {
+      const session = createDesktopLogSession({ MORPHIR_LOG_DIR: root })
+      session.logger.info('desktop.session.start')
+
+      expect(existsSync(session.logPath)).toBeTrue()
+      expect(existsSync(`${session.logPath}.active`)).toBeTrue()
+      session.close()
+      expect(existsSync(`${session.logPath}.active`)).toBeFalse()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

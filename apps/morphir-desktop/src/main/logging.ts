@@ -1,7 +1,8 @@
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { morphirHome } from './config.ts'
+import { enforceDesktopLogRetention, type DesktopRetentionResult } from './logging-retention.ts'
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
 const OPERATION_ID = new RegExp(`^op-${UUID}$`, 'i')
@@ -76,7 +77,7 @@ const safeValue = (value: unknown): LogValue => {
   return '[omitted]'
 }
 
-const desktopLogRoot = (env: Record<string, string | undefined>): string => {
+export const desktopLogDirectory = (env: Record<string, string | undefined>): string => {
   const configured = env['MORPHIR_LOG_DIR']
   return configured && configured.length > 0
     ? configured
@@ -85,7 +86,7 @@ const desktopLogRoot = (env: Record<string, string | undefined>): string => {
 
 export const desktopCrashDirectory = (
   env: Record<string, string | undefined> = process.env,
-): string => join(desktopLogRoot(env), 'crashes')
+): string => join(desktopLogDirectory(env), 'crashes')
 
 const timestampFilePart = (now: Date): string =>
   now.toISOString().replaceAll('-', '').replaceAll(':', '')
@@ -96,7 +97,7 @@ export const desktopLogLocation = (
   processId: number,
   sessionId: string,
 ): string => {
-  const root = desktopLogRoot(env)
+  const root = desktopLogDirectory(env)
   const date = now.toISOString().slice(0, 10)
   return join(root, date, `${timestampFilePart(now)}-${processId}-${sessionId}.jsonl`)
 }
@@ -161,6 +162,8 @@ export interface DesktopLogSession {
   logPath: string
   operationId: string
   sessionId: string
+  retention: DesktopRetentionResult
+  close: () => void
 }
 
 export const createDesktopLogSession = (
@@ -170,6 +173,7 @@ export const createDesktopLogSession = (
   const sessionId = randomUUID()
   const operationId = `op-${randomUUID()}`
   const logPath = desktopLogLocation(env, now, process.pid, sessionId)
+  const markerPath = `${logPath}.active`
   const context: DesktopLogContext = {
     sessionId,
     operationId,
@@ -177,8 +181,15 @@ export const createDesktopLogSession = (
     ...inheritedCorrelation(env),
   }
   let initializationError: unknown
+  let retention: DesktopRetentionResult = {
+    removedFiles: 0,
+    removedBytes: 0,
+    skippedEntries: 0,
+  }
   try {
     mkdirSync(dirname(logPath), { recursive: true })
+    retention = enforceDesktopLogRetention(desktopLogDirectory(env))
+    writeFileSync(markerPath, String(process.pid), { encoding: 'utf8', flag: 'wx' })
   } catch (error) {
     initializationError = error
   }
@@ -187,5 +198,22 @@ export const createDesktopLogSession = (
         throw initializationError
       }
     : (line: string) => appendFileSync(logPath, line, 'utf8')
-  return { logger: new DesktopLogger(context, append), logPath, operationId, sessionId }
+  let closed = false
+  const close = (): void => {
+    if (closed) return
+    closed = true
+    try {
+      rmSync(markerPath)
+    } catch {
+      // A missing or inaccessible marker must not prevent Desktop shutdown.
+    }
+  }
+  return {
+    logger: new DesktopLogger(context, append),
+    logPath,
+    operationId,
+    sessionId,
+    retention,
+    close,
+  }
 }
