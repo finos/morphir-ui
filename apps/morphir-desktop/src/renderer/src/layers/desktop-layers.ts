@@ -117,6 +117,14 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
               ),
       pick: (kind) =>
         rpc.effect<{ source: unknown } | null>('morphir/workbench/pick', { kind }).pipe(
+          Effect.mapError(
+            (error) =>
+              new WorkbenchError({
+                code: 'read-failed',
+                source: '<picker>',
+                message: error.message,
+              }),
+          ),
           Effect.flatMap((result) =>
             result === null
               ? Effect.succeed(Option.none())
@@ -131,14 +139,6 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
                           message: error instanceof Error ? error.message : String(error),
                         }),
                 }),
-          ),
-          Effect.mapError(
-            (error) =>
-              new WorkbenchError({
-                code: 'read-failed',
-                source: '<picker>',
-                message: error.message,
-              }),
           ),
         ),
       reveal: (source) =>

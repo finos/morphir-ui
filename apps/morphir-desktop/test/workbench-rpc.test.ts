@@ -123,6 +123,32 @@ describe('Workbench RPC handlers', () => {
     expect(response.error?.data).toBe('Qualified Workbench source is required')
   })
 
+  test('rejects a foreign source returned by the desktop picker', async () => {
+    const registry = new RpcRegistry()
+    registerWorkbenchHandlers(registry, {
+      inspect: async () => descriptor,
+      pick: async () => ({ ...descriptor.source, providerId: 'cli:session-1' }),
+      readModel: async () => ({ content: null, manifest: null }),
+      inspectDevelopment: async () => ({
+        configAnchor: null,
+        modelSources: [],
+        knowledgeBaseSources: [],
+      }),
+      reveal: async () => undefined,
+      takeInitialSources: () => [],
+    })
+
+    const response = await registry.dispatch({
+      id: 1,
+      method: 'morphir/workbench/pick',
+      params: { kind: 'model-file' },
+    })
+
+    expect(response.error?.data).toBe(
+      'Workbench source belongs to provider cli:session-1; expected provider desktop-local',
+    )
+  })
+
   test('rejects foreign descriptors before invoking desktop host loaders', async () => {
     const registry = new RpcRegistry()
     let readCalls = 0

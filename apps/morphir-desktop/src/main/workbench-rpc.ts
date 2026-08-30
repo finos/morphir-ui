@@ -41,7 +41,7 @@ export const registerWorkbenchHandlers = (registry: RpcRegistry, host: Workbench
       throw new Error('Workbench picker kind must be model-file or folder')
     }
     const source = await host.pick(kind)
-    return source === null ? null : { source }
+    return source === null ? null : { source: requireDesktopSourceRef(source) }
   })
   registry.register('morphir/workbench/readModel', (params) => {
     const descriptor = record(params)['descriptor'] as ModelWorkbenchDescriptor | undefined

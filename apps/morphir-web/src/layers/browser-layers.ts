@@ -19,11 +19,82 @@ import { decodeMorphirIr, toWorkspaceIr } from '@morphir/ir'
 import { sourceKey, type WorkbenchSourceRef } from '@morphir/workspace'
 
 const CONFIG_KEY = 'morphir-ui.config'
+const MODEL_SOURCE_COUNTER_KEY = 'morphir-ui.browser-local.model-source-counter.v1'
+const MODEL_SOURCE_COUNTER_LOCK = `${MODEL_SOURCE_COUNTER_KEY}.lock`
+const MODEL_LOCATOR_PATTERN = /^model:(\d+)$/
+const fallbackModelLocators = new Set<string>()
+
+const recordOf = (value: unknown): Readonly<Record<string, unknown>> | null =>
+  typeof value === 'object' && value !== null ? (value as Readonly<Record<string, unknown>>) : null
+
+const counterValue = (value: string | null): bigint | null => {
+  if (value === null || !/^\d+$/.test(value)) return null
+  try {
+    return BigInt(value)
+  } catch {
+    return null
+  }
+}
+
+const locatorCounter = (value: unknown): bigint | null => {
+  if (typeof value !== 'string') return null
+  const match = MODEL_LOCATOR_PATTERN.exec(value)
+  return match ? counterValue(match[1] ?? null) : null
+}
+
+const persistedBrowserModelCounter = (storage: Storage): bigint => {
+  const raw = storage.getItem(CONFIG_KEY)
+  if (raw === null) return 0n
+  const config = recordOf(JSON.parse(raw))
+  const workbenches = recordOf(config?.['workbenches'])
+  const entries = [workbenches?.['open'], workbenches?.['recent']].flatMap((value) =>
+    Array.isArray(value) ? value : [],
+  )
+  return entries.reduce((maximum, entry) => {
+    const source = recordOf(recordOf(entry)?.['source'])
+    if (source?.['providerId'] !== 'browser-local') return maximum
+    const candidate = locatorCounter(source['locator'])
+    return candidate !== null && candidate > maximum ? candidate : maximum
+  }, 0n)
+}
+
+const fallbackModelLocator = (): string => {
+  let locator: string
+  do {
+    const values = new Uint32Array(4)
+    globalThis.crypto.getRandomValues(values)
+    const token = values.reduce((value, part) => (value << 32n) | BigInt(part), 0n)
+    locator = `model:${token}`
+  } while (fallbackModelLocators.has(locator))
+  fallbackModelLocators.add(locator)
+  return locator
+}
+
+const allocatePersistentBrowserModelLocator = (): string => {
+  const storage = globalThis.localStorage
+  const storedCounter = counterValue(storage.getItem(MODEL_SOURCE_COUNTER_KEY)) ?? 0n
+  const persistedCounter = persistedBrowserModelCounter(storage)
+  const nextCounter = (storedCounter > persistedCounter ? storedCounter : persistedCounter) + 1n
+  storage.setItem(MODEL_SOURCE_COUNTER_KEY, nextCounter.toString())
+  return `model:${nextCounter}`
+}
+
+const allocateBrowserModelLocator = async (): Promise<string> => {
+  try {
+    const locks = globalThis.navigator?.locks
+    if (!locks) return fallbackModelLocator()
+    return await locks.request(MODEL_SOURCE_COUNTER_LOCK, () => {
+      // Keep the lock around only this synchronous storage transaction.
+      return allocatePersistentBrowserModelLocator()
+    })
+  } catch {
+    return fallbackModelLocator()
+  }
+}
 
 export const browserCore = (version: string): Layer.Layer<CoreServices> => {
   const selectedModels = new Map<string, { name: string; content: string }>()
   const selectedModelNameCounts = new Map<string, number>()
-  let nextSelectedModelId = 0
   const providerError = (source: WorkbenchSourceRef): WorkbenchError =>
     unsupportedProviderError('browser-local', source)
 
@@ -111,9 +182,10 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
           input.onchange = () => {
             const file = input.files?.[0]
             if (!file) return resume(Effect.succeed(Option.none()))
-            file.text().then(
-              (content) => {
-                const source = `browser-model:${++nextSelectedModelId}:${file.name}`
+            void file
+              .text()
+              .then(async (content) => {
+                const source = await allocateBrowserModelLocator()
                 const nameCount = (selectedModelNameCounts.get(file.name) ?? 0) + 1
                 selectedModelNameCounts.set(file.name, nameCount)
                 const name = nameCount === 1 ? file.name : `${file.name} (${nameCount})`
@@ -124,8 +196,8 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
                 }
                 selectedModels.set(sourceKey(sourceRef), { name, content })
                 resume(Effect.succeed(Option.some(sourceRef)))
-              },
-              (error) =>
+              })
+              .catch((error) =>
                 resume(
                   Effect.fail(
                     new WorkbenchError({
@@ -135,7 +207,7 @@ export const browserCore = (version: string): Layer.Layer<CoreServices> => {
                     }),
                   ),
                 ),
-            )
+              )
           }
           input.oncancel = () => resume(Effect.succeed(Option.none()))
           input.click()
