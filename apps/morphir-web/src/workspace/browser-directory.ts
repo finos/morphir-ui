@@ -133,6 +133,17 @@ const decodeRelativePath = (path: string): RelativePath => {
   }
 }
 
+const decodeChildSegment = (name: string): RelativePath => {
+  const segment = decodeRelativePath(name)
+  if (segment === '.' || segment.includes('/')) {
+    throw new BrowserDirectoryError(
+      'invalid-path',
+      `Invalid workspace path segment ${JSON.stringify(name)}: expected one canonical, confined relative path component`,
+    )
+  }
+  return segment
+}
+
 const comparePaths = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0
 
@@ -146,7 +157,7 @@ const walkDirectory = async (
   children.sort(([left], [right]) => comparePaths(left, right))
 
   for (const [name, child] of children) {
-    const childPath = decodeRelativePath(joinRelative(path, name))
+    const childPath = decodeRelativePath(joinRelative(path, decodeChildSegment(name)))
     if (child.kind === 'directory') {
       entries.set(childPath, { kind: 'directory' })
       await walkDirectory(child, childPath, entries)

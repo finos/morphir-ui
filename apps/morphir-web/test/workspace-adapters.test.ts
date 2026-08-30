@@ -160,6 +160,17 @@ describe('browser workspace adapters', () => {
     })
   })
 
+  test('rejects a drive-like handle segment nested below a valid directory', async () => {
+    const root = directory('workspace', [
+      directory('packages', [directory('C:', [file('morphir.toml', '[project]')])]),
+    ])
+
+    await expect(fileTreeFromDirectoryHandle(root)).rejects.toMatchObject({
+      name: 'BrowserDirectoryError',
+      code: 'invalid-path',
+    })
+  })
+
   test('preserves a __proto__ directory and its recognized config during handle traversal', async () => {
     const root = directory('workspace', [
       directory('__proto__', [file('morphir.toml', '[project]')]),
