@@ -1,33 +1,55 @@
-import { lstat } from 'node:fs/promises'
-import { join } from 'node:path'
-import type { DiscoveryRequest, DiscoveryResponse, FileTree } from '@morphir/workspace'
+import { homedir } from 'node:os'
+import { isAbsolute, join, posix, win32 } from 'node:path'
+import type { DiscoveryRequest, DiscoveryResponse } from '@morphir/workspace'
 import type { WorkspaceDiscoveryEngine } from '@morphir/workspace-engine'
-import { morphirHome } from '../config.ts'
-import { fileTreeFromNodeRoot } from './node-file-tree.ts'
+import { fileTreeFromNodeConfigCandidates, fileTreeFromNodeRoot } from './node-file-tree.ts'
 import { getWorkspaceDiscoveryEngine } from './wasm-engine.ts'
 
 export interface NodeWorkspaceDiscoveryOptions {
   readonly systemConfigRoot?: string | null
+  readonly globalConfigCandidates?: ReadonlyArray<string>
+  readonly systemConfigCandidates?: ReadonlyArray<string>
   readonly engine?: Promise<WorkspaceDiscoveryEngine>
 }
 
-const optionalTree = async (path: string | null): Promise<FileTree | null> => {
-  if (path === null) return null
-  try {
-    await lstat(path)
-  } catch (cause) {
-    if (typeof cause === 'object' && cause !== null && Reflect.get(cause, 'code') === 'ENOENT') {
-      return null
-    }
-    throw cause
-  }
-  return fileTreeFromNodeRoot(path)
+export const nodeGlobalConfigCandidates = (
+  env: Record<string, string | undefined>,
+  platform: NodeJS.Platform = process.platform,
+  home: string = homedir(),
+): ReadonlyArray<string> => {
+  const paths = platform === 'win32' ? win32 : posix
+  const xdg = env['XDG_CONFIG_HOME']
+  const platformConfig =
+    platform === 'win32'
+      ? env['APPDATA'] || paths.join(home, 'AppData', 'Roaming')
+      : xdg && isAbsolute(xdg)
+        ? xdg
+        : platform === 'darwin'
+          ? paths.join(home, 'Library', 'Application Support')
+          : paths.join(home, '.config')
+  const resolvedHome =
+    env['MORPHIR_HOME'] && env['MORPHIR_HOME'].length > 0
+      ? env['MORPHIR_HOME']
+      : paths.join(home, '.morphir')
+  const roots = [paths.join(platformConfig, 'morphir'), resolvedHome]
+  return [
+    ...new Set(
+      roots.flatMap((root) => [paths.join(root, 'morphir.toml'), paths.join(root, 'morphir.yaml')]),
+    ),
+  ]
 }
 
-const defaultSystemConfigRoot = (env: Record<string, string | undefined>): string =>
-  process.platform === 'win32'
-    ? join(env['PROGRAMDATA'] || 'C:\\ProgramData', 'morphir')
-    : '/etc/morphir'
+export const nodeSystemConfigCandidates = (
+  env: Record<string, string | undefined>,
+  platform: NodeJS.Platform = process.platform,
+): ReadonlyArray<string> => {
+  const paths = platform === 'win32' ? win32 : posix
+  const root =
+    platform === 'win32'
+      ? paths.join(env['PROGRAMDATA'] || 'C:\\ProgramData', 'morphir')
+      : '/etc/morphir'
+  return [paths.join(root, 'morphir.toml'), paths.join(root, 'morphir.yaml')]
+}
 
 const morphirEnvironment = (
   env: Record<string, string | undefined>,
@@ -47,12 +69,21 @@ export const buildNodeWorkspaceDiscoveryRequest = async (
   env: Record<string, string | undefined> = process.env,
   options: NodeWorkspaceDiscoveryOptions = {},
 ): Promise<DiscoveryRequest> => {
-  const systemConfigRoot =
-    options.systemConfigRoot === undefined ? defaultSystemConfigRoot(env) : options.systemConfigRoot
+  const globalCandidates = options.globalConfigCandidates ?? nodeGlobalConfigCandidates(env)
+  const systemCandidates =
+    options.systemConfigCandidates ??
+    (options.systemConfigRoot === null
+      ? []
+      : options.systemConfigRoot === undefined
+        ? nodeSystemConfigCandidates(env)
+        : [
+            join(options.systemConfigRoot, 'morphir.toml'),
+            join(options.systemConfigRoot, 'morphir.yaml'),
+          ])
   const [developmentRootTree, morphirHomeTree, systemConfig] = await Promise.all([
     fileTreeFromNodeRoot(developmentRoot),
-    optionalTree(morphirHome(env)),
-    optionalTree(systemConfigRoot),
+    fileTreeFromNodeConfigCandidates(globalCandidates, 'global Morphir configuration'),
+    fileTreeFromNodeConfigCandidates(systemCandidates, 'system Morphir configuration'),
   ])
   return {
     protocolVersion: 1,

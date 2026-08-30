@@ -19,6 +19,13 @@ const withEmptyCustomSection = (bytes: ArrayBuffer): Uint8Array => {
 }
 
 describe('portable workspace discovery engine', () => {
+  test('retries initialization after a rejected module', async () => {
+    const bytes = await loadWasmBytes()
+
+    await expect(makeWorkspaceDiscoveryEngine(new Uint8Array([0]))).rejects.toThrow()
+    expect(await makeWorkspaceDiscoveryEngine(bytes)).toBeDefined()
+  })
+
   test('matches every Rust conformance corpus case through the actual WebAssembly module', async () => {
     const generated = new URL('../generated/', import.meta.url)
     const corpus = (await Bun.file(

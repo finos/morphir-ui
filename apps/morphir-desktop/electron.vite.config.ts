@@ -14,6 +14,13 @@ const workspaceWasmAsset = (): Plugin => ({
       fileName: 'morphir_workspace_wasm_bg.wasm',
       source: await readFile(require.resolve('@morphir/workspace-engine/wasm')),
     })
+    this.emitFile({
+      type: 'asset' as const,
+      fileName: 'node-file-tree-worker.mjs',
+      source: await readFile(
+        new URL('./src/main/workspace/node-file-tree-worker.mjs', import.meta.url),
+      ),
+    })
   },
 })
 

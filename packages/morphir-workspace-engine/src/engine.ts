@@ -62,6 +62,10 @@ export const makeWorkspaceDiscoveryEngine = (
   }
 
   const engine = initializeEngine(candidate)
-  initialized = { bytes: candidate, engine }
+  const pending = { bytes: candidate, engine }
+  initialized = pending
+  void engine.catch(() => {
+    if (initialized === pending) initialized = undefined
+  })
   return engine
 }
