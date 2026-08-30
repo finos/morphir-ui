@@ -70,7 +70,8 @@ jobs:
           set -euo pipefail
           archive="$(find apps/morphir-desktop/release -maxdepth 1 -name '*linux*x64.tar.gz' -print -quit)"
           test -n "$archive"
-          tar -tzf "$archive" | grep -Eq '(^|/)morphir-desktop$'
+          tar -tzf "$archive" > "$RUNNER_TEMP/linux-archive-entries.txt"
+          grep -Eq '(^|/)morphir-desktop$' "$RUNNER_TEMP/linux-archive-entries.txt"
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-linux-x86_64

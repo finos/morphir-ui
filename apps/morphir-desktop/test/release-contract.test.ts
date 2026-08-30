@@ -63,6 +63,10 @@ describe('Desktop release contract', () => {
     expect(builder.mac.notarize).toBeFalse()
     expect(ciWorkflow).toContain('bun run package:developer-insider')
     expect(releaseWorkflow).toContain('--config.mac.notarize=true')
+    expect(releaseWorkflow).toContain(
+      'tar -tzf "$archive" > "$RUNNER_TEMP/linux-archive-entries.txt"',
+    )
+    expect(releaseWorkflow).not.toContain('tar -tzf "$archive" | grep')
   })
 
   test('derives stable and preview channels from semantic versions', () => {
