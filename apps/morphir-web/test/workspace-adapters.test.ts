@@ -287,6 +287,58 @@ describe('browser workspace adapters', () => {
     },
   )
 
+  test.each([
+    'root/C:/morphir.toml',
+    'root/packages/C:/morphir.toml',
+    String.raw`root/packages\bad/morphir.toml`,
+    'root/packages/./morphir.toml',
+  ])('upload fallback rejects unsafe nested segment in %s before reading', async (relativePath) => {
+    const read = vi.fn(async () => '[project]')
+
+    await expect(fileTreeFromDirectoryUpload([{ relativePath, text: read }])).rejects.toMatchObject(
+      {
+        name: 'BrowserDirectoryError',
+        code: 'invalid-path',
+      },
+    )
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  test('upload fallback rejects duplicate normalized file paths before reading', async () => {
+    const reads = [vi.fn(async () => '[project]'), vi.fn(async () => '[project]')]
+
+    await expect(
+      fileTreeFromDirectoryUpload([
+        { relativePath: 'root/morphir.toml', text: reads[0]! },
+        { relativePath: 'root/morphir.toml', text: reads[1]! },
+      ]),
+    ).rejects.toMatchObject({
+      name: 'BrowserDirectoryError',
+      code: 'path-conflict',
+    })
+    expect(reads.every((read) => read.mock.calls.length === 0)).toBe(true)
+  })
+
+  test.each([
+    ['root/morphir.toml', 'root/morphir.toml/child'],
+    ['root/packages', 'root/packages/morphir.toml'],
+  ])(
+    'upload fallback rejects file-tree conflict between %s and %s before reading',
+    async (...paths) => {
+      const reads = paths.map(() => vi.fn(async () => '[project]'))
+
+      await expect(
+        fileTreeFromDirectoryUpload(
+          paths.map((relativePath, index) => ({ relativePath, text: reads[index]! })),
+        ),
+      ).rejects.toMatchObject({
+        name: 'BrowserDirectoryError',
+        code: 'path-conflict',
+      })
+      expect(reads.every((read) => read.mock.calls.length === 0)).toBe(true)
+    },
+  )
+
   test('upload fallback preserves __proto__ path entries', async () => {
     const tree = await fileTreeFromDirectoryUpload([
       { relativePath: '__proto__/morphir.toml', text: async () => '[project]' },

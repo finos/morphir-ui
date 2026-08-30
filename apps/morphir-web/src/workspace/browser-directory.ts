@@ -33,7 +33,7 @@ export class BrowserDirectoryError extends Error {
   readonly name = 'BrowserDirectoryError'
 
   constructor(
-    readonly code: 'permission-denied' | 'invalid-path' | 'read-failed',
+    readonly code: 'permission-denied' | 'invalid-path' | 'path-conflict' | 'read-failed',
     message: string,
     options?: ErrorOptions,
   ) {
@@ -144,6 +144,12 @@ const decodeChildSegment = (name: string): RelativePath => {
   return segment
 }
 
+const decodeUploadPath = (path: string): RelativePath => {
+  const decoded = decodeRelativePath(path)
+  for (const segment of decoded.split('/')) decodeChildSegment(segment)
+  return decoded
+}
+
 const comparePaths = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0
 
@@ -196,14 +202,44 @@ const addAncestors = (path: string, directories: Set<string>): void => {
   }
 }
 
+const validateUploadTree = (files: ReadonlyArray<{ readonly path: RelativePath }>): void => {
+  const filePaths = new Set<RelativePath>()
+  for (const { path } of files) {
+    if (filePaths.has(path)) {
+      throw new BrowserDirectoryError(
+        'path-conflict',
+        `Uploaded workspace contains duplicate file path ${JSON.stringify(path)}`,
+      )
+    }
+    filePaths.add(path)
+  }
+
+  for (const path of filePaths) {
+    const components = path.split('/')
+    for (let index = 1; index < components.length; index += 1) {
+      const ancestor = components.slice(0, index).join('/') as RelativePath
+      if (filePaths.has(ancestor)) {
+        throw new BrowserDirectoryError(
+          'path-conflict',
+          `Uploaded workspace path ${JSON.stringify(ancestor)} is both a file and a directory`,
+        )
+      }
+    }
+  }
+}
+
 export const fileTreeFromDirectoryUpload = async (
   files: ReadonlyArray<UploadedDirectoryFile>,
 ): Promise<FileTree> => {
-  const validated = files.map((file) => ({ file, path: decodeRelativePath(file.relativePath) }))
+  const validated = files.map((file) => ({ file, path: decodeUploadPath(file.relativePath) }))
   const root = commonUploadRoot(validated.map(({ path }) => path))
   const normalized = validated
-    .map(({ file, path }) => ({ file, path: root === null ? path : path.slice(root.length + 1) }))
+    .map(({ file, path }) => ({
+      file,
+      path: decodeUploadPath(root === null ? path : path.slice(root.length + 1)),
+    }))
     .sort(({ path: left }, { path: right }) => comparePaths(left, right))
+  validateUploadTree(normalized)
 
   const directories = new Set<string>(['.'])
   for (const { path } of normalized) addAncestors(path, directories)
