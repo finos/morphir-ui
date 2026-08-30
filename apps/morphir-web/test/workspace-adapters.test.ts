@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest'
-import type { FileTree } from '@morphir/workspace'
+import { Schema } from 'effect'
+import { FileTreeSchema, type FileTree } from '@morphir/workspace'
 import {
   BrowserDirectoryError,
   fileTreeFromDirectoryHandle,
@@ -10,7 +11,11 @@ import {
 } from '../src/workspace/browser-directory.ts'
 import { makeBrowserMorphirHome } from '../src/workspace/browser-home.ts'
 import {
+  DIRECTORY_HANDLE_STORE,
+  MORPHIR_HOME_FILE_STORE,
+  WORKSPACE_DATABASE_NAME,
   makeDirectoryHandleStore,
+  makeIndexedDbWorkspaceStorage,
   type WorkspaceStorage,
   type WorkspaceStorageName,
 } from '../src/workspace/handle-store.ts'
@@ -118,6 +123,106 @@ describe('browser workspace adapters', () => {
     expect(root.requestPermission).not.toHaveBeenCalled()
   })
 
+  test('normalizes a queryPermission exception without requesting again', async () => {
+    const denied = new DOMException('query detail', 'NotAllowedError')
+    const root: DirectoryPermissionHandle = {
+      ...directory('workspace', []),
+      queryPermission: vi.fn(async () => Promise.reject(denied)),
+    }
+
+    const failure = await fileTreeFromDirectoryHandle(root).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(BrowserDirectoryError)
+    expect(failure).toMatchObject({ code: 'permission-denied', cause: denied })
+    expect(root.requestPermission).not.toHaveBeenCalled()
+  })
+
+  test('normalizes a requestPermission exception after exactly one request', async () => {
+    const denied = new DOMException('request detail', 'NotAllowedError')
+    const root: DirectoryPermissionHandle = {
+      ...directory('workspace', [], 'prompt'),
+      requestPermission: vi.fn(async () => Promise.reject(denied)),
+    }
+
+    const failure = await fileTreeFromDirectoryHandle(root).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(BrowserDirectoryError)
+    expect(failure).toMatchObject({ code: 'permission-denied', cause: denied })
+    expect(root.requestPermission).toHaveBeenCalledOnce()
+  })
+
+  test.each([String.raw`bad\child`, 'C:'])('rejects invalid handle child path %s', async (name) => {
+    const root = directory('workspace', [directory(name, [])])
+
+    await expect(fileTreeFromDirectoryHandle(root)).rejects.toMatchObject({
+      name: 'BrowserDirectoryError',
+      code: 'invalid-path',
+    })
+  })
+
+  test('preserves a __proto__ directory and its recognized config during handle traversal', async () => {
+    const root = directory('workspace', [
+      directory('__proto__', [file('morphir.toml', '[project]')]),
+    ])
+
+    const tree = await fileTreeFromDirectoryHandle(root)
+
+    expect(Object.hasOwn(tree.entries, '__proto__')).toBe(true)
+    expect(tree.entries['__proto__']).toEqual({ kind: 'directory' })
+    expect(tree.entries['__proto__/morphir.toml']).toEqual({ kind: 'file', text: '[project]' })
+    expect(() => Schema.decodeUnknownSync(FileTreeSchema)(tree)).not.toThrow()
+  })
+
+  test('normalizes permission revocation during traversal', async () => {
+    const revoked = new DOMException('revoked detail', 'NotAllowedError')
+    const root: DirectoryPermissionHandle = {
+      ...directory('workspace', []),
+      entries: () =>
+        (async function* (): AsyncGenerator<readonly [string, DirectoryEntryHandle]> {
+          await Promise.reject(revoked)
+          yield ['unreachable', file('morphir.toml', '')]
+        })(),
+    }
+
+    const failure = await fileTreeFromDirectoryHandle(root).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(BrowserDirectoryError)
+    expect(failure).toMatchObject({ code: 'permission-denied', cause: revoked })
+    expect(failure).not.toBe(revoked)
+  })
+
+  test.each([
+    {
+      boundary: 'getFile',
+      child: {
+        kind: 'file',
+        name: 'morphir.toml',
+        getFile: async () => {
+          throw new Error('getFile failed')
+        },
+      } satisfies DirectoryEntryHandle,
+    },
+    {
+      boundary: 'text',
+      child: {
+        kind: 'file',
+        name: 'morphir.toml',
+        getFile: async () => ({
+          text: async () => {
+            throw new Error('text failed')
+          },
+        }),
+      } satisfies DirectoryEntryHandle,
+    },
+  ])('normalizes $boundary failures as read-failed', async ({ child }) => {
+    const failure = await fileTreeFromDirectoryHandle(directory('workspace', [child])).catch(
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(BrowserDirectoryError)
+    expect(failure).toMatchObject({ code: 'read-failed' })
+  })
+
   test('directory handles round-trip opaquely without localStorage serialization', async () => {
     const { storage } = makeStorage()
     const handles = makeDirectoryHandleStore(storage)
@@ -170,4 +275,141 @@ describe('browser workspace adapters', () => {
       expect(discover).not.toHaveBeenCalled()
     },
   )
+
+  test('upload fallback preserves __proto__ path entries', async () => {
+    const tree = await fileTreeFromDirectoryUpload([
+      { relativePath: '__proto__/morphir.toml', text: async () => '[project]' },
+      { relativePath: 'packages/orders/notes.txt', text: async () => 'ignored' },
+    ])
+
+    expect(Object.hasOwn(tree.entries, '__proto__')).toBe(true)
+    expect(tree.entries['__proto__']).toEqual({ kind: 'directory' })
+    expect(tree.entries['__proto__/morphir.toml']).toEqual({ kind: 'file', text: '[project]' })
+    expect(() => Schema.decodeUnknownSync(FileTreeSchema)(tree)).not.toThrow()
+  })
+})
+
+type TransactionOutcome = 'complete' | 'abort' | 'error'
+
+const makeIndexedDbFactory = () => {
+  const values = new Map<WorkspaceStorageName, Map<string, unknown>>([
+    [DIRECTORY_HANDLE_STORE, new Map()],
+    [MORPHIR_HOME_FILE_STORE, new Map()],
+  ])
+  const createdStores: string[] = []
+  const openCalls: Array<readonly [string, number | undefined]> = []
+  let nextOutcome: TransactionOutcome = 'complete'
+
+  const transaction = (storeName: WorkspaceStorageName): IDBTransaction => {
+    const tx = {
+      error: null,
+      oncomplete: null,
+      onabort: null,
+      onerror: null,
+    } as unknown as IDBTransaction
+    let scheduled = false
+    const finish = (): void => {
+      if (scheduled) return
+      scheduled = true
+      queueMicrotask(() => {
+        if (nextOutcome === 'abort') {
+          Object.defineProperty(tx, 'error', { value: new DOMException('aborted', 'AbortError') })
+          tx.onabort?.(new Event('abort') as unknown as Event)
+        } else if (nextOutcome === 'error') {
+          Object.defineProperty(tx, 'error', { value: new DOMException('failed', 'UnknownError') })
+          tx.onerror?.(new Event('error') as unknown as Event)
+        } else {
+          tx.oncomplete?.(new Event('complete') as unknown as Event)
+        }
+        nextOutcome = 'complete'
+      })
+    }
+    Object.assign(tx, {
+      objectStore: () => ({
+        get: (key: string) => {
+          const request = {
+            result: values.get(storeName)?.get(key),
+            error: null,
+            onsuccess: null,
+            onerror: null,
+          } as unknown as IDBRequest<unknown>
+          queueMicrotask(() => request.onsuccess?.(new Event('success') as unknown as Event))
+          finish()
+          return request
+        },
+        put: (value: unknown, key: string) => {
+          values.get(storeName)?.set(key, value)
+          finish()
+          return {} as IDBRequest
+        },
+        delete: (key: string) => {
+          values.get(storeName)?.delete(key)
+          finish()
+          return {} as IDBRequest
+        },
+      }),
+    })
+    return tx
+  }
+
+  const database = {
+    objectStoreNames: { contains: (name: string) => createdStores.includes(name) },
+    createObjectStore: (name: string) => {
+      createdStores.push(name)
+      return {} as IDBObjectStore
+    },
+    transaction,
+  } as unknown as IDBDatabase
+
+  const factory = {
+    open: (name: string, version?: number) => {
+      openCalls.push([name, version])
+      const request = {
+        result: database,
+        error: null,
+        onupgradeneeded: null,
+        onsuccess: null,
+        onerror: null,
+      } as unknown as IDBOpenDBRequest
+      queueMicrotask(() => {
+        request.onupgradeneeded?.(new Event('upgradeneeded') as unknown as IDBVersionChangeEvent)
+        request.onsuccess?.(new Event('success') as unknown as Event)
+      })
+      return request
+    },
+  } as unknown as IDBFactory
+
+  return {
+    factory,
+    values,
+    createdStores,
+    openCalls,
+    failNext: (outcome: Exclude<TransactionOutcome, 'complete'>) => {
+      nextOutcome = outcome
+    },
+  }
+}
+
+describe('IndexedDB workspace storage', () => {
+  test('opens the versioned database, creates both stores, and completes CRUD', async () => {
+    const fake = makeIndexedDbFactory()
+    const storage = makeIndexedDbWorkspaceStorage(fake.factory)
+    const handle = { opaque: true }
+
+    await storage.put(DIRECTORY_HANDLE_STORE, 'directory:41', handle)
+
+    expect(fake.openCalls).toEqual([[WORKSPACE_DATABASE_NAME, 1]])
+    expect(fake.createdStores).toEqual([DIRECTORY_HANDLE_STORE, MORPHIR_HOME_FILE_STORE])
+    expect(await storage.get(DIRECTORY_HANDLE_STORE, 'directory:41')).toBe(handle)
+    await storage.delete(DIRECTORY_HANDLE_STORE, 'directory:41')
+    expect(await storage.get(DIRECTORY_HANDLE_STORE, 'directory:41')).toBeNull()
+  })
+
+  test.each(['abort', 'error'] as const)('rejects a transaction %s', async (outcome) => {
+    const fake = makeIndexedDbFactory()
+    const storage = makeIndexedDbWorkspaceStorage(fake.factory)
+    fake.failNext(outcome)
+
+    await expect(storage.put(DIRECTORY_HANDLE_STORE, 'directory:41', {})).rejects.toThrow()
+  })
 })

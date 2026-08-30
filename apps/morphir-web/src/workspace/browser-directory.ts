@@ -33,12 +33,29 @@ export class BrowserDirectoryError extends Error {
   readonly name = 'BrowserDirectoryError'
 
   constructor(
-    readonly code: 'permission-denied',
+    readonly code: 'permission-denied' | 'invalid-path' | 'read-failed',
     message: string,
     options?: ErrorOptions,
   ) {
     super(message, options)
   }
+}
+
+const isPermissionFailure = (cause: unknown): boolean => {
+  if (typeof cause !== 'object' || cause === null) return false
+  const name = Reflect.get(cause, 'name')
+  return name === 'NotAllowedError' || name === 'SecurityError'
+}
+
+const normalizeReadFailure = (cause: unknown, message: string): BrowserDirectoryError => {
+  if (cause instanceof BrowserDirectoryError) return cause
+  return new BrowserDirectoryError(
+    isPermissionFailure(cause) ? 'permission-denied' : 'read-failed',
+    message,
+    {
+      cause,
+    },
+  )
 }
 
 const isRecognizedConfig = (path: string): boolean => {
@@ -104,26 +121,38 @@ const ensureReadPermission = async (handle: DirectoryPermissionHandle): Promise<
 const joinRelative = (parent: string, child: string): string =>
   parent === '.' ? child : `${parent}/${child}`
 
+const decodeRelativePath = (path: string): RelativePath => {
+  try {
+    return Schema.decodeUnknownSync(RelativePathSchema)(path)
+  } catch (cause) {
+    throw new BrowserDirectoryError(
+      'invalid-path',
+      `Invalid workspace path ${JSON.stringify(path)}: expected a canonical, confined relative path`,
+      { cause },
+    )
+  }
+}
+
 const comparePaths = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0
 
 const walkDirectory = async (
   handle: DirectoryReadHandle,
-  path: string,
-  entries: Record<string, FileTree['entries'][string]>,
+  path: RelativePath,
+  entries: Map<RelativePath, FileTree['entries'][string]>,
 ): Promise<void> => {
   const children: Array<readonly [string, DirectoryEntryHandle]> = []
   for await (const child of handle.entries()) children.push(child)
   children.sort(([left], [right]) => comparePaths(left, right))
 
   for (const [name, child] of children) {
-    const childPath = joinRelative(path, name)
+    const childPath = decodeRelativePath(joinRelative(path, name))
     if (child.kind === 'directory') {
-      entries[childPath] = { kind: 'directory' }
+      entries.set(childPath, { kind: 'directory' })
       await walkDirectory(child, childPath, entries)
     } else if (isRecognizedConfig(childPath)) {
       const selectedFile = await child.getFile()
-      entries[childPath] = { kind: 'file', text: await selectedFile.text() }
+      entries.set(childPath, { kind: 'file', text: await selectedFile.text() })
     }
   }
 }
@@ -132,15 +161,14 @@ export const fileTreeFromDirectoryHandle = async (
   handle: DirectoryPermissionHandle,
 ): Promise<FileTree> => {
   await ensureReadPermission(handle)
-  const entries: Record<string, FileTree['entries'][string]> = {
-    '.': { kind: 'directory' },
+  const entries = new Map<RelativePath, FileTree['entries'][string]>([['.', { kind: 'directory' }]])
+  try {
+    await walkDirectory(handle, '.', entries)
+  } catch (cause) {
+    throw normalizeReadFailure(cause, `Unable to read workspace directory ${handle.name}`)
   }
-  await walkDirectory(handle, '.', entries)
-  return { entries }
+  return { entries: Object.fromEntries(entries) }
 }
-
-const decodeRelativePath = (path: string): RelativePath =>
-  Schema.decodeUnknownSync(RelativePathSchema)(path)
 
 const commonUploadRoot = (paths: ReadonlyArray<RelativePath>): string | null => {
   if (paths.length === 0 || paths.some((path) => path === '.' || !path.includes('/'))) return null
@@ -169,14 +197,17 @@ export const fileTreeFromDirectoryUpload = async (
   const directories = new Set<string>(['.'])
   for (const { path } of normalized) addAncestors(path, directories)
 
-  const entries: Record<string, FileTree['entries'][string]> = {}
-  for (const path of [...directories].sort()) entries[path] = { kind: 'directory' }
+  const entries = new Map<string, FileTree['entries'][string]>()
+  for (const path of [...directories].sort()) entries.set(path, { kind: 'directory' })
   for (const { file, path } of normalized) {
-    if (isRecognizedConfig(path)) entries[path] = { kind: 'file', text: await file.text() }
+    if (!isRecognizedConfig(path)) continue
+    try {
+      entries.set(path, { kind: 'file', text: await file.text() })
+    } catch (cause) {
+      throw normalizeReadFailure(cause, `Unable to read uploaded workspace file ${path}`)
+    }
   }
   return {
-    entries: Object.fromEntries(
-      Object.entries(entries).sort(([left], [right]) => comparePaths(left, right)),
-    ),
+    entries: Object.fromEntries([...entries].sort(([left], [right]) => comparePaths(left, right))),
   }
 }
