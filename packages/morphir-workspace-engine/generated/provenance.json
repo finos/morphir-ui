@@ -1,6 +1,6 @@
 {
   "crateVersion": "0.2.0",
   "protocolVersion": 1,
-  "rustSourceCommit": "b2bffa8a1a3d67ff47d4e9d4211df083e7f6d5dc",
+  "rustSourceCommit": "ac11a318b9c146a0bbc8c1e370abcbf1b736609d",
   "wasmSha256": "265669d5774023eec2566657998f177969b65d176f04d5939d2130b77fbdd523"
 }

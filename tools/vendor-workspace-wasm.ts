@@ -2,7 +2,7 @@ import { access, mkdir, mkdtemp, realpath, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const GENERATED_FILES = [
+export const GENERATED_FILES = [
   'morphir_workspace_wasm.d.ts',
   'morphir_workspace_wasm.js',
   'morphir_workspace_wasm_bg.wasm',
@@ -11,9 +11,9 @@ const GENERATED_FILES = [
   'workspace-discovery-corpus.json',
 ] as const
 
-interface Provenance {
+export interface Provenance {
   readonly crateVersion: string
-  readonly protocolVersion: number
+  readonly protocolVersion: 1
   readonly rustSourceCommit: string
   readonly wasmSha256: string
 }
@@ -74,6 +74,72 @@ const parseSource = (args: ReadonlyArray<string>): string => {
 const sha256 = (bytes: Uint8Array): string =>
   new Bun.CryptoHasher('sha256').update(bytes).digest('hex')
 
+const artifact = (artifacts: ReadonlyMap<string, Uint8Array>, name: string): Uint8Array => {
+  const bytes = artifacts.get(name)
+  if (!bytes) throw new Error(`Generated workspace WASM package is missing ${name}`)
+  return bytes
+}
+
+export const readGeneratedPackage = async (
+  sourcePackage: string,
+): Promise<ReadonlyMap<string, Uint8Array>> => {
+  const entries = await Promise.all(
+    GENERATED_FILES.map(
+      async (file) =>
+        [file, Uint8Array.from(await Bun.file(join(sourcePackage, file)).bytes())] as const,
+    ),
+  )
+  return new Map(entries)
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+export const validateProvenance = (
+  value: unknown,
+  sourceCommit: string,
+  actualSha256: string,
+): Provenance => {
+  if (!isRecord(value) || Object.keys(value).length !== 4) {
+    throw new Error('Invalid provenance object')
+  }
+  if (
+    typeof value.crateVersion !== 'string' ||
+    !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(value.crateVersion)
+  ) {
+    throw new Error('Invalid provenance crateVersion')
+  }
+  if (value.protocolVersion !== 1) {
+    throw new Error('Invalid provenance protocolVersion: expected 1')
+  }
+  if (
+    typeof value.rustSourceCommit !== 'string' ||
+    !/^[0-9a-f]{40}$/.test(value.rustSourceCommit)
+  ) {
+    throw new Error('Invalid provenance rustSourceCommit')
+  }
+  if (typeof value.wasmSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.wasmSha256)) {
+    throw new Error('Invalid provenance wasmSha256')
+  }
+  if (value.rustSourceCommit !== sourceCommit) {
+    throw new Error(
+      `WASM provenance commit ${value.rustSourceCommit} does not match Rust HEAD ${sourceCommit}`,
+    )
+  }
+  if (value.wasmSha256 !== actualSha256) {
+    throw new Error(
+      `WASM provenance SHA-256 ${value.wasmSha256} does not match binary SHA-256 ${actualSha256}`,
+    )
+  }
+
+  return {
+    crateVersion: value.crateVersion,
+    protocolVersion: value.protocolVersion,
+    rustSourceCommit: value.rustSourceCommit,
+    wasmSha256: value.wasmSha256,
+  }
+}
+
 const exists = async (path: string): Promise<boolean> => {
   try {
     await access(path)
@@ -83,11 +149,12 @@ const exists = async (path: string): Promise<boolean> => {
   }
 }
 
-const replaceGenerated = async (
+export const replaceGenerated = async (
   packageDirectory: string,
   generatedDirectory: string,
-  sourcePackage: string,
+  artifacts: ReadonlyMap<string, Uint8Array>,
 ): Promise<void> => {
+  for (const file of GENERATED_FILES) artifact(artifacts, file)
   await mkdir(packageDirectory, { recursive: true })
   const stagingDirectory = await mkdtemp(join(packageDirectory, '.generated-staging-'))
   const backupDirectory = await mkdtemp(join(packageDirectory, '.generated-backup-'))
@@ -97,7 +164,7 @@ const replaceGenerated = async (
   let installed = false
   try {
     for (const file of GENERATED_FILES) {
-      await Bun.write(join(stagingDirectory, file), Bun.file(join(sourcePackage, file)))
+      await Bun.write(join(stagingDirectory, file), artifact(artifacts, file))
     }
 
     if (await exists(generatedDirectory)) {
@@ -125,7 +192,7 @@ const replaceGenerated = async (
   }
 }
 
-const main = async (): Promise<void> => {
+export const main = async (): Promise<void> => {
   const source = await realpath(parseSource(Bun.argv.slice(2)))
   const repositoryRoot = dirname(fileURLToPath(import.meta.url))
   const packageDirectory = join(repositoryRoot, '..', 'packages', 'morphir-workspace-engine')
@@ -136,28 +203,18 @@ const main = async (): Promise<void> => {
   await run(['mise', 'run', 'build:workspace-wasm'], source)
   await assertCleanSource(source)
 
-  const [head, provenanceText, wasmBytes] = await Promise.all([
+  const [head, artifacts] = await Promise.all([
     run(['git', 'rev-parse', 'HEAD'], source),
-    Bun.file(join(sourcePackage, 'provenance.json')).text(),
-    Bun.file(join(sourcePackage, 'morphir_workspace_wasm_bg.wasm')).bytes(),
+    readGeneratedPackage(sourcePackage),
   ])
-  const provenance = JSON.parse(provenanceText) as Provenance
   const sourceCommit = head.trim()
+  const wasmBytes = artifact(artifacts, 'morphir_workspace_wasm_bg.wasm')
   const actualSha256 = sha256(wasmBytes)
+  const provenance = JSON.parse(decode(artifact(artifacts, 'provenance.json'))) as unknown
+  validateProvenance(provenance, sourceCommit, actualSha256)
 
-  if (provenance.rustSourceCommit !== sourceCommit) {
-    throw new Error(
-      `WASM provenance commit ${provenance.rustSourceCommit} does not match Rust HEAD ${sourceCommit}`,
-    )
-  }
-  if (provenance.wasmSha256 !== actualSha256) {
-    throw new Error(
-      `WASM provenance SHA-256 ${provenance.wasmSha256} does not match binary ${actualSha256}`,
-    )
-  }
-
-  await replaceGenerated(packageDirectory, generatedDirectory, sourcePackage)
+  await replaceGenerated(packageDirectory, generatedDirectory, artifacts)
   console.log(`Vendored workspace discovery WASM from Rust commit ${sourceCommit}`)
 }
 
-await main()
+if (import.meta.main) await main()
