@@ -141,7 +141,7 @@ jobs:
   macos:
     name: Build, sign, and notarize macOS arm64
     needs: release-contract
-    runs-on: macos-15
+    runs-on: macos-26
     env:
       CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
       CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
