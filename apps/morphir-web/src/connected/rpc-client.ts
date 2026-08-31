@@ -38,7 +38,7 @@ export interface ConnectedRpcClientOptions {
   readonly manifest: ConnectedSessionManifest
   readonly pageUrl: URL
   readonly webSocketFactory?: ConnectedWebSocketFactory
-  readonly maximumMessageBytes?: number
+  readonly maximumRequestBytes?: number
   readonly scheduleReconnect?: ReconnectScheduler
 }
 
@@ -114,7 +114,7 @@ export const makeConnectedRpcClient = ({
   manifest,
   pageUrl,
   webSocketFactory = defaultWebSocketFactory,
-  maximumMessageBytes = 1024 * 1024,
+  maximumRequestBytes = 1024 * 1024,
   scheduleReconnect = defaultReconnectScheduler,
 }: ConnectedRpcClientOptions): ConnectedRpcClient => {
   let socket: ConnectedWebSocket | null = null
@@ -145,8 +145,8 @@ export const makeConnectedRpcClient = ({
 
   const serialize = (value: unknown): string => {
     const payload = JSON.stringify(value)
-    if (new TextEncoder().encode(payload).byteLength > maximumMessageBytes) {
-      throw protocolError(`Connected host message exceeds ${maximumMessageBytes} bytes`)
+    if (new TextEncoder().encode(payload).byteLength > maximumRequestBytes) {
+      throw protocolError(`Connected host request exceeds ${maximumRequestBytes} bytes`)
     }
     return payload
   }
@@ -298,10 +298,6 @@ export const makeConnectedRpcClient = ({
   }
 
   const handleMessage = (data: string): void => {
-    if (new TextEncoder().encode(data).byteLength > maximumMessageBytes) {
-      closeProtocol(`Connected host message exceeds ${maximumMessageBytes} bytes`)
-      return
-    }
     let value: unknown
     try {
       value = JSON.parse(data)
