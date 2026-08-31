@@ -96,7 +96,10 @@
         else if (activeBefore) workbenches.activate(activeBefore)
       })()
     })
-    return () => unsubscribe?.()
+    return () => {
+      unsubscribe?.()
+      workbenches.dispose()
+    }
   })
 </script>
 

@@ -1,15 +1,13 @@
-import { Effect, Layer, Option, Stream } from 'effect'
+import { Effect, Option, Stream } from 'effect'
 import {
-  DevelopmentWorkbenchService,
-  ModelWorkbenchService,
   WorkbenchError,
-  WorkbenchProviderService,
-  WorkbenchSourceService,
+  makeWorkbenchProviderLayers,
   unsupportedProviderError,
   type DevelopmentWorkbenchDescriptor,
   type ModelWorkbenchData,
   type ModelWorkbenchDescriptor,
   type WorkbenchDescriptor,
+  type WorkbenchProviderAdapter,
 } from '@morphir/ui'
 import type { WorkspaceDiscoveryEngine } from '@morphir/workspace-engine'
 import {
@@ -194,15 +192,10 @@ export const qualifyWorkspace = (
   diagnostics: snapshot.diagnostics.map((diagnostic) => qualifyDiagnostic(root, diagnostic)),
 })
 
-export const makeBrowserWorkbenchLayers = (
+export const makeBrowserWorkbenchAdapter = (
   dependencies: BrowserWorkspaceDependencies,
   models: BrowserModelSourceProvider,
-): Layer.Layer<
-  | WorkbenchSourceService
-  | WorkbenchProviderService
-  | ModelWorkbenchService
-  | DevelopmentWorkbenchService
-> => {
+): WorkbenchProviderAdapter => {
   const findDirectory = async (
     source: WorkbenchSourceRef,
     ensurePermission = true,
@@ -310,161 +303,156 @@ export const makeBrowserWorkbenchLayers = (
         workbenchError('<browser-folder>', cause, 'Unable to select a browser directory'),
     })
 
-  return Layer.mergeAll(
-    Layer.succeed(WorkbenchSourceService, {
-      inspect: (source) => {
-        if (source.providerId !== PROVIDER_ID) return Effect.fail(providerError(source))
-        return source.locator.startsWith('directory:')
-          ? inspectDirectory(source)
-          : models.inspect(source)
-      },
-      pick: (kind) => (kind === 'folder' ? pickDirectory() : models.pick()),
-      release: (source) =>
-        source.providerId !== PROVIDER_ID
-          ? Effect.void
-          : source.locator.startsWith('directory:')
-            ? source.persistence === 'session'
-              ? Effect.sync(() => void sessionUploads.delete(source.locator))
-              : Effect.tryPromise(() => dependencies.handles.delete(source.locator)).pipe(
-                  Effect.catchAll(() => Effect.void),
-                )
-            : models.release(source),
-      reveal: (source) =>
-        Effect.fail(
-          new WorkbenchError({
-            code: 'unsupported-capability',
-            source,
-            message:
-              source.providerId === PROVIDER_ID
-                ? 'Reveal in file manager is not available in the browser'
-                : `Workbench source belongs to provider ${source.providerId}`,
-          }),
-        ),
-    }),
-    Layer.succeed(WorkbenchProviderService, {
-      list: Effect.succeed([
-        {
-          id: PROVIDER_ID,
-          name: 'This browser',
-          kind: 'local' as const,
-          status: 'available' as const,
-          capabilities: [
-            { name: 'morphir/model/open', version: '1' },
-            { name: 'morphir/development/inspect', version: '1' },
-            { name: 'morphir/workspace/open', version: '1' },
-          ],
-        },
-      ]),
-    }),
-    Layer.succeed(ModelWorkbenchService, {
-      load: (descriptor: ModelWorkbenchDescriptor) => {
-        if (descriptor.source.providerId !== PROVIDER_ID) {
-          return Effect.fail(providerError(descriptor.source))
-        }
-        if (!descriptor.source.locator.startsWith('directory:')) return models.load(descriptor)
-        return Effect.tryPromise({
-          try: async () => {
-            const tree = await findDirectory(descriptor.source)
-            const entry =
-              descriptor.source.displayName === '.morphir-dist' &&
-              tree.entries['manifest.json']?.kind === 'file'
-                ? tree.entries['manifest.json']
-                : tree.entries['.morphir-dist/manifest.json']
-            if (entry?.kind !== 'file') {
-              throw new WorkbenchError({
-                code: 'not-found',
-                source: descriptor.source,
-                message: `Document Tree manifest not found: ${descriptor.source.displayName}`,
-              })
-            }
-            let manifest: unknown
-            try {
-              manifest = JSON.parse(entry.text)
-            } catch {
-              throw new WorkbenchError({
-                code: 'invalid-distribution',
-                source: descriptor.source,
-                message: `Invalid Document Tree manifest: ${descriptor.source.displayName}`,
-              })
-            }
-            if (typeof manifest !== 'object' || manifest === null || Array.isArray(manifest)) {
-              throw new WorkbenchError({
-                code: 'invalid-distribution',
-                source: descriptor.source,
-                message: `Invalid Document Tree manifest: ${descriptor.source.displayName}`,
-              })
-            }
-            return {
-              kind: 'model' as const,
-              descriptor,
-              library: null,
-              ir: null,
-              manifest: manifest as Readonly<Record<string, unknown>>,
-            }
-          },
-          catch: (cause) =>
-            workbenchError(
-              descriptor.source,
-              cause,
-              `Unable to load Document Tree Workbench ${descriptor.name}`,
-            ),
-        })
-      },
-    }),
-    Layer.succeed(DevelopmentWorkbenchService, {
-      load: (descriptor: DevelopmentWorkbenchDescriptor) => {
-        if (descriptor.source.providerId !== PROVIDER_ID) {
-          return Effect.fail(providerError(descriptor.source))
-        }
-        return Effect.tryPromise({
-          try: async () => {
-            const [developmentRoot, morphirHome] = await Promise.all([
-              findDirectory(descriptor.source),
-              dependencies.home.read(),
-            ])
-            const response = await dependencies.engine.discover({
-              protocolVersion: 1,
-              developmentRoot,
-              morphirHome,
-              systemConfig: null,
-              environment: {},
-              cliOverlay: {},
+  return {
+    provider: {
+      id: PROVIDER_ID,
+      name: 'This browser',
+      kind: 'local',
+      status: 'available',
+      capabilities: [
+        { name: 'morphir/model/open', version: '1' },
+        { name: 'morphir/development/inspect', version: '1' },
+        { name: 'morphir/workspace/open', version: '1' },
+      ],
+    },
+    inspect: (source) => {
+      if (source.providerId !== PROVIDER_ID) return Effect.fail(providerError(source))
+      return source.locator.startsWith('directory:')
+        ? inspectDirectory(source)
+        : models.inspect(source)
+    },
+    pick: (kind) => (kind === 'folder' ? pickDirectory() : models.pick()),
+    release: (source) =>
+      source.providerId !== PROVIDER_ID
+        ? Effect.void
+        : source.locator.startsWith('directory:')
+          ? source.persistence === 'session'
+            ? Effect.sync(() => void sessionUploads.delete(source.locator))
+            : Effect.tryPromise(() => dependencies.handles.delete(source.locator)).pipe(
+                Effect.catchAll(() => Effect.void),
+              )
+          : models.release(source),
+    reveal: (source) =>
+      Effect.fail(
+        new WorkbenchError({
+          code: 'unsupported-capability',
+          source,
+          message:
+            source.providerId === PROVIDER_ID
+              ? 'Reveal in file manager is not available in the browser'
+              : `Workbench source belongs to provider ${source.providerId}`,
+        }),
+      ),
+    loadModel: (descriptor: ModelWorkbenchDescriptor) => {
+      if (descriptor.source.providerId !== PROVIDER_ID) {
+        return Effect.fail(providerError(descriptor.source))
+      }
+      if (!descriptor.source.locator.startsWith('directory:')) return models.load(descriptor)
+      return Effect.tryPromise({
+        try: async () => {
+          const tree = await findDirectory(descriptor.source)
+          const entry =
+            descriptor.source.displayName === '.morphir-dist' &&
+            tree.entries['manifest.json']?.kind === 'file'
+              ? tree.entries['manifest.json']
+              : tree.entries['.morphir-dist/manifest.json']
+          if (entry?.kind !== 'file') {
+            throw new WorkbenchError({
+              code: 'not-found',
+              source: descriptor.source,
+              message: `Document Tree manifest not found: ${descriptor.source.displayName}`,
             })
-            if (response.status === 'failure') {
-              throw new WorkbenchError({
-                code: 'detection-failed',
-                source: descriptor.source,
-                message: `${response.error.code}: ${response.error.message}`,
-              })
-            }
-            return {
-              kind: 'development' as const,
-              descriptor,
-              snapshot: qualifyWorkspace(descriptor.source, response.snapshot),
-            }
-          },
-          catch: (cause) =>
-            workbenchError(
-              descriptor.source,
-              cause,
-              `Unable to load Development Workbench ${descriptor.name}`,
-            ),
-        })
-      },
-      loadProjectModel: (descriptor) =>
-        Effect.fail(
-          descriptor.source.providerId === PROVIDER_ID
-            ? new WorkbenchError({
-                code: 'unsupported-capability',
-                source: descriptor.source,
-                message: 'Project model loading is not available in the browser',
-              })
-            : providerError(descriptor.source),
-        ),
-      events: (descriptor) =>
+          }
+          let manifest: unknown
+          try {
+            manifest = JSON.parse(entry.text)
+          } catch {
+            throw new WorkbenchError({
+              code: 'invalid-distribution',
+              source: descriptor.source,
+              message: `Invalid Document Tree manifest: ${descriptor.source.displayName}`,
+            })
+          }
+          if (typeof manifest !== 'object' || manifest === null || Array.isArray(manifest)) {
+            throw new WorkbenchError({
+              code: 'invalid-distribution',
+              source: descriptor.source,
+              message: `Invalid Document Tree manifest: ${descriptor.source.displayName}`,
+            })
+          }
+          return {
+            kind: 'model' as const,
+            descriptor,
+            library: null,
+            ir: null,
+            manifest: manifest as Readonly<Record<string, unknown>>,
+          }
+        },
+        catch: (cause) =>
+          workbenchError(
+            descriptor.source,
+            cause,
+            `Unable to load Document Tree Workbench ${descriptor.name}`,
+          ),
+      })
+    },
+    loadDevelopment: (descriptor: DevelopmentWorkbenchDescriptor) => {
+      if (descriptor.source.providerId !== PROVIDER_ID) {
+        return Effect.fail(providerError(descriptor.source))
+      }
+      return Effect.tryPromise({
+        try: async () => {
+          const [developmentRoot, morphirHome] = await Promise.all([
+            findDirectory(descriptor.source),
+            dependencies.home.read(),
+          ])
+          const response = await dependencies.engine.discover({
+            protocolVersion: 1,
+            developmentRoot,
+            morphirHome,
+            systemConfig: null,
+            environment: {},
+            cliOverlay: {},
+          })
+          if (response.status === 'failure') {
+            throw new WorkbenchError({
+              code: 'detection-failed',
+              source: descriptor.source,
+              message: `${response.error.code}: ${response.error.message}`,
+            })
+          }
+          return {
+            kind: 'development' as const,
+            descriptor,
+            snapshot: qualifyWorkspace(descriptor.source, response.snapshot),
+          }
+        },
+        catch: (cause) =>
+          workbenchError(
+            descriptor.source,
+            cause,
+            `Unable to load Development Workbench ${descriptor.name}`,
+          ),
+      })
+    },
+    loadProjectModel: (descriptor) =>
+      Effect.fail(
         descriptor.source.providerId === PROVIDER_ID
-          ? Stream.empty
-          : Stream.fail(providerError(descriptor.source)),
-    }),
-  )
+          ? new WorkbenchError({
+              code: 'unsupported-capability',
+              source: descriptor.source,
+              message: 'Project model loading is not available in the browser',
+            })
+          : providerError(descriptor.source),
+      ),
+    events: (descriptor) =>
+      descriptor.source.providerId === PROVIDER_ID
+        ? Stream.empty
+        : Stream.fail(providerError(descriptor.source)),
+  }
 }
+
+export const makeBrowserWorkbenchLayers = (
+  dependencies: BrowserWorkspaceDependencies,
+  models: BrowserModelSourceProvider,
+) => makeWorkbenchProviderLayers([makeBrowserWorkbenchAdapter(dependencies, models)], PROVIDER_ID)

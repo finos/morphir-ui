@@ -8,8 +8,10 @@ import {
   WorkspaceService,
   decodeUiConfig,
   defaultUiConfig,
+  makeWorkbenchProviderLayers,
   type CoreServices,
   type PickedWorkspace,
+  type WorkbenchProviderAdapter,
 } from '@morphir/ui'
 import { decodeMorphirIr, toWorkspaceIr } from '@morphir/ir'
 import {
@@ -19,7 +21,7 @@ import {
 import workspaceWasmUrl from '@morphir/workspace-engine/wasm?url'
 import { sourceKey, type WorkbenchSourceRef } from '@morphir/workspace'
 import {
-  makeBrowserWorkbenchLayers,
+  makeBrowserWorkbenchAdapter,
   pickBrowserDirectory,
   type BrowserWorkspaceDependencies,
 } from '../workspace/browser-provider.ts'
@@ -109,12 +111,13 @@ const allocateBrowserModelLocator = async (): Promise<string> => {
 const makeBrowserCoreLayers = (
   version: string,
   dependencies: BrowserWorkspaceDependencies,
+  additionalAdapters: ReadonlyArray<WorkbenchProviderAdapter> = [],
 ): Layer.Layer<CoreServices> => {
   const selectedModels = new Map<string, { name: string; baseName: string; content: string }>()
   const selectedModelNameCounts = new Map<string, number>()
   const providerError = (source: WorkbenchSourceRef): WorkbenchError =>
     unsupportedProviderError('browser-local', source)
-  const browserWorkbenchLayers = makeBrowserWorkbenchLayers(dependencies, {
+  const browserWorkbenchAdapter = makeBrowserWorkbenchAdapter(dependencies, {
     inspect: (source) => {
       const selectedModel = selectedModels.get(sourceKey(source))
       if (!selectedModel) {
@@ -229,6 +232,10 @@ const makeBrowserCoreLayers = (
         }
       }),
   })
+  const workbenchLayers = makeWorkbenchProviderLayers(
+    [browserWorkbenchAdapter, ...additionalAdapters],
+    'browser-local',
+  )
 
   return Layer.mergeAll(
     Layer.succeed(ConfigService, {
@@ -265,7 +272,7 @@ const makeBrowserCoreLayers = (
       }),
       read: Option.none(),
     }),
-    browserWorkbenchLayers,
+    workbenchLayers,
     Layer.succeed(AppInfoService, { version: Effect.succeed(version) }),
   )
 }
@@ -273,7 +280,8 @@ const makeBrowserCoreLayers = (
 export const browserCoreWith = (
   version: string,
   dependencies: BrowserWorkspaceDependencies,
-): Layer.Layer<CoreServices> => makeBrowserCoreLayers(version, dependencies)
+  additionalAdapters: ReadonlyArray<WorkbenchProviderAdapter> = [],
+): Layer.Layer<CoreServices> => makeBrowserCoreLayers(version, dependencies, additionalAdapters)
 
 export const makeLazyWorkspaceEngine = (
   initialize: () => Promise<WorkspaceDiscoveryEngine>,
@@ -308,22 +316,29 @@ const lazyWorkspaceEngine = (): WorkspaceDiscoveryEngine =>
       .then(makeWorkspaceDiscoveryEngine),
   )
 
-export const browserCore = (version: string): Layer.Layer<CoreServices> => {
+export const browserCore = (
+  version: string,
+  additionalAdapters: ReadonlyArray<WorkbenchProviderAdapter> = [],
+): Layer.Layer<CoreServices> => {
   let storage: WorkspaceStorage | undefined
   const getStorage = (): WorkspaceStorage =>
     (storage ??= makeIndexedDbWorkspaceStorage(globalThis.indexedDB))
-  return makeBrowserCoreLayers(version, {
-    engine: lazyWorkspaceEngine(),
-    handles: {
-      has: (key) => makeDirectoryHandleStore(getStorage()).has(key),
-      put: (key, handle) => makeDirectoryHandleStore(getStorage()).put(key, handle),
-      get: (key) => makeDirectoryHandleStore(getStorage()).get(key),
-      delete: (key) => makeDirectoryHandleStore(getStorage()).delete(key),
+  return makeBrowserCoreLayers(
+    version,
+    {
+      engine: lazyWorkspaceEngine(),
+      handles: {
+        has: (key) => makeDirectoryHandleStore(getStorage()).has(key),
+        put: (key, handle) => makeDirectoryHandleStore(getStorage()).put(key, handle),
+        get: (key) => makeDirectoryHandleStore(getStorage()).get(key),
+        delete: (key) => makeDirectoryHandleStore(getStorage()).delete(key),
+      },
+      home: {
+        read: () => makeBrowserMorphirHome(getStorage()).read(),
+        writeConfig: (name, text) => makeBrowserMorphirHome(getStorage()).writeConfig(name, text),
+      },
+      pickDirectory: pickBrowserDirectory,
     },
-    home: {
-      read: () => makeBrowserMorphirHome(getStorage()).read(),
-      writeConfig: (name, text) => makeBrowserMorphirHome(getStorage()).writeConfig(name, text),
-    },
-    pickDirectory: pickBrowserDirectory,
-  })
+    additionalAdapters,
+  )
 }

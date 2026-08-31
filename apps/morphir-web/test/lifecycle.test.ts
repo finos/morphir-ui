@@ -25,4 +25,21 @@ describe('web app lifecycle', () => {
     expect(unmountCalls).toBe(1)
     expect(serviceDisposals).toBe(1)
   })
+
+  test('disposes the connected socket once even when service disposal rejects', async () => {
+    let socketDisposals = 0
+    const dispose = makeWebAppDisposer({
+      unmount: () => undefined,
+      disposeServices: async () => {
+        throw new Error('service disposal failed')
+      },
+      disposeConnections: async () => void (socketDisposals += 1),
+    })
+
+    const first = dispose()
+    const repeated = dispose()
+    await expect(first).rejects.toThrow('service disposal failed')
+    await expect(repeated).rejects.toThrow('service disposal failed')
+    expect(socketDisposals).toBe(1)
+  })
 })

@@ -4,6 +4,7 @@ export const shouldDisposeOnPageHide = (event: Pick<PageTransitionEvent, 'persis
 export interface WebAppDisposal {
   readonly unmount: () => void | Promise<void>
   readonly disposeServices: () => Promise<void>
+  readonly disposeConnections?: () => Promise<void>
 }
 
 export const makeWebAppDisposer = (steps: WebAppDisposal): (() => Promise<void>) => {
@@ -13,7 +14,11 @@ export const makeWebAppDisposer = (steps: WebAppDisposal): (() => Promise<void>)
       try {
         await steps.unmount()
       } finally {
-        await steps.disposeServices()
+        try {
+          await steps.disposeServices()
+        } finally {
+          await steps.disposeConnections?.()
+        }
       }
     }))
 }
