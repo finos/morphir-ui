@@ -1,4 +1,6 @@
 import { readFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, test, vi } from 'vitest'
 import { Effect } from 'effect'
 import { DevelopmentWorkbenchService, makeAppServices } from '@morphir/ui'
@@ -90,9 +92,9 @@ const handleFromTree = (name: string, tree: FileTree): DirectoryPermissionHandle
 const emptyTree = (): FileTree => ({ entries: { '.': { kind: 'directory' } } })
 
 const wasmBytes = readFile(
-  new URL(
+  join(
+    dirname(fileURLToPath(import.meta.url)),
     '../../../packages/morphir-workspace-engine/generated/morphir_workspace_wasm_bg.wasm',
-    import.meta.url,
   ),
 )
 
