@@ -15,6 +15,7 @@ import {
   inspectDevelopment,
   inspectWorkbenchSource,
   readModelSource,
+  readProjectModelSource,
 } from '../src/main/workbench-source.ts'
 
 const roots: string[] = []
@@ -296,6 +297,60 @@ describe('source loading', () => {
           ],
         },
       ],
+    })
+  })
+
+  test('loads a discovered project morphir-ir.json without leaving the Development root', async () => {
+    const root = fixtureRoot()
+    const development = fixtureDirectory(root, 'dev')
+    fixtureFile(
+      root,
+      'dev/morphir.toml',
+      '[project]\nname = "orders"\nversion = "1.0.0"',
+    )
+    const content = '{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}'
+    fixtureFile(root, 'dev/morphir-ir.json', content)
+    const descriptor = await inspectWorkbenchSource(development, () => timestamp)
+    if (descriptor.kind !== 'development') throw new Error('Expected Development descriptor')
+    const discover = async () => ({
+      status: 'success' as const,
+      snapshot: {
+        protocolVersion: 1 as const,
+        configAnchor: 'morphir.toml',
+        name: 'Workspace',
+        state: 'open' as const,
+        projects: [
+          {
+            name: 'orders',
+            version: '1.0.0',
+            relativePath: '.' as const,
+            configAnchor: 'morphir.toml' as const,
+            sourceDirectory: 'src' as const,
+            state: 'unloaded' as const,
+            diagnostics: [],
+          },
+        ],
+        diagnostics: [],
+      },
+    })
+    const snapshot = await inspectDevelopment(descriptor, discover)
+    const projectId = snapshot.projects[0]!.id
+
+    expect(await readProjectModelSource(descriptor, projectId, discover)).toMatchObject({
+      content,
+      descriptor: {
+        kind: 'model',
+        route: 'explorer',
+        source: {
+          providerId: 'desktop-local',
+          displayName: 'orders / morphir-ir.json',
+        },
+      },
+    })
+    await expect(
+      readProjectModelSource(descriptor, 'unknown-project', discover),
+    ).rejects.toMatchObject({
+      code: 'not-found',
     })
   })
 

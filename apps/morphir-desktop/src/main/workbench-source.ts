@@ -17,7 +17,7 @@ import {
   type WorkspaceSnapshot,
 } from '@morphir/workspace'
 import { access, readFile, realpath, stat } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { basename, isAbsolute, join, relative, sep } from 'node:path'
 import { requireDesktopSourceRef } from '../shared/workbench-source.ts'
 import { discoverNodeWorkspace } from './workspace/discovery.ts'
 import { hasNodePrimaryConfiguration } from './workspace/node-file-tree.ts'
@@ -171,6 +171,81 @@ export const readModelSource = async (
       })
     }
     return { content: null, manifest: manifest as Readonly<Record<string, unknown>> }
+  } catch (error) {
+    throw workbenchError(source, error, 'read-failed')
+  }
+}
+
+const MAX_PROJECT_MODEL_BYTES = 64 * 1024 * 1024
+
+export const readProjectModelSource = async (
+  descriptor: DevelopmentWorkbenchDescriptor,
+  projectId: string,
+  discover: DiscoverDevelopment = discoverNodeWorkspace,
+): Promise<{
+  readonly descriptor: ModelWorkbenchDescriptor
+  readonly content: string
+}> => {
+  assertDesktopWorkbenchProvider(descriptor)
+  const source = descriptor.source.locator
+  try {
+    const snapshot = await inspectDevelopment(descriptor, discover)
+    const project = snapshot.projects.find((candidate) => candidate.id === projectId)
+    if (!project) {
+      throw new WorkbenchError({
+        code: 'not-found',
+        source: descriptor.source,
+        message: `Project is not present in ${descriptor.name}: ${projectId}`,
+      })
+    }
+    const canonicalRoot = await realpath(source)
+    const candidate = join(
+      canonicalRoot,
+      ...(project.relativePath === '.' ? [] : [project.relativePath]),
+      'morphir-ir.json',
+    )
+    const canonicalArtifact = await realpath(candidate)
+    const confined = relative(canonicalRoot, canonicalArtifact)
+    if (isAbsolute(confined) || confined === '..' || confined.startsWith(`..${sep}`)) {
+      throw new WorkbenchError({
+        code: 'permission-denied',
+        source: descriptor.source,
+        message: `Project model leaves the Development root: ${project.relativePath}/morphir-ir.json`,
+      })
+    }
+    const artifactStat = await stat(canonicalArtifact)
+    if (!artifactStat.isFile()) {
+      throw new WorkbenchError({
+        code: 'not-found',
+        source: descriptor.source,
+        message: `Project model is not a file: ${project.relativePath}/morphir-ir.json`,
+      })
+    }
+    if (artifactStat.size > MAX_PROJECT_MODEL_BYTES) {
+      throw new WorkbenchError({
+        code: 'read-failed',
+        source: descriptor.source,
+        message: `Project model exceeds ${MAX_PROJECT_MODEL_BYTES} bytes: ${project.relativePath}/morphir-ir.json`,
+      })
+    }
+    const modelSource: WorkbenchSourceRef = {
+      providerId: descriptor.source.providerId,
+      locator: canonicalArtifact,
+      displayName: `${project.name} / morphir-ir.json`,
+    }
+    return {
+      descriptor: {
+        id: sourceKey(modelSource),
+        source: modelSource,
+        name: project.name,
+        kind: 'model',
+        distribution: 'single-file',
+        route: 'explorer',
+        openedAt: descriptor.openedAt,
+        lastUsedAt: new Date().toISOString(),
+      },
+      content: await readFile(canonicalArtifact, 'utf8'),
+    }
   } catch (error) {
     throw workbenchError(source, error, 'read-failed')
   }

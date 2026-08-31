@@ -225,6 +225,7 @@ describe('browserCore', () => {
           { name: 'morphir/model/open', version: '1' },
           { name: 'morphir/development/inspect', version: '1' },
           { name: 'morphir/workspace/open', version: '1' },
+          { name: 'morphir/project-model/open', version: '1' },
         ],
       },
     ])
@@ -1178,10 +1179,75 @@ describe('browserCore', () => {
     ).rejects.toThrow('Workbench source belongs to provider cli:session-1')
   })
 
-  test('reports a typed failure for unsupported project models and leaves events empty', async () => {
+  test('loads a discovered project morphir-ir.json through its pinned browser provider', async () => {
+    const ir = '{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}'
+    const handle = nestedDirectoryHandle('workspace', [
+      fileHandle('morphir.toml', '[workspace]\nmembers = ["packages/*"]'),
+      nestedDirectoryHandle('packages', [
+        nestedDirectoryHandle('orders', [
+          fileHandle('morphir.toml', '[project]\nname = "orders"'),
+          fileHandle('morphir-ir.json', ir),
+        ]),
+      ]),
+    ])
+    const handles = new Map<string, FileSystemDirectoryHandle>()
+    const core = browserCoreWith('1.0.0', {
+      engine: {
+        discover: async () => ({
+          status: 'success',
+          snapshot: {
+            protocolVersion: 1,
+            configAnchor: 'morphir.toml',
+            name: 'Workspace',
+            state: 'open',
+            projects: [
+              {
+                name: 'orders',
+                version: null,
+                relativePath: 'packages/orders',
+                configAnchor: 'packages/orders/morphir.toml',
+                sourceDirectory: 'src',
+                state: 'unloaded',
+                diagnostics: [],
+              },
+            ],
+            diagnostics: [],
+          },
+        }),
+      },
+      handles: {
+        has: async (key) => handles.has(key),
+        put: async (key, selected) => void handles.set(key, selected),
+        get: async (key) => handles.get(key) ?? null,
+        delete: async (key) => void handles.delete(key),
+      },
+      home: {
+        read: async () => ({ entries: { '.': { kind: 'directory' } } }),
+        writeConfig: async () => undefined,
+      },
+      pickDirectory: async () => ({ kind: 'handle', handle }),
+    })
+    const services = await makeAppServices({ core })
+    const source = (await services.pickWorkbenchSource('folder'))!
+    const descriptor = await services.inspectWorkbench(source)
+    if (descriptor.kind !== 'development') throw new Error('Expected Development Workbench')
+    const loaded = await services.loadDevelopmentWorkbench(descriptor)
+    const projectId = loaded.snapshot.projects[0]!.id
+
+    const model = await services.loadDevelopmentProjectModel(descriptor, projectId)
+
+    expect(model.descriptor).toMatchObject({
+      kind: 'model',
+      route: 'explorer',
+      source: { providerId: 'browser-local', displayName: 'orders / morphir-ir.json' },
+    })
+    expect(model.ir).toMatchObject({ package: { moduleCount: 0 } })
+  })
+
+  test('reports a typed failure for unavailable project models and leaves events empty', async () => {
     const source = {
       providerId: 'browser-local',
-      locator: 'directory:workspace',
+      locator: directoryLocator(9),
       displayName: 'workspace',
     }
     const descriptor: DevelopmentWorkbenchDescriptor = {
@@ -1207,7 +1273,7 @@ describe('browserCore', () => {
       ).pipe(Effect.provide(core)),
     )
 
-    expect(projectError.code).toBe('unsupported-capability')
+    expect(projectError.code).toBe('read-failed')
     expect([...events]).toEqual([])
   })
 })

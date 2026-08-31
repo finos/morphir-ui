@@ -107,6 +107,7 @@ describe('Workbench RPC handlers', () => {
       }),
       readModel: async () => ({ content: '{"formatVersion":3}', manifest: null }),
       inspectDevelopment: async () => developmentSnapshot,
+      readProjectModel: async () => ({ descriptor, content: '{"formatVersion":3}' }),
       reveal: async (source) => void revealed.push(source),
       takeInitialSources: () => [
         {
@@ -162,6 +163,15 @@ describe('Workbench RPC handlers', () => {
     expect(
       (
         await registry.dispatch({
+          id: 7,
+          method: 'morphir/workbench/readProjectModel',
+          params: { descriptor: developmentDescriptor, projectId: developmentSnapshot.projects[0]!.id },
+        })
+      ).result,
+    ).toEqual({ descriptor, content: '{"formatVersion":3}' })
+    expect(
+      (
+        await registry.dispatch({
           id: 4,
           method: 'morphir/workbench/initialSources',
         })
@@ -190,6 +200,7 @@ describe('Workbench RPC handlers', () => {
       pick: async () => null,
       readModel: async () => ({ content: null, manifest: null }),
       inspectDevelopment: async () => developmentSnapshot,
+      readProjectModel: async () => ({ descriptor, content: '{"formatVersion":3}' }),
       reveal: async () => undefined,
       takeInitialSources: () => [],
     })
@@ -209,6 +220,7 @@ describe('Workbench RPC handlers', () => {
       pick: async () => ({ ...descriptor.source, providerId: 'cli:session-1' }),
       readModel: async () => ({ content: null, manifest: null }),
       inspectDevelopment: async () => developmentSnapshot,
+      readProjectModel: async () => ({ descriptor, content: '{"formatVersion":3}' }),
       reveal: async () => undefined,
       takeInitialSources: () => [],
     })
@@ -228,6 +240,7 @@ describe('Workbench RPC handlers', () => {
     const registry = new RpcRegistry()
     let readCalls = 0
     let developmentCalls = 0
+    let projectCalls = 0
     let inspectCalls = 0
     let revealCalls = 0
     registerWorkbenchHandlers(registry, {
@@ -243,6 +256,10 @@ describe('Workbench RPC handlers', () => {
       inspectDevelopment: async () => {
         developmentCalls += 1
         return developmentSnapshot
+      },
+      readProjectModel: async () => {
+        projectCalls += 1
+        return { descriptor, content: '{"formatVersion":3}' }
       },
       reveal: async () => void (revealCalls += 1),
       takeInitialSources: () => [],
@@ -278,6 +295,18 @@ describe('Workbench RPC handlers', () => {
       method: 'morphir/workbench/reveal',
       params: { source: foreignSource },
     })
+    const projectResponse = await registry.dispatch({
+      id: 5,
+      method: 'morphir/workbench/readProjectModel',
+      params: {
+        descriptor: {
+          ...developmentDescriptor,
+          id: sourceKey(foreignSource),
+          source: foreignSource,
+        },
+        projectId: developmentSnapshot.projects[0]!.id,
+      },
+    })
 
     expect(modelResponse.error?.data).toBe(
       'Workbench source belongs to provider cli:session-1; expected provider desktop-local',
@@ -291,8 +320,12 @@ describe('Workbench RPC handlers', () => {
     expect(revealResponse.error?.data).toBe(
       'Workbench source belongs to provider cli:session-1; expected provider desktop-local',
     )
+    expect(projectResponse.error?.data).toBe(
+      'Workbench source belongs to provider cli:session-1; expected provider desktop-local',
+    )
     expect(readCalls).toBe(0)
     expect(developmentCalls).toBe(0)
+    expect(projectCalls).toBe(0)
     expect(inspectCalls).toBe(0)
     expect(revealCalls).toBe(0)
   })

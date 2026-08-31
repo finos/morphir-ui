@@ -24,7 +24,7 @@ import {
   type WorkbenchDescriptor,
 } from '@morphir/ui'
 import { decodeMorphirIr, toWorkspaceIr } from '@morphir/ir'
-import { WorkspaceSnapshotSchema } from '@morphir/workspace'
+import { WORKBENCH_CAPABILITIES, WorkspaceSnapshotSchema } from '@morphir/workspace'
 import type { RpcClient } from './rpc-client.ts'
 import { requireDesktopSourceRef } from '../../../shared/workbench-source.ts'
 
@@ -165,6 +165,7 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
           capabilities: [
             { name: 'morphir/model/open', version: '1' },
             { name: 'morphir/development/inspect', version: '1' },
+            { name: WORKBENCH_CAPABILITIES.projectModelOpen, version: '1' },
             { name: 'morphir/workspace/open', version: '1' },
           ],
         },
@@ -222,16 +223,27 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
                 snapshot,
               })),
             ),
-      loadProjectModel: (descriptor) =>
-        Effect.fail(
-          descriptor.source.providerId === 'desktop-local'
-            ? new WorkbenchError({
-                code: 'unsupported-capability',
-                source: descriptor.source,
-                message: 'Project model loading is not available yet',
-              })
-            : unsupportedProviderError('desktop-local', descriptor.source),
-        ),
+      loadProjectModel: (descriptor, projectId) =>
+        descriptor.source.providerId !== 'desktop-local'
+          ? Effect.fail(unsupportedProviderError('desktop-local', descriptor.source))
+          : rpc
+              .effect<{
+                descriptor: ModelWorkbenchDescriptor
+                content: string
+              }>('morphir/workbench/readProjectModel', { descriptor, projectId })
+              .pipe(
+                Effect.mapError(
+                  (error) =>
+                    new WorkbenchError({
+                      code: 'read-failed',
+                      source: descriptor.source,
+                      message: error.message,
+                    }),
+                ),
+                Effect.flatMap(({ descriptor: modelDescriptor, content }) =>
+                  decodeModelSource(modelDescriptor, { content, manifest: null }),
+                ),
+              ),
       events: (descriptor) =>
         descriptor.source.providerId === 'desktop-local'
           ? Stream.empty

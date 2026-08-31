@@ -78,6 +78,7 @@ export type WorkspaceEvent = Schema.Schema.Type<typeof WorkspaceEventSchema>
 export const WORKBENCH_CAPABILITIES = {
   modelOpen: 'morphir/model/open',
   developmentInspect: 'morphir/development/inspect',
+  projectModelOpen: 'morphir/project-model/open',
   workspaceOpen: 'morphir/workspace/open',
   workspaceWatch: 'morphir/workspace/watch',
 } as const

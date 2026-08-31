@@ -260,6 +260,35 @@ describe('desktopCore provider pinning', () => {
             }),
           )
         }
+        if (request.method === 'morphir/workbench/readProjectModel') {
+          queueMicrotask(() =>
+            onMessage({
+              id: request.id,
+              result: {
+                descriptor: {
+                  id: sourceKey({
+                    providerId: 'desktop-local',
+                    locator: '/workspace/morphir-ir.json',
+                    displayName: 'orders / morphir-ir.json',
+                  }),
+                  source: {
+                    providerId: 'desktop-local',
+                    locator: '/workspace/morphir-ir.json',
+                    displayName: 'orders / morphir-ir.json',
+                  },
+                  name: 'orders',
+                  kind: 'model',
+                  distribution: 'single-file',
+                  route: 'explorer',
+                  openedAt: timestamp,
+                  lastUsedAt: timestamp,
+                },
+                content:
+                  '{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}',
+              },
+            }),
+          )
+        }
       },
     }
     const core = desktopCore(new RpcClient(ipc))
@@ -274,12 +303,10 @@ describe('desktopCore provider pinning', () => {
         service.load(localDevelopmentDescriptor),
       ).pipe(Effect.provide(core)),
     )
-    const projectError = await Effect.runPromise(
-      Effect.flip(
-        Effect.flatMap(DevelopmentWorkbenchService, (service) =>
-          service.loadProjectModel(localDevelopmentDescriptor, 'orders'),
-        ).pipe(Effect.provide(core)),
-      ),
+    const project = await Effect.runPromise(
+      Effect.flatMap(DevelopmentWorkbenchService, (service) =>
+        service.loadProjectModel(localDevelopmentDescriptor, canonicalSnapshot.projects[0]!.id),
+      ).pipe(Effect.provide(core)),
     )
     const events = await Effect.runPromise(
       Effect.flatMap(DevelopmentWorkbenchService, (service) =>
@@ -296,12 +323,14 @@ describe('desktopCore provider pinning', () => {
         capabilities: [
           { name: 'morphir/model/open', version: '1' },
           { name: 'morphir/development/inspect', version: '1' },
+          { name: 'morphir/project-model/open', version: '1' },
           { name: 'morphir/workspace/open', version: '1' },
         ],
       },
     ])
     expect(workspace.snapshot).toEqual(canonicalSnapshot)
-    expect(projectError).toMatchObject({ code: 'unsupported-capability' })
+    expect(project.descriptor).toMatchObject({ name: 'orders', route: 'explorer' })
+    expect(project.library?.modules).toEqual([])
     expect(Array.from(events)).toEqual([])
   })
 })
