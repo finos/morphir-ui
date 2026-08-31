@@ -11,6 +11,16 @@ describe('workspace model', () => {
     expect(() => Schema.decodeUnknownSync(WorkbenchSourceRefSchema)(localSource)).not.toThrow()
   })
 
+  test('preserves session persistence without changing source identity', () => {
+    const durable = { providerId: 'browser-local', locator: 'directory:41', displayName: 'Orders' }
+    const session = { ...durable, persistence: 'session' }
+
+    const decoded = Schema.decodeUnknownSync(WorkbenchSourceRefSchema)(session)
+
+    expect(decoded.persistence).toBe('session')
+    expect(sourceKey(decoded)).toBe(sourceKey(durable))
+  })
+
   test('decodes a workspace snapshot with one independently identified project', () => {
     const snapshot = {
       id: 'workspace-1',

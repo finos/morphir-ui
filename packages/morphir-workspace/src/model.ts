@@ -4,6 +4,7 @@ export const WorkbenchSourceRefSchema = Schema.Struct({
   providerId: Schema.String,
   locator: Schema.String,
   displayName: Schema.String,
+  persistence: Schema.optional(Schema.Literal('session')),
 })
 export type WorkbenchSourceRef = Schema.Schema.Type<typeof WorkbenchSourceRefSchema>
 

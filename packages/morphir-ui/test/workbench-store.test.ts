@@ -1,9 +1,10 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { sourceKey } from '@morphir/workspace'
 import {
   WorkbenchStore,
   WorkbenchError,
   defaultUiConfig,
+  legacyModelDescriptor,
   legacySourceRef,
   makeAppServices,
   type ModelWorkbenchDescriptor,
@@ -72,6 +73,62 @@ describe('WorkbenchStore', () => {
       '/a.json',
     ])
     expect(store.activeId).toBe(workbenchId('/a.json'))
+  })
+
+  test('keeps session-only Workbenches out of persisted open and Recent config', async () => {
+    const sessionSource = {
+      ...legacySourceRef('/uploaded-workspace'),
+      persistence: 'session' as const,
+    }
+    const { core, store: configStore } = makeFakeCore({ inspectResultSource: sessionSource })
+    const services = await makeAppServices({ core })
+    const store = new WorkbenchStore(services, defaultUiConfig.workbenches)
+
+    await store.open(sessionSource)
+
+    expect(store.openEntries[0]?.descriptor.source).toEqual(sessionSource)
+    await vi.waitFor(() => {
+      expect(configStore.config.workbenches.open).toEqual([])
+      expect(configStore.config.workbenches.activeId).toBeNull()
+    })
+
+    store.close(sourceKey(sessionSource))
+
+    expect(store.recent[0]?.source).toEqual(sessionSource)
+    await vi.waitFor(() => expect(configStore.config.workbenches.recent).toEqual([]))
+
+    const restored = new WorkbenchStore(services, configStore.config.workbenches)
+    await restored.restore()
+    expect(restored.openEntries).toEqual([])
+    expect(restored.recent).toEqual([])
+    expect(restored.activeId).toBeNull()
+  })
+
+  test('session-only Recent entries do not evict durable persisted history', async () => {
+    const durableRecent = Array.from({ length: 20 }, (_, index) =>
+      legacyModelDescriptor(`/recent-${index}.json`),
+    )
+    const sessionSource = {
+      ...legacySourceRef('/uploaded-workspace'),
+      persistence: 'session' as const,
+    }
+    const { core, store: configStore } = makeFakeCore({ inspectResultSource: sessionSource })
+    const store = new WorkbenchStore(await makeAppServices({ core }), {
+      open: [],
+      recent: durableRecent,
+      activeId: null,
+      reopenOnLaunch: true,
+    })
+
+    await store.open(sessionSource)
+    store.close(sourceKey(sessionSource))
+
+    expect(store.recent).toHaveLength(21)
+    await vi.waitFor(() => {
+      expect(configStore.config.workbenches.recent.map(({ id }) => id)).toEqual(
+        durableRecent.map(({ id }) => id),
+      )
+    })
   })
 
   test('keeps Workbenches with the same locator from different providers', async () => {

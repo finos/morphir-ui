@@ -271,6 +271,7 @@ export const makeBrowserWorkbenchLayers = (
           providerId: PROVIDER_ID,
           locator,
           displayName: picked.kind === 'handle' ? picked.handle.name : picked.name,
+          ...(picked.kind === 'upload' ? { persistence: 'session' as const } : {}),
         })
       },
       catch: (cause) =>

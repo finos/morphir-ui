@@ -31,6 +31,24 @@ const withSourceKey = (descriptor: WorkbenchDescriptor): WorkbenchDescriptor => 
   id: sourceKey(descriptor.source),
 })
 
+const isPersistable = (descriptor: WorkbenchDescriptor): boolean =>
+  descriptor.source.persistence !== 'session'
+
+const capRecent = (
+  descriptors: ReadonlyArray<WorkbenchDescriptor>,
+): ReadonlyArray<WorkbenchDescriptor> => {
+  let durable = 0
+  let session = 0
+  return descriptors.filter((descriptor) => {
+    if (isPersistable(descriptor)) {
+      durable += 1
+      return durable <= MAX_RECENT
+    }
+    session += 1
+    return session <= MAX_RECENT
+  })
+}
+
 export type FailedWorkbenchRequest =
   | {
       readonly kind: 'source'
@@ -59,13 +77,18 @@ export class WorkbenchStore {
   constructor(services: AppServices, initial: UiConfig['workbenches']) {
     this.#services = services
     this.#reopenOnLaunch = initial.reopenOnLaunch
+    const persistedOpen = initial.open.filter(isPersistable)
+    const persistedRecent = initial.recent.filter(isPersistable)
     this.openEntries = initial.reopenOnLaunch
-      ? initial.open.map((descriptor) => ({ descriptor, status: 'loading' as const }))
+      ? persistedOpen.map((descriptor) => ({ descriptor, status: 'loading' as const }))
       : []
     this.recent = initial.reopenOnLaunch
-      ? initial.recent
-      : [...initial.open, ...initial.recent].slice(0, MAX_RECENT)
-    this.activeId = initial.reopenOnLaunch ? initial.activeId : null
+      ? persistedRecent
+      : [...persistedOpen, ...persistedRecent].slice(0, MAX_RECENT)
+    this.activeId =
+      initial.reopenOnLaunch && persistedOpen.some(({ id }) => id === initial.activeId)
+        ? initial.activeId
+        : null
   }
 
   get active(): WorkbenchEntry | null {
@@ -171,10 +194,10 @@ export class WorkbenchStore {
     const closing = this.openEntries.find((entry) => entry.descriptor.id === id)
     if (!closing) return
     this.openEntries = this.openEntries.filter((entry) => entry.descriptor.id !== id)
-    this.recent = [
+    this.recent = capRecent([
       closing.descriptor,
       ...this.recent.filter((descriptor) => descriptor.id !== id),
-    ].slice(0, MAX_RECENT)
+    ])
     if (this.activeId === id) this.activeId = this.openEntries[0]?.descriptor.id ?? null
     this.#persist()
   }
@@ -254,9 +277,9 @@ export class WorkbenchStore {
   }
 
   #persist(): void {
-    const open = this.openEntries.map((entry) => entry.descriptor)
-    const recent = this.recent
-    const activeId = this.activeId
+    const open = this.openEntries.map((entry) => entry.descriptor).filter(isPersistable)
+    const recent = this.recent.filter(isPersistable).slice(0, MAX_RECENT)
+    const activeId = open.some(({ id }) => id === this.activeId) ? this.activeId : null
     void this.#services.updateConfig((config) => ({
       ...config,
       workbenches: {

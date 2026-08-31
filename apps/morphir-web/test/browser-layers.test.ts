@@ -565,6 +565,8 @@ describe('browserCore', () => {
 
     expect(first?.locator).toBe(directoryLocator(1))
     expect(second?.locator).toBe(directoryLocator(2))
+    expect(first?.persistence).toBe('session')
+    expect(second?.persistence).toBe('session')
     expect(firstLoaded.snapshot.name).toBe('first')
     expect(secondLoaded.snapshot.name).toBe('second')
     expect(requests.map((request) => request.developmentRoot.entries['morphir.toml'])).toEqual([
