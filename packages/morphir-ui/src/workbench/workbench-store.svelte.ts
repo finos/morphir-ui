@@ -1,6 +1,8 @@
+import { Effect, Fiber, Stream } from 'effect'
+import { SvelteMap } from 'svelte/reactivity'
 import type { UiConfig } from '../services/config.ts'
 import type { AppServices } from '../services/services.ts'
-import { sourceKey, type WorkbenchSourceRef } from '@morphir/workspace'
+import { sourceKey, type WorkbenchSourceRef, type WorkspaceEvent } from '@morphir/workspace'
 import type { SourcePickerKind } from './services.ts'
 import { legacySourceRef } from './types.ts'
 import type {
@@ -73,6 +75,8 @@ export class WorkbenchStore {
 
   readonly #services: AppServices
   readonly #reopenOnLaunch: boolean
+  readonly #workspaceWatches = new SvelteMap<WorkbenchId, Fiber.RuntimeFiber<void, never>>()
+  readonly #loadTokens = new SvelteMap<WorkbenchId, object>()
 
   constructor(services: AppServices, initial: UiConfig['workbenches']) {
     this.#services = services
@@ -197,6 +201,8 @@ export class WorkbenchStore {
   close(id: WorkbenchId): void {
     const closing = this.openEntries.find((entry) => entry.descriptor.id === id)
     if (!closing) return
+    this.#loadTokens.delete(id)
+    this.#stopWorkspaceWatch(id)
     this.openEntries = this.openEntries.filter((entry) => entry.descriptor.id !== id)
     const candidates = [
       closing.descriptor,
@@ -256,6 +262,11 @@ export class WorkbenchStore {
     this.#persist()
   }
 
+  dispose(): void {
+    this.#loadTokens.clear()
+    for (const id of this.#workspaceWatches.keys()) this.#stopWorkspaceWatch(id)
+  }
+
   async #release(source: WorkbenchSourceRef): Promise<void> {
     try {
       await this.#services.releaseWorkbenchSource(source)
@@ -265,29 +276,88 @@ export class WorkbenchStore {
   }
 
   async #load(descriptor: WorkbenchDescriptor): Promise<void> {
+    this.#stopWorkspaceWatch(descriptor.id)
+    const token = {}
+    this.#loadTokens.set(descriptor.id, token)
     try {
       const data =
         descriptor.kind === 'model'
           ? await this.#services.loadModelWorkbench(descriptor)
           : await this.#services.loadDevelopmentWorkbench(descriptor)
-      const currentDescriptor =
-        this.openEntries.find((entry) => entry.descriptor.id === descriptor.id)?.descriptor ??
-        descriptor
+      const current = this.openEntries.find((entry) => entry.descriptor.id === descriptor.id)
+      if (this.#loadTokens.get(descriptor.id) !== token || !current) return
+      const currentDescriptor = current.descriptor
       this.#replace(descriptor.id, {
         descriptor: currentDescriptor,
         status: 'ready',
         data: { ...data, descriptor: currentDescriptor } as typeof data,
       })
+      if (currentDescriptor.kind === 'development') {
+        this.#startWorkspaceWatch(currentDescriptor)
+      }
     } catch (error) {
-      const currentDescriptor =
-        this.openEntries.find((entry) => entry.descriptor.id === descriptor.id)?.descriptor ??
-        descriptor
+      const current = this.openEntries.find((entry) => entry.descriptor.id === descriptor.id)
+      if (this.#loadTokens.get(descriptor.id) !== token || !current) return
       this.#replace(descriptor.id, {
-        descriptor: currentDescriptor,
+        descriptor: current.descriptor,
         status: 'error',
         message: messageOf(error),
       })
+    } finally {
+      if (this.#loadTokens.get(descriptor.id) === token) this.#loadTokens.delete(descriptor.id)
     }
+  }
+
+  #startWorkspaceWatch(descriptor: Extract<WorkbenchDescriptor, { kind: 'development' }>): void {
+    const id = descriptor.id
+    const watch = Effect.runFork(
+      Stream.runForEach(this.#services.workspaceEvents(descriptor), (event) =>
+        Effect.sync(() => this.#applyWorkspaceEvent(id, event)),
+      ).pipe(
+        Effect.catchAll((error) =>
+          Effect.sync(() => this.#markWorkspaceError(id, messageOf(error))),
+        ),
+      ),
+    )
+    this.#workspaceWatches.set(id, watch)
+    watch.addObserver(() => {
+      if (this.#workspaceWatches.get(id) === watch) this.#workspaceWatches.delete(id)
+    })
+  }
+
+  #applyWorkspaceEvent(id: WorkbenchId, event: WorkspaceEvent): void {
+    if (event.tag === 'provider-disconnected') {
+      this.#markWorkspaceError(id, event.message)
+      return
+    }
+    const entry = this.openEntries.find((candidate) => candidate.descriptor.id === id)
+    if (!entry || entry.descriptor.kind !== 'development') return
+    if (entry.status === 'error') {
+      this.#replace(id, {
+        descriptor: entry.descriptor,
+        status: 'ready',
+        data: { kind: 'development', descriptor: entry.descriptor, snapshot: event.snapshot },
+      })
+      return
+    }
+    if (entry.status !== 'ready' || entry.data.kind !== 'development') return
+    this.#replace(id, {
+      ...entry,
+      data: { ...entry.data, snapshot: event.snapshot },
+    })
+  }
+
+  #markWorkspaceError(id: WorkbenchId, message: string): void {
+    const entry = this.openEntries.find((candidate) => candidate.descriptor.id === id)
+    if (!entry) return
+    this.#replace(id, { descriptor: entry.descriptor, status: 'error', message })
+  }
+
+  #stopWorkspaceWatch(id: WorkbenchId): void {
+    const watch = this.#workspaceWatches.get(id)
+    if (!watch) return
+    this.#workspaceWatches.delete(id)
+    Effect.runFork(Fiber.interruptFork(watch))
   }
 
   #replace(id: WorkbenchId, entry: WorkbenchEntry): void {

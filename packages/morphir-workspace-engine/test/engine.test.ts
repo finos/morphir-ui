@@ -11,7 +11,7 @@ interface CorpusCase {
 const loadWasmBytes = (): Promise<ArrayBuffer> =>
   Bun.file(new URL('../generated/morphir_workspace_wasm_bg.wasm', import.meta.url)).arrayBuffer()
 
-const withEmptyCustomSection = (bytes: ArrayBuffer): Uint8Array => {
+const withEmptyCustomSection = (bytes: ArrayBuffer): Uint8Array<ArrayBuffer> => {
   const extended = new Uint8Array(bytes.byteLength + 3)
   extended.set(new Uint8Array(bytes))
   extended.set([0, 1, 0], bytes.byteLength)

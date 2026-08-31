@@ -1,5 +1,6 @@
+import { Effect, Stream } from 'effect'
 import { describe, expect, test, vi } from 'vitest'
-import { sourceKey } from '@morphir/workspace'
+import { sourceKey, type WorkspaceSnapshot } from '@morphir/workspace'
 import {
   WorkbenchStore,
   WorkbenchError,
@@ -479,5 +480,146 @@ describe('WorkbenchStore', () => {
     store.query = 'knowledge'
     expect(store.filteredOpen).toEqual([])
     expect(store.filteredRecent.map((entry) => entry.source.locator)).toEqual(['/knowledge'])
+  })
+
+  test('applies watched snapshots to an open Development Workbench', async () => {
+    const source = legacySourceRef('/dev')
+    const snapshot: WorkspaceSnapshot = {
+      id: sourceKey(source),
+      root: source,
+      name: 'Updated workspace',
+      configAnchor: '/dev/morphir.json',
+      state: 'open',
+      projects: [],
+      modelSources: [],
+      knowledgeBaseSources: [],
+      diagnostics: [
+        {
+          severity: 'warning',
+          code: 'workspace.changed',
+          message: 'Workspace files changed',
+          path: '/dev/morphir.json',
+          projectId: null,
+        },
+      ],
+    }
+    const { core } = makeFakeCore({
+      development: { events: Stream.make({ tag: 'snapshot' as const, snapshot }) },
+    })
+    const store = new WorkbenchStore(await makeAppServices({ core }), defaultUiConfig.workbenches)
+
+    await store.open(source)
+
+    await vi.waitFor(() => {
+      expect(store.active).toMatchObject({ status: 'ready', data: { snapshot } })
+    })
+  })
+
+  test('marks an open Development Workbench when its provider disconnects', async () => {
+    const source = legacySourceRef('/dev')
+    const { core } = makeFakeCore({
+      development: {
+        events: Stream.make({
+          tag: 'provider-disconnected' as const,
+          providerId: source.providerId,
+          message: 'CLI connection closed',
+        }),
+      },
+    })
+    const store = new WorkbenchStore(await makeAppServices({ core }), defaultUiConfig.workbenches)
+
+    await store.open(source)
+
+    await vi.waitFor(() => {
+      expect(store.active).toMatchObject({ status: 'error', message: 'CLI connection closed' })
+    })
+  })
+
+  test('applies a restored watch snapshot after its provider reconnects', async () => {
+    const source = legacySourceRef('/dev')
+    const snapshot: WorkspaceSnapshot = {
+      id: sourceKey(source),
+      root: source,
+      name: 'Reconnected workspace',
+      configAnchor: '/dev/morphir.json',
+      state: 'open',
+      projects: [],
+      modelSources: [],
+      knowledgeBaseSources: [],
+      diagnostics: [],
+    }
+    const { core } = makeFakeCore({
+      development: {
+        events: Stream.make(
+          {
+            tag: 'provider-disconnected' as const,
+            providerId: source.providerId,
+            message: 'CLI connection closed',
+          },
+          { tag: 'snapshot' as const, snapshot },
+        ),
+      },
+    })
+    const store = new WorkbenchStore(await makeAppServices({ core }), defaultUiConfig.workbenches)
+
+    await store.open(source)
+
+    await vi.waitFor(() => {
+      expect(store.active).toMatchObject({ status: 'ready', data: { snapshot } })
+    })
+  })
+
+  test('stops watching a Development Workbench when it closes or the store disposes', async () => {
+    let subscriptions = 0
+    let finalizations = 0
+    const events = Stream.never.pipe(
+      Stream.tap(() => Effect.void),
+      Stream.ensuring(Effect.sync(() => void (finalizations += 1))),
+    )
+    const { core } = makeFakeCore({
+      development: {
+        events,
+        onEvents: () => void (subscriptions += 1),
+      },
+    })
+    const store = new WorkbenchStore(await makeAppServices({ core }), defaultUiConfig.workbenches)
+
+    await store.open('/dev')
+    await vi.waitFor(() => expect(subscriptions).toBe(1))
+    store.close(workbenchId('/dev'))
+    await vi.waitFor(() => expect(finalizations).toBe(1))
+
+    await store.reopen(workbenchId('/dev'))
+    await vi.waitFor(() => expect(subscriptions).toBe(2))
+    store.dispose()
+    await vi.waitFor(() => expect(finalizations).toBe(2))
+  })
+
+  test('does not start a workspace watch when a Workbench closes during loading', async () => {
+    const { core } = makeFakeCore()
+    const services = await makeAppServices({ core })
+    let finishLoad!: () => void
+    const loadMayFinish = new Promise<void>((resolve) => void (finishLoad = resolve))
+    const workspaceEvents = vi.fn(services.workspaceEvents)
+    const store = new WorkbenchStore(
+      {
+        ...services,
+        loadDevelopmentWorkbench: async (descriptor) => {
+          await loadMayFinish
+          return services.loadDevelopmentWorkbench(descriptor)
+        },
+        workspaceEvents,
+      },
+      defaultUiConfig.workbenches,
+    )
+
+    const opening = store.open('/dev')
+    await vi.waitFor(() => expect(store.active?.status).toBe('loading'))
+    store.close(workbenchId('/dev'))
+    finishLoad()
+    await opening
+
+    expect(store.openEntries).toEqual([])
+    expect(workspaceEvents).not.toHaveBeenCalled()
   })
 })
