@@ -79,6 +79,7 @@ const manifest: ConnectedSessionManifest = {
 const client = (
   notifications: Stream.Stream<ConnectedNotification> = Stream.empty,
   inspectResult: unknown = { descriptor },
+  modelResult: unknown = projectModelResult,
 ): ConnectedRpcClient => ({
   manifest,
   notifications,
@@ -89,7 +90,7 @@ const client = (
       case CONNECTED_METHODS.workspaceOpen:
         return Effect.succeed({ snapshot })
       case CONNECTED_METHODS.projectModelOpen:
-        return Effect.succeed(projectModelResult)
+        return Effect.succeed(modelResult)
       case CONNECTED_METHODS.workspaceWatch:
         return Effect.succeed({ subscriptionId: 'watch-1' })
       case CONNECTED_METHODS.workspaceUnwatch:
@@ -135,6 +136,32 @@ describe('connected Workbench provider', () => {
     const inspectError = await Effect.runPromise(Effect.flip(adapter.inspect(source)))
     expect(inspectError.code).toBe('unsupported-capability')
     expect(Option.isNone(await Effect.runPromise(adapter.pick('folder')))).toBe(true)
+  })
+
+  test('rejects provider drift and invalid IR from project-model responses', async () => {
+    const foreignSource = { ...modelSource, providerId: 'cli:other' }
+    const foreignAdapter = makeConnectedWorkbenchAdapters(
+      client(Stream.empty, { descriptor }, {
+        ...projectModelResult,
+        descriptor: {
+          ...projectModelResult.descriptor,
+          id: sourceKey(foreignSource),
+          source: foreignSource,
+        },
+      }),
+    )[0]!
+    const foreignError = await Effect.runPromise(
+      Effect.flip(foreignAdapter.loadProjectModel(descriptor, 'project-1')),
+    )
+    expect(foreignError).toMatchObject({ code: 'unsupported-capability' })
+
+    const invalidAdapter = makeConnectedWorkbenchAdapters(
+      client(Stream.empty, { descriptor }, { ...projectModelResult, content: '{' }),
+    )[0]!
+    const invalidError = await Effect.runPromise(
+      Effect.flip(invalidAdapter.loadProjectModel(descriptor, 'project-1')),
+    )
+    expect(invalidError).toMatchObject({ code: 'invalid-distribution' })
   })
 
   test('maps qualified events and transport disconnects without changing provider identity', async () => {

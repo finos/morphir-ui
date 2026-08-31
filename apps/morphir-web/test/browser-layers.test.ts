@@ -1242,6 +1242,91 @@ describe('browserCore', () => {
       source: { providerId: 'browser-local', displayName: 'orders / morphir-ir.json' },
     })
     expect(model.ir).toMatchObject({ package: { moduleCount: 0 } })
+    const unknownError = await Effect.runPromise(
+      Effect.flip(
+        Effect.flatMap(DevelopmentWorkbenchService, (service) =>
+          service.loadProjectModel(descriptor, 'unknown-project'),
+        ).pipe(Effect.provide(core)),
+      ),
+    )
+    expect(unknownError).toMatchObject({ code: 'not-found' })
+  })
+
+  test.each([
+    ['missing', null, 'not-found'],
+    ['malformed', '{', 'invalid-distribution'],
+    [
+      'unsupported',
+      '{"formatVersion":2,"distribution":["Library",[],[],{"modules":[]}]}',
+      'invalid-distribution',
+    ],
+  ] as const)('reports a typed %s uploaded project model', async (_case, content, code) => {
+    const files = [
+      {
+        relativePath: 'workspace/morphir.toml',
+        size: 9,
+        text: async () => '[project]',
+      },
+      ...(content === null
+        ? []
+        : [
+            {
+              relativePath: 'workspace/morphir-ir.json',
+              size: new TextEncoder().encode(content).byteLength,
+              text: async () => content,
+            },
+          ]),
+    ]
+    const core = browserCoreWith('1.0.0', {
+      engine: {
+        discover: async () => ({
+          status: 'success',
+          snapshot: {
+            protocolVersion: 1,
+            configAnchor: 'morphir.toml',
+            name: 'Workspace',
+            state: 'open',
+            projects: [
+              {
+                name: 'orders',
+                version: null,
+                relativePath: '.',
+                configAnchor: 'morphir.toml',
+                sourceDirectory: 'src',
+                state: 'unloaded',
+                diagnostics: [],
+              },
+            ],
+            diagnostics: [],
+          },
+        }),
+      },
+      handles: {
+        has: async () => false,
+        put: async () => undefined,
+        get: async () => null,
+        delete: async () => undefined,
+      },
+      home: {
+        read: async () => ({ entries: { '.': { kind: 'directory' } } }),
+        writeConfig: async () => undefined,
+      },
+      pickDirectory: async () => ({ kind: 'upload', name: 'workspace', files }),
+    })
+    const services = await makeAppServices({ core })
+    const source = (await services.pickWorkbenchSource('folder'))!
+    const descriptor = await services.inspectWorkbench(source)
+    if (descriptor.kind !== 'development') throw new Error('Expected Development Workbench')
+    const loaded = await services.loadDevelopmentWorkbench(descriptor)
+
+    const error = await Effect.runPromise(
+      Effect.flip(
+        Effect.flatMap(DevelopmentWorkbenchService, (service) =>
+          service.loadProjectModel(descriptor, loaded.snapshot.projects[0]!.id),
+        ).pipe(Effect.provide(core)),
+      ),
+    )
+    expect(error).toMatchObject({ code })
   })
 
   test('reports a typed failure for unavailable project models and leaves events empty', async () => {
