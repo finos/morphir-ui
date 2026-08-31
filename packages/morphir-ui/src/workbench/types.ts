@@ -40,6 +40,30 @@ export interface DevelopmentWorkbenchData {
   readonly snapshot: WorkspaceSnapshot
 }
 
+export type DevelopmentProjectModelEntry =
+  | {
+      readonly projectId: string
+      readonly status: 'loading'
+      readonly selectedDefinitionId: string | null
+    }
+  | {
+      readonly projectId: string
+      readonly status: 'ready'
+      readonly model: ModelWorkbenchData
+      readonly selectedDefinitionId: string | null
+    }
+  | {
+      readonly projectId: string
+      readonly status: 'error'
+      readonly message: string
+      readonly selectedDefinitionId: string | null
+    }
+
+export interface DevelopmentNavigationState {
+  readonly activeProjectId: string | null
+  readonly projects: ReadonlyArray<DevelopmentProjectModelEntry>
+}
+
 export type WorkbenchData = ModelWorkbenchData | DevelopmentWorkbenchData
 
 export type WorkbenchEntry =
