@@ -9,6 +9,8 @@ import {
   JsonRpcNotificationSchema,
   JsonRpcRequestSchema,
   JsonRpcSuccessResponseSchema,
+  ProjectModelOpenParamsSchema,
+  ProjectModelOpenResultSchema,
   WorkspaceEventNotificationParamsSchema,
 } from '../src/index.ts'
 
@@ -24,6 +26,7 @@ const manifest = {
       status: 'available',
       capabilities: [
         { name: 'morphir/development/inspect', version: '1' },
+        { name: 'morphir/project-model/open', version: '1' },
         { name: 'morphir/workspace/open', version: '1' },
         { name: 'morphir/workspace/watch', version: '1' },
       ],
@@ -151,6 +154,47 @@ describe('connected host protocol', () => {
       Schema.decodeUnknownSync(WorkspaceEventNotificationParamsSchema)({
         subscriptionId: 'watch-1',
         event: { tag: 'snapshot', snapshot: { state: 'open' } },
+      }),
+    ).toThrow()
+  })
+
+  test('defines strict project-model open payloads', () => {
+    const source = manifest.initialSources[0]
+    expect(
+      Schema.decodeUnknownSync(ProjectModelOpenParamsSchema)({
+        source,
+        projectId: '["cli:session-1","workspace:initial","."]',
+      }),
+    ).toEqual({
+      source,
+      projectId: '["cli:session-1","workspace:initial","."]',
+    })
+
+    const result = {
+      descriptor: {
+        id: '["cli:session-1","model:orders"]',
+        source: {
+          providerId: 'cli:session-1',
+          locator: 'model:orders',
+          displayName: 'orders / morphir-ir.json',
+        },
+        name: 'orders',
+        kind: 'model',
+        distribution: 'single-file',
+        route: 'explorer',
+        openedAt: '2026-08-31T12:00:00.000Z',
+        lastUsedAt: '2026-08-31T12:00:00.000Z',
+      },
+      content: '{"formatVersion":3}',
+    } as const
+    expect(Schema.decodeUnknownSync(ProjectModelOpenResultSchema)(result)).toEqual(result)
+    expect(() =>
+      Schema.decodeUnknownSync(ProjectModelOpenParamsSchema)({ source, projectId: '' }),
+    ).toThrow()
+    expect(() =>
+      Schema.decodeUnknownSync(ProjectModelOpenResultSchema)({
+        ...result,
+        descriptor: { ...result.descriptor, route: 'overview' },
       }),
     ).toThrow()
   })
