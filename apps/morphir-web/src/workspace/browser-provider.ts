@@ -1,11 +1,14 @@
 import { Effect, Layer, Option, Stream } from 'effect'
 import {
   DevelopmentWorkbenchService,
+  ModelWorkbenchService,
   WorkbenchError,
   WorkbenchProviderService,
   WorkbenchSourceService,
   unsupportedProviderError,
   type DevelopmentWorkbenchDescriptor,
+  type ModelWorkbenchData,
+  type ModelWorkbenchDescriptor,
   type WorkbenchDescriptor,
 } from '@morphir/ui'
 import type { WorkspaceDiscoveryEngine } from '@morphir/workspace-engine'
@@ -56,6 +59,9 @@ export interface BrowserModelSourceProvider {
     source: WorkbenchSourceRef,
   ) => Effect.Effect<WorkbenchDescriptor, WorkbenchError>
   readonly pick: () => Effect.Effect<Option.Option<WorkbenchSourceRef>, WorkbenchError>
+  readonly load: (
+    descriptor: ModelWorkbenchDescriptor,
+  ) => Effect.Effect<ModelWorkbenchData, WorkbenchError>
   readonly release: (source: WorkbenchSourceRef) => Effect.Effect<void>
 }
 
@@ -191,8 +197,16 @@ export const qualifyWorkspace = (
 export const makeBrowserWorkbenchLayers = (
   dependencies: BrowserWorkspaceDependencies,
   models: BrowserModelSourceProvider,
-): Layer.Layer<WorkbenchSourceService | WorkbenchProviderService | DevelopmentWorkbenchService> => {
-  const findDirectory = async (source: WorkbenchSourceRef): Promise<UploadedTree['tree']> => {
+): Layer.Layer<
+  | WorkbenchSourceService
+  | WorkbenchProviderService
+  | ModelWorkbenchService
+  | DevelopmentWorkbenchService
+> => {
+  const findDirectory = async (
+    source: WorkbenchSourceRef,
+    ensurePermission = true,
+  ): Promise<UploadedTree['tree']> => {
     const uploaded = sessionUploads.get(source.locator)
     if (uploaded) return uploaded.tree
     const handle = await dependencies.handles.get(source.locator)
@@ -203,30 +217,47 @@ export const makeBrowserWorkbenchLayers = (
         message: `Workbench source not found in this browser: ${source.locator}`,
       })
     }
-    return fileTreeFromDirectoryHandle(handle as unknown as DirectoryPermissionHandle)
+    return fileTreeFromDirectoryHandle(handle as unknown as DirectoryPermissionHandle, {
+      ensurePermission,
+    })
   }
 
   const inspectDirectory = (source: WorkbenchSourceRef) =>
     Effect.tryPromise({
       try: async () => {
+        const tree = await findDirectory(source, false)
         const uploaded = sessionUploads.get(source.locator)
-        if (!uploaded && (await dependencies.handles.get(source.locator)) === null) {
-          throw new WorkbenchError({
-            code: 'not-found',
-            source,
-            message: `Workbench source not found in this browser: ${source.locator}`,
-          })
-        }
         const timestamp = new Date().toISOString()
-        return {
+        const base = {
           id: sourceKey(source),
           source,
           name: uploaded?.name ?? source.displayName,
-          kind: 'development' as const,
-          route: 'overview' as const,
           openedAt: timestamp,
           lastUsedAt: timestamp,
         }
+        const hasPrimaryConfiguration = [
+          'morphir.toml',
+          'morphir.yaml',
+          'morphir.json',
+          '.morphir/morphir.toml',
+          '.morphir/morphir.yaml',
+          '.config/morphir/config.toml',
+          '.config/morphir/config.yaml',
+        ].some((path) => tree.entries[path]?.kind === 'file')
+        const manifestPath =
+          source.displayName === '.morphir-dist' && tree.entries['manifest.json']?.kind === 'file'
+            ? 'manifest.json'
+            : tree.entries['.morphir-dist/manifest.json']?.kind === 'file'
+              ? '.morphir-dist/manifest.json'
+              : null
+        return !hasPrimaryConfiguration && manifestPath !== null
+          ? {
+              ...base,
+              kind: 'model' as const,
+              distribution: 'document-tree' as const,
+              route: 'overview' as const,
+            }
+          : { ...base, kind: 'development' as const, route: 'overview' as const }
       },
       catch: (cause) =>
         workbenchError(source, cause, `Unable to inspect browser directory ${source.displayName}`),
@@ -289,10 +320,14 @@ export const makeBrowserWorkbenchLayers = (
       },
       pick: (kind) => (kind === 'folder' ? pickDirectory() : models.pick()),
       release: (source) =>
-        source.providerId !== PROVIDER_ID || source.persistence !== 'session'
+        source.providerId !== PROVIDER_ID
           ? Effect.void
           : source.locator.startsWith('directory:')
-            ? Effect.sync(() => void sessionUploads.delete(source.locator))
+            ? source.persistence === 'session'
+              ? Effect.sync(() => void sessionUploads.delete(source.locator))
+              : Effect.tryPromise(() => dependencies.handles.delete(source.locator)).pipe(
+                  Effect.catchAll(() => Effect.void),
+                )
             : models.release(source),
       reveal: (source) =>
         Effect.fail(
@@ -320,6 +355,61 @@ export const makeBrowserWorkbenchLayers = (
           ],
         },
       ]),
+    }),
+    Layer.succeed(ModelWorkbenchService, {
+      load: (descriptor: ModelWorkbenchDescriptor) => {
+        if (descriptor.source.providerId !== PROVIDER_ID) {
+          return Effect.fail(providerError(descriptor.source))
+        }
+        if (!descriptor.source.locator.startsWith('directory:')) return models.load(descriptor)
+        return Effect.tryPromise({
+          try: async () => {
+            const tree = await findDirectory(descriptor.source)
+            const entry =
+              descriptor.source.displayName === '.morphir-dist' &&
+              tree.entries['manifest.json']?.kind === 'file'
+                ? tree.entries['manifest.json']
+                : tree.entries['.morphir-dist/manifest.json']
+            if (entry?.kind !== 'file') {
+              throw new WorkbenchError({
+                code: 'not-found',
+                source: descriptor.source,
+                message: `Document Tree manifest not found: ${descriptor.source.displayName}`,
+              })
+            }
+            let manifest: unknown
+            try {
+              manifest = JSON.parse(entry.text)
+            } catch {
+              throw new WorkbenchError({
+                code: 'invalid-distribution',
+                source: descriptor.source,
+                message: `Invalid Document Tree manifest: ${descriptor.source.displayName}`,
+              })
+            }
+            if (typeof manifest !== 'object' || manifest === null || Array.isArray(manifest)) {
+              throw new WorkbenchError({
+                code: 'invalid-distribution',
+                source: descriptor.source,
+                message: `Invalid Document Tree manifest: ${descriptor.source.displayName}`,
+              })
+            }
+            return {
+              kind: 'model' as const,
+              descriptor,
+              library: null,
+              ir: null,
+              manifest: manifest as Readonly<Record<string, unknown>>,
+            }
+          },
+          catch: (cause) =>
+            workbenchError(
+              descriptor.source,
+              cause,
+              `Unable to load Document Tree Workbench ${descriptor.name}`,
+            ),
+        })
+      },
     }),
     Layer.succeed(DevelopmentWorkbenchService, {
       load: (descriptor: DevelopmentWorkbenchDescriptor) => {

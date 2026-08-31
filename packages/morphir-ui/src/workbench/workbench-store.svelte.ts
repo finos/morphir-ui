@@ -114,7 +114,7 @@ export class WorkbenchStore {
       )
       if (canonicalExisting) {
         if (sourceKey(requested) !== sourceKey(canonicalExisting.descriptor.source)) {
-          await this.#releaseIfSession(requested)
+          await this.#release(requested)
         }
         this.activate(canonicalExisting.descriptor.id)
         if (canonicalExisting.status === 'error') {
@@ -139,7 +139,7 @@ export class WorkbenchStore {
       await this.#load(descriptor)
       return descriptor.id
     } catch (error) {
-      await this.#releaseIfSession(requested)
+      await this.#release(requested)
       const failure: FailedWorkbenchRequest = {
         kind: 'source',
         key: sourceKey(requested),
@@ -205,7 +205,7 @@ export class WorkbenchStore {
     const nextRecent = capRecent(candidates)
     for (const descriptor of candidates) {
       if (!nextRecent.some((retained) => retained.id === descriptor.id)) {
-        void this.#releaseIfSession(descriptor.source)
+        void this.#release(descriptor.source)
       }
     }
     this.recent = nextRecent
@@ -251,17 +251,16 @@ export class WorkbenchStore {
   }
 
   clearRecent(): void {
-    for (const descriptor of this.recent) void this.#releaseIfSession(descriptor.source)
+    for (const descriptor of this.recent) void this.#release(descriptor.source)
     this.recent = []
     this.#persist()
   }
 
-  async #releaseIfSession(source: WorkbenchSourceRef): Promise<void> {
-    if (source.persistence !== 'session') return
+  async #release(source: WorkbenchSourceRef): Promise<void> {
     try {
       await this.#services.releaseWorkbenchSource(source)
     } catch {
-      // Releasing an in-memory source is best-effort and must not block UI state changes.
+      // Releasing an unreachable provider resource is best-effort and must not block UI changes.
     }
   }
 

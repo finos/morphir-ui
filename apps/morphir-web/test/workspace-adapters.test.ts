@@ -75,6 +75,7 @@ describe('browser workspace adapters', () => {
   test('a granted directory becomes a sorted tree of directories and recognized configs', async () => {
     const root = directory('workspace', [
       file('notes.txt', 'private notes'),
+      file('manifest.json', 'not a Document Tree manifest'),
       directory('packages', [
         directory('zeta', [file('morphir.user.yaml', 'project:\n  version: 2')]),
         directory('alpha', [
@@ -82,12 +83,20 @@ describe('browser workspace adapters', () => {
           file('morphir.toml', '[project]\nname = "alpha"'),
         ]),
       ]),
+      directory('.morphir-dist', [
+        file('manifest.json', '{"formatVersion":4,"distribution":"Library"}'),
+      ]),
       file('morphir.yaml', 'workspace:\n  members: [packages/*]'),
     ])
 
     expect(await fileTreeFromDirectoryHandle(root)).toEqual<FileTree>({
       entries: {
         '.': { kind: 'directory' },
+        '.morphir-dist': { kind: 'directory' },
+        '.morphir-dist/manifest.json': {
+          kind: 'file',
+          text: '{"formatVersion":4,"distribution":"Library"}',
+        },
         'morphir.yaml': { kind: 'file', text: 'workspace:\n  members: [packages/*]' },
         packages: { kind: 'directory' },
         'packages/alpha': { kind: 'directory' },
@@ -100,6 +109,25 @@ describe('browser workspace adapters', () => {
           kind: 'file',
           text: 'project:\n  version: 2',
         },
+      },
+    })
+  })
+
+  test('an uploaded .morphir-dist directory preserves its root manifest', async () => {
+    const manifest = '{"formatVersion":4,"distribution":"Library"}'
+
+    await expect(
+      fileTreeFromDirectoryUpload([
+        {
+          relativePath: '.morphir-dist/manifest.json',
+          size: manifest.length,
+          text: async () => manifest,
+        },
+      ]),
+    ).resolves.toEqual({
+      entries: {
+        '.': { kind: 'directory' },
+        'manifest.json': { kind: 'file', text: manifest },
       },
     })
   })

@@ -14,7 +14,10 @@ import {
   makeLazyWorkspaceEngine,
   type BrowserWorkspaceDependencies,
 } from '../src/layers/browser-layers.ts'
-import type { DirectoryPermissionHandle } from '../src/workspace/browser-directory.ts'
+import type {
+  DirectoryEntryHandle,
+  DirectoryPermissionHandle,
+} from '../src/workspace/browser-directory.ts'
 import { pickBrowserDirectory } from '../src/workspace/browser-provider.ts'
 
 const COUNTER_KEY = 'morphir-ui.browser-local.model-source-counter.v1'
@@ -76,6 +79,27 @@ const directoryHandle = (
         ] as const
       }
     })(),
+})
+
+const nestedDirectoryHandle = (
+  name: string,
+  children: ReadonlyArray<DirectoryEntryHandle>,
+): DirectoryPermissionHandle => ({
+  kind: 'directory',
+  name,
+  queryPermission: vi.fn(async (): Promise<PermissionState> => 'granted'),
+  requestPermission: vi.fn(async (): Promise<PermissionState> => 'granted'),
+  entries: () =>
+    (async function* () {
+      for (const child of children) yield [child.name, child] as const
+    })(),
+})
+
+const fileHandle = (name: string, text: string): DirectoryEntryHandle => ({
+  kind: 'file',
+  name,
+  getFile: async () =>
+    ({ size: new TextEncoder().encode(text).byteLength, text: async () => text }) as File,
 })
 
 const installSerialLocks = (afterRelease: () => void = () => undefined): string[] => {
@@ -317,6 +341,85 @@ describe('browserCore', () => {
       },
     })
   })
+
+  test('picks, inspects, loads, and releases a persistent Document Tree Workbench', async () => {
+    const manifest = '{"formatVersion":4,"distribution":"Library"}'
+    const rootHandle = directoryHandle('.morphir-dist', { 'manifest.json': manifest })
+    const handles = new Map<string, FileSystemDirectoryHandle>()
+    const discover = vi.fn(async () => emptyDiscoveryResponse)
+    const services = await makeAppServices({
+      core: browserCoreWith('1.0.0', {
+        engine: { discover },
+        handles: {
+          has: async (key) => handles.has(key),
+          put: async (key, handle) => void handles.set(key, handle),
+          get: async (key) => handles.get(key) ?? null,
+          delete: async (key) => void handles.delete(key),
+        },
+        home: {
+          read: async () => ({ entries: { '.': { kind: 'directory' } } }),
+          writeConfig: async () => undefined,
+        },
+        pickDirectory: async () => ({ kind: 'handle', handle: rootHandle }),
+      }),
+    })
+
+    const source = await services.pickWorkbenchSource('folder')
+    const descriptor = await services.inspectWorkbench(source!)
+
+    expect(descriptor).toMatchObject({
+      source,
+      name: '.morphir-dist',
+      kind: 'model',
+      distribution: 'document-tree',
+    })
+    if (descriptor.kind !== 'model') throw new Error('Expected Model Workbench')
+    await expect(services.loadModelWorkbench(descriptor)).resolves.toMatchObject({
+      descriptor,
+      library: null,
+      ir: null,
+      manifest: { formatVersion: 4, distribution: 'Library' },
+    })
+    expect(discover).not.toHaveBeenCalled()
+
+    await services.releaseWorkbenchSource(source!)
+    expect(handles).toHaveLength(0)
+  })
+
+  test.each(['morphir.toml', 'morphir.yaml'])(
+    'prefers .morphir/%s Development configuration over a Document Tree manifest',
+    async (configurationName) => {
+      const rootHandle = nestedDirectoryHandle('mixed-workspace', [
+        nestedDirectoryHandle('.morphir', [fileHandle(configurationName, '[project]')]),
+        nestedDirectoryHandle('.morphir-dist', [
+          fileHandle('manifest.json', '{"formatVersion":4,"distribution":"Library"}'),
+        ]),
+      ])
+      const handles = new Map<string, FileSystemDirectoryHandle>()
+      const services = await makeAppServices({
+        core: browserCoreWith('1.0.0', {
+          engine: { discover: async () => emptyDiscoveryResponse },
+          handles: {
+            has: async (key) => handles.has(key),
+            put: async (key, handle) => void handles.set(key, handle),
+            get: async (key) => handles.get(key) ?? null,
+            delete: async (key) => void handles.delete(key),
+          },
+          home: {
+            read: async () => ({ entries: { '.': { kind: 'directory' } } }),
+            writeConfig: async () => undefined,
+          },
+          pickDirectory: async () => ({ kind: 'handle', handle: rootHandle }),
+        }),
+      })
+
+      const source = await services.pickWorkbenchSource('folder')
+
+      await expect(services.inspectWorkbench(source!)).resolves.toMatchObject({
+        kind: 'development',
+      })
+    },
+  )
 
   test('keeps a directory-upload fallback available for the provider session', async () => {
     vi.stubGlobal('showDirectoryPicker', undefined)

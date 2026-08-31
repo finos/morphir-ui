@@ -2,7 +2,6 @@ import { Effect, Layer, Option } from 'effect'
 import {
   AppInfoService,
   ConfigService,
-  ModelWorkbenchService,
   WorkbenchError,
   unsupportedProviderError,
   WorkspaceError,
@@ -188,6 +187,38 @@ const makeBrowserCoreLayers = (
           input.oncancel = null
         })
       }),
+    load: (descriptor) => {
+      if (descriptor.source.providerId !== 'browser-local') {
+        return Effect.fail(providerError(descriptor.source))
+      }
+      const selectedModel = selectedModels.get(sourceKey(descriptor.source))
+      if (!selectedModel) {
+        return Effect.fail(
+          new WorkbenchError({
+            code: 'not-found',
+            source: descriptor.source,
+            message: `Workbench source not found in this browser session: ${descriptor.source.locator}`,
+          }),
+        )
+      }
+      return decodeMorphirIr(selectedModel.content).pipe(
+        Effect.map((library) => ({
+          kind: 'model' as const,
+          descriptor,
+          library,
+          ir: toWorkspaceIr(library),
+          manifest: null,
+        })),
+        Effect.mapError(
+          (error) =>
+            new WorkbenchError({
+              code: 'invalid-distribution',
+              source: descriptor.source,
+              message: error.message,
+            }),
+        ),
+      )
+    },
     release: (source) =>
       Effect.sync(() => {
         const selected = selectedModels.get(sourceKey(source))
@@ -235,40 +266,6 @@ const makeBrowserCoreLayers = (
       read: Option.none(),
     }),
     browserWorkbenchLayers,
-    Layer.succeed(ModelWorkbenchService, {
-      load: (descriptor) => {
-        if (descriptor.source.providerId !== 'browser-local') {
-          return Effect.fail(providerError(descriptor.source))
-        }
-        const selectedModel = selectedModels.get(sourceKey(descriptor.source))
-        if (!selectedModel) {
-          return Effect.fail(
-            new WorkbenchError({
-              code: 'not-found',
-              source: descriptor.source,
-              message: `Workbench source not found in this browser session: ${descriptor.source.locator}`,
-            }),
-          )
-        }
-        return decodeMorphirIr(selectedModel.content).pipe(
-          Effect.map((library) => ({
-            kind: 'model' as const,
-            descriptor,
-            library,
-            ir: toWorkspaceIr(library),
-            manifest: null,
-          })),
-          Effect.mapError(
-            (error) =>
-              new WorkbenchError({
-                code: 'invalid-distribution',
-                source: descriptor.source,
-                message: error.message,
-              }),
-          ),
-        )
-      },
-    }),
     Layer.succeed(AppInfoService, { version: Effect.succeed(version) }),
   )
 }

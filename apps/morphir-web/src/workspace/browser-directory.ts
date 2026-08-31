@@ -44,6 +44,7 @@ export const DEFAULT_BROWSER_FILE_TREE_BUDGETS: BrowserFileTreeBudgets = {
 
 export interface BrowserFileTreeOptions {
   readonly budgets?: Partial<BrowserFileTreeBudgets>
+  readonly ensurePermission?: boolean
 }
 
 export class BrowserDirectoryError extends Error {
@@ -76,7 +77,9 @@ const normalizeReadFailure = (cause: unknown, message: string): BrowserDirectory
   )
 }
 
-const isRecognizedConfig = (path: string): boolean => {
+const isRecognizedConfig = (path: string, documentTreeRoot: boolean): boolean => {
+  if (path === '.morphir-dist/manifest.json') return true
+  if (documentTreeRoot && path === 'manifest.json') return true
   const components = path.split('/')
   const name = components.at(-1)
   if (
@@ -215,6 +218,7 @@ const walkDirectory = async (
   budgets: BrowserFileTreeBudgets,
   state: TraversalState,
   depth: number,
+  documentTreeRoot: boolean,
 ): Promise<void> => {
   const children: Array<readonly [string, DirectoryEntryHandle]> = []
   for await (const child of handle.entries()) {
@@ -228,8 +232,8 @@ const walkDirectory = async (
     if (child.kind === 'directory') {
       if (depth >= budgets.maxDepth) resourceLimit('maxDepth', budgets.maxDepth)
       entries.set(childPath, { kind: 'directory' })
-      await walkDirectory(child, childPath, entries, budgets, state, depth + 1)
-    } else if (isRecognizedConfig(childPath)) {
+      await walkDirectory(child, childPath, entries, budgets, state, depth + 1, documentTreeRoot)
+    } else if (isRecognizedConfig(childPath, documentTreeRoot)) {
       const selectedFile = await child.getFile()
       ensureConfigSize(selectedFile.size, state, budgets)
       const text = await selectedFile.text()
@@ -243,11 +247,19 @@ export const fileTreeFromDirectoryHandle = async (
   handle: DirectoryPermissionHandle,
   options: BrowserFileTreeOptions = {},
 ): Promise<FileTree> => {
-  await ensureReadPermission(handle)
+  if (options.ensurePermission !== false) await ensureReadPermission(handle)
   const budgets = { ...DEFAULT_BROWSER_FILE_TREE_BUDGETS, ...options.budgets }
   const entries = new Map<RelativePath, FileTree['entries'][string]>([['.', { kind: 'directory' }]])
   try {
-    await walkDirectory(handle, '.', entries, budgets, { entries: 0, configBytes: 0 }, 0)
+    await walkDirectory(
+      handle,
+      '.',
+      entries,
+      budgets,
+      { entries: 0, configBytes: 0 },
+      0,
+      handle.name === '.morphir-dist',
+    )
   } catch (cause) {
     throw normalizeReadFailure(cause, `Unable to read workspace directory ${handle.name}`)
   }
@@ -303,6 +315,7 @@ export const fileTreeFromDirectoryUpload = async (
   if (files.length > budgets.entries) resourceLimit('entries', budgets.entries)
   const validated = files.map((file) => ({ file, path: decodeUploadPath(file.relativePath) }))
   const root = commonUploadRoot(validated.map(({ path }) => path))
+  const documentTreeRoot = root === '.morphir-dist'
   const normalized = validated
     .map(({ file, path }) => ({
       file,
@@ -324,7 +337,7 @@ export const fileTreeFromDirectoryUpload = async (
 
   let declaredConfigBytes = 0
   for (const { file, path } of normalized) {
-    if (!isRecognizedConfig(path)) continue
+    if (!isRecognizedConfig(path, documentTreeRoot)) continue
     if (file.size > budgets.configBytes - declaredConfigBytes) {
       resourceLimit('configBytes', budgets.configBytes)
     }
@@ -335,7 +348,7 @@ export const fileTreeFromDirectoryUpload = async (
   const state: TraversalState = { entries: 0, configBytes: 0 }
   for (const path of [...directories].sort()) entries.set(path, { kind: 'directory' })
   for (const { file, path } of normalized) {
-    if (!isRecognizedConfig(path)) continue
+    if (!isRecognizedConfig(path, documentTreeRoot)) continue
     try {
       ensureConfigSize(file.size, state, budgets)
       const text = await file.text()

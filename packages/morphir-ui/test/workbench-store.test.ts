@@ -124,6 +124,22 @@ describe('WorkbenchStore', () => {
     expect(releaseWorkbenchSource).toHaveBeenCalledWith(sessionSource)
   })
 
+  test('releases a durable source removed from Recent history', async () => {
+    const source = legacySourceRef('/persistent-workspace')
+    const { core } = makeFakeCore()
+    const releaseWorkbenchSource = vi.fn(async () => undefined)
+    const store = new WorkbenchStore(
+      { ...(await makeAppServices({ core })), releaseWorkbenchSource },
+      defaultUiConfig.workbenches,
+    )
+
+    await store.open(source)
+    store.close(sourceKey(source))
+    store.clearRecent()
+
+    await vi.waitFor(() => expect(releaseWorkbenchSource).toHaveBeenCalledWith(source))
+  })
+
   test('session-only Recent entries do not evict durable persisted history', async () => {
     const durableRecent = Array.from({ length: 20 }, (_, index) =>
       legacyModelDescriptor(`/recent-${index}.json`),
