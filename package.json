@@ -10,7 +10,8 @@
   "scripts": {
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "vendor:workspace-wasm": "bun tools/vendor-workspace-wasm.ts"
   },
   "devDependencies": {
     "typescript": "5.7.2",

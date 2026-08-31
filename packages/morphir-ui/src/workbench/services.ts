@@ -85,9 +85,7 @@ export const validateInspectionResult = (
     descriptor.source,
     descriptor,
     'Workbench inspection',
-  ).pipe(
-    Effect.flatMap((valid) => validateCanonicalDescriptor(valid, 'Workbench inspection')),
-  )
+  ).pipe(Effect.flatMap((valid) => validateCanonicalDescriptor(valid, 'Workbench inspection')))
 
 const workbenchIdentityError = (
   expected: WorkbenchDescriptor,
@@ -112,12 +110,7 @@ const validateWorkbenchIdentity = <A>(
   validateCanonicalDescriptor(expected, `${operation} request`).pipe(
     Effect.andThen(validateCanonicalDescriptor(actual, `${operation} result`)),
     Effect.andThen(
-      validateProviderResult(
-        expected.source.providerId,
-        actual.source,
-        value,
-        operation,
-      ),
+      validateProviderResult(expected.source.providerId, actual.source, value, operation),
     ),
     Effect.flatMap((valid) =>
       actual.id === expected.id && sourceKey(actual.source) === sourceKey(expected.source)
@@ -160,8 +153,8 @@ export const validateWorkspaceSnapshot = (
             }),
           )
         : valid.id === expected.id && sourceKey(valid.root) === sourceKey(expected.source)
-        ? Effect.succeed(valid)
-        : Effect.fail(workbenchIdentityError(expected, valid, 'Workspace snapshot')),
+          ? Effect.succeed(valid)
+          : Effect.fail(workbenchIdentityError(expected, valid, 'Workspace snapshot')),
     ),
   )
 
@@ -193,12 +186,7 @@ export const validateDevelopmentWorkbenchData = (
   expected: DevelopmentWorkbenchDescriptor,
   data: DevelopmentWorkbenchData,
 ): Effect.Effect<DevelopmentWorkbenchData, WorkbenchError> =>
-  validateWorkbenchIdentity(
-    expected,
-    data.descriptor,
-    data,
-    'Development Workbench load',
-  ).pipe(
+  validateWorkbenchIdentity(expected, data.descriptor, data, 'Development Workbench load').pipe(
     Effect.andThen(validateWorkspaceSnapshot(expected, data.snapshot)),
     Effect.as(data),
   )
@@ -237,6 +225,7 @@ export class WorkbenchSourceService extends Context.Tag('@morphir/ui/WorkbenchSo
     readonly pick: (
       kind: SourcePickerKind,
     ) => Effect.Effect<Option.Option<WorkbenchSourceRef>, WorkbenchError>
+    readonly release: (source: WorkbenchSourceRef) => Effect.Effect<void>
     readonly reveal: (source: WorkbenchSourceRef) => Effect.Effect<void, WorkbenchError>
   }
 >() {}

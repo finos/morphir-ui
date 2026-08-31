@@ -4,25 +4,23 @@ import type {
   WorkbenchDescriptor,
 } from '@morphir/ui/workbench'
 import { WorkbenchError } from '@morphir/ui/workbench'
-import { sourceKey } from '@morphir/workspace'
-import { access, readFile, readdir, realpath, stat } from 'node:fs/promises'
+import {
+  projectKey,
+  sourceKey,
+  type DiscoveryResponse,
+  type PortableProjectSnapshot,
+  type PortableWorkspaceDiagnostic,
+  type PortableWorkspaceSnapshot,
+  type ProjectSnapshot,
+  type WorkbenchSourceRef,
+  type WorkspaceDiagnostic,
+  type WorkspaceSnapshot,
+} from '@morphir/workspace'
+import { access, readFile, realpath, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { requireDesktopSourceRef } from '../shared/workbench-source.ts'
-
-const PRIMARY_CONFIGS = [
-  'morphir.toml',
-  'morphir.yaml',
-  'morphir.yml',
-  'morphir.json',
-  join('.morphir', 'morphir.toml'),
-  join('.morphir', 'morphir.yaml'),
-  join('.morphir', 'morphir.yml'),
-  join('.morphir', 'morphir.json'),
-  join('.config', 'morphir', 'config.toml'),
-  join('.config', 'morphir', 'config.yaml'),
-  join('.config', 'morphir', 'config.yml'),
-  join('.config', 'morphir', 'config.json'),
-] as const
+import { discoverNodeWorkspace } from './workspace/discovery.ts'
+import { hasNodePrimaryConfiguration } from './workspace/node-file-tree.ts'
 
 const exists = async (path: string): Promise<boolean> =>
   access(path).then(
@@ -53,14 +51,6 @@ const workbenchError = (
           ? error.message
           : String(error),
   })
-}
-
-const configAnchor = async (root: string): Promise<string | null> => {
-  for (const relative of PRIMARY_CONFIGS) {
-    const candidate = join(root, relative)
-    if (await exists(candidate)) return candidate
-  }
-  return null
 }
 
 const documentTreeManifest = async (root: string): Promise<string | null> => {
@@ -135,7 +125,7 @@ export const inspectWorkbenchSource = async (
       })
     }
 
-    if (await configAnchor(canonical)) {
+    if (await hasNodePrimaryConfiguration(canonical)) {
       return { ...base, kind: 'development', route: 'overview' }
     }
     if (await documentTreeManifest(canonical)) {
@@ -186,36 +176,66 @@ export const readModelSource = async (
   }
 }
 
-export const inspectDevelopmentRoot = async (
+const qualifyDiagnostic = (
+  root: WorkbenchSourceRef,
+  diagnostic: PortableWorkspaceDiagnostic,
+): WorkspaceDiagnostic => ({
+  severity: diagnostic.severity,
+  code: diagnostic.code,
+  message: diagnostic.message,
+  path: diagnostic.path,
+  projectId: diagnostic.projectPath === null ? null : projectKey(root, diagnostic.projectPath),
+})
+
+const qualifyProject = (
+  root: WorkbenchSourceRef,
+  project: PortableProjectSnapshot,
+): ProjectSnapshot => ({
+  id: projectKey(root, project.relativePath),
+  name: project.name,
+  version: project.version,
+  relativePath: project.relativePath,
+  configAnchor: project.configAnchor,
+  sourceDirectory: project.sourceDirectory,
+  state: project.state,
+  modelSources: [],
+  knowledgeBaseSources: [],
+  diagnostics: project.diagnostics.map((diagnostic) => qualifyDiagnostic(root, diagnostic)),
+})
+
+const qualifyWorkspace = (
+  root: WorkbenchSourceRef,
+  snapshot: PortableWorkspaceSnapshot,
+): WorkspaceSnapshot => ({
+  id: sourceKey(root),
+  root,
+  name: snapshot.name ?? root.displayName,
+  configAnchor: snapshot.configAnchor,
+  state: snapshot.state,
+  projects: snapshot.projects.map((project) => qualifyProject(root, project)),
+  modelSources: [],
+  knowledgeBaseSources: [],
+  diagnostics: snapshot.diagnostics.map((diagnostic) => qualifyDiagnostic(root, diagnostic)),
+})
+
+type DiscoverDevelopment = (root: string) => Promise<DiscoveryResponse>
+
+export const inspectDevelopment = async (
   descriptor: DevelopmentWorkbenchDescriptor,
-): Promise<{
-  readonly configAnchor: string | null
-  readonly modelSources: ReadonlyArray<string>
-  readonly knowledgeBaseSources: ReadonlyArray<string>
-}> => {
+  discover: DiscoverDevelopment = discoverNodeWorkspace,
+): Promise<WorkspaceSnapshot> => {
   assertDesktopWorkbenchProvider(descriptor)
   const source = descriptor.source.locator
   try {
-    const entries = await readdir(source, { withFileTypes: true })
-    const directories = entries.filter((entry) => entry.isDirectory())
-    const modelSources: string[] = []
-    const knowledgeBaseSources: string[] = []
-
-    for (const entry of directories) {
-      const child = join(source, entry.name)
-      if (entry.name !== '.morphir-dist' && (await documentTreeManifest(child))) {
-        modelSources.push(child)
-      }
-      if (/^(kb|knowledge|knowledge-base)$/i.test(entry.name)) {
-        knowledgeBaseSources.push(child)
-      }
+    const response = await discover(source)
+    if (response.status === 'failure') {
+      throw new WorkbenchError({
+        code: 'detection-failed',
+        source: descriptor.source,
+        message: `${response.error.code}: ${response.error.message}`,
+      })
     }
-
-    return {
-      configAnchor: await configAnchor(source),
-      modelSources,
-      knowledgeBaseSources,
-    }
+    return qualifyWorkspace(descriptor.source, response.snapshot)
   } catch (error) {
     throw workbenchError(source, error, 'read-failed')
   }

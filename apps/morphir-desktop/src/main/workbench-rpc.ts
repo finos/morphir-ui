@@ -7,7 +7,7 @@ import type {
 import type { RpcRegistry } from './rpc.ts'
 import { assertDesktopWorkbenchProvider } from './workbench-source.ts'
 import { requireDesktopSourceRef } from '../shared/workbench-source.ts'
-import type { WorkbenchSourceRef } from '@morphir/workspace'
+import type { WorkbenchSourceRef, WorkspaceSnapshot } from '@morphir/workspace'
 
 interface WorkbenchHost {
   readonly inspect: (source: WorkbenchSourceRef) => Promise<WorkbenchDescriptor>
@@ -16,11 +16,9 @@ interface WorkbenchHost {
     readonly content: string | null
     readonly manifest: Readonly<Record<string, unknown>> | null
   }>
-  readonly inspectDevelopment: (descriptor: DevelopmentWorkbenchDescriptor) => Promise<{
-    readonly configAnchor: string | null
-    readonly modelSources: ReadonlyArray<string>
-    readonly knowledgeBaseSources: ReadonlyArray<string>
-  }>
+  readonly inspectDevelopment: (
+    descriptor: DevelopmentWorkbenchDescriptor,
+  ) => Promise<WorkspaceSnapshot>
   readonly reveal: (source: WorkbenchSourceRef) => Promise<void>
   readonly takeInitialSources: () => ReadonlyArray<WorkbenchSourceRef>
 }

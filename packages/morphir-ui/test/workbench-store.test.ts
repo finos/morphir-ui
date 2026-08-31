@@ -1,9 +1,10 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { sourceKey } from '@morphir/workspace'
 import {
   WorkbenchStore,
   WorkbenchError,
   defaultUiConfig,
+  legacyModelDescriptor,
   legacySourceRef,
   makeAppServices,
   type ModelWorkbenchDescriptor,
@@ -72,6 +73,126 @@ describe('WorkbenchStore', () => {
       '/a.json',
     ])
     expect(store.activeId).toBe(workbenchId('/a.json'))
+  })
+
+  test('keeps session-only Workbenches out of persisted open and Recent config', async () => {
+    const sessionSource = {
+      ...legacySourceRef('/uploaded-workspace'),
+      persistence: 'session' as const,
+    }
+    const { core, store: configStore } = makeFakeCore({ inspectResultSource: sessionSource })
+    const releaseWorkbenchSource = vi.fn(async () => undefined)
+    const services = { ...(await makeAppServices({ core })), releaseWorkbenchSource }
+    const store = new WorkbenchStore(services, defaultUiConfig.workbenches)
+
+    await store.open(sessionSource)
+
+    expect(store.openEntries[0]?.descriptor.source).toEqual(sessionSource)
+    await vi.waitFor(() => {
+      expect(configStore.config.workbenches.open).toEqual([])
+      expect(configStore.config.workbenches.activeId).toBeNull()
+    })
+
+    store.close(sourceKey(sessionSource))
+
+    expect(store.recent[0]?.source).toEqual(sessionSource)
+    await vi.waitFor(() => expect(configStore.config.workbenches.recent).toEqual([]))
+
+    store.clearRecent()
+    await vi.waitFor(() => expect(releaseWorkbenchSource).toHaveBeenCalledWith(sessionSource))
+
+    const restored = new WorkbenchStore(services, configStore.config.workbenches)
+    await restored.restore()
+    expect(restored.openEntries).toEqual([])
+    expect(restored.recent).toEqual([])
+    expect(restored.activeId).toBeNull()
+  })
+
+  test('releases a session-only source when inspection fails', async () => {
+    const sessionSource = {
+      ...legacySourceRef('/missing-upload'),
+      persistence: 'session' as const,
+    }
+    const { core } = makeFakeCore({ failingSources: [sessionSource.locator] })
+    const releaseWorkbenchSource = vi.fn(async () => undefined)
+    const store = new WorkbenchStore(
+      { ...(await makeAppServices({ core })), releaseWorkbenchSource },
+      defaultUiConfig.workbenches,
+    )
+
+    await expect(store.open(sessionSource)).resolves.toBeNull()
+    expect(releaseWorkbenchSource).toHaveBeenCalledWith(sessionSource)
+  })
+
+  test('releases a durable source removed from Recent history', async () => {
+    const source = legacySourceRef('/persistent-workspace')
+    const { core } = makeFakeCore()
+    const releaseWorkbenchSource = vi.fn(async () => undefined)
+    const store = new WorkbenchStore(
+      { ...(await makeAppServices({ core })), releaseWorkbenchSource },
+      defaultUiConfig.workbenches,
+    )
+
+    await store.open(source)
+    store.close(sourceKey(source))
+    store.clearRecent()
+
+    await vi.waitFor(() => expect(releaseWorkbenchSource).toHaveBeenCalledWith(source))
+  })
+
+  test('session-only Recent entries do not evict durable persisted history', async () => {
+    const durableRecent = Array.from({ length: 20 }, (_, index) =>
+      legacyModelDescriptor(`/recent-${index}.json`),
+    )
+    const sessionSource = {
+      ...legacySourceRef('/uploaded-workspace'),
+      persistence: 'session' as const,
+    }
+    const { core, store: configStore } = makeFakeCore({ inspectResultSource: sessionSource })
+    const store = new WorkbenchStore(await makeAppServices({ core }), {
+      open: [],
+      recent: durableRecent,
+      activeId: null,
+      reopenOnLaunch: true,
+    })
+
+    await store.open(sessionSource)
+    store.close(sourceKey(sessionSource))
+
+    expect(store.recent).toHaveLength(21)
+    await vi.waitFor(() => {
+      expect(configStore.config.workbenches.recent.map(({ id }) => id)).toEqual(
+        durableRecent.map(({ id }) => id),
+      )
+    })
+  })
+
+  test('releases session-only sources evicted from Recent history', async () => {
+    const { core } = makeFakeCore()
+    const baseServices = await makeAppServices({ core })
+    const releaseWorkbenchSource = vi.fn(async () => undefined)
+    const services = {
+      ...baseServices,
+      inspectWorkbench: async (source: ReturnType<typeof legacySourceRef>) => ({
+        ...legacyModelDescriptor(source.locator),
+        id: sourceKey(source),
+        source,
+      }),
+      releaseWorkbenchSource,
+    }
+    const store = new WorkbenchStore(services, defaultUiConfig.workbenches)
+    const sources = Array.from({ length: 21 }, (_, index) => ({
+      ...legacySourceRef(`/upload-${index}.json`),
+      persistence: 'session' as const,
+    }))
+
+    for (const source of sources) {
+      await store.open(source)
+      store.close(sourceKey(source))
+    }
+
+    expect(store.recent).toHaveLength(20)
+    await vi.waitFor(() => expect(releaseWorkbenchSource).toHaveBeenCalledWith(sources[0]))
   })
 
   test('keeps Workbenches with the same locator from different providers', async () => {

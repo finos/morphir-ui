@@ -10,7 +10,7 @@ import { GH_SECRET_KEY, SecretStore } from './secrets.ts'
 import { ghCliToken, verifyGitHubToken } from './github.ts'
 import { createDesktopLogSession, desktopCrashDirectory, redactLogText } from './logging.ts'
 import {
-  inspectDevelopmentRoot,
+  inspectDevelopment,
   inspectWorkbenchSource,
   readModelSource,
 } from './workbench-source.ts'
@@ -116,7 +116,7 @@ registerWorkbenchHandlers(registry, {
     return path === null ? null : desktopSourceRef(path)
   },
   readModel: readModelSource,
-  inspectDevelopment: inspectDevelopmentRoot,
+  inspectDevelopment,
   reveal: async (source) => void shell.showItemInFolder(source.locator),
   takeInitialSources: () => launchRequests.takeInitial().map(desktopSourceRef),
 })

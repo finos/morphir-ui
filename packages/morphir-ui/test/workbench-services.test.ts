@@ -56,6 +56,7 @@ const sourceLayer = Layer.succeed(WorkbenchSourceService, {
   inspect: (source) =>
     Effect.succeed(source.locator.endsWith('.json') ? modelDescriptor : developmentDescriptor),
   pick: () => Effect.succeed(Option.none()),
+  release: () => Effect.void,
   reveal: () => Effect.void,
 })
 
@@ -109,6 +110,7 @@ describe('Workbench Effect services', () => {
     const malformedSourceLayer = Layer.succeed(WorkbenchSourceService, {
       inspect: () => Effect.succeed({ ...modelDescriptor, id: 'stale-id', source: requested }),
       pick: () => Effect.succeed(Option.none()),
+      release: () => Effect.void,
       reveal: () => Effect.void,
     })
     const trackingModelLayer = Layer.succeed(ModelWorkbenchService, {
@@ -146,6 +148,7 @@ describe('Workbench Effect services', () => {
       inspect: () =>
         Effect.succeed({ ...modelDescriptor, id: sourceKey(foreignSource), source: foreignSource }),
       pick: () => Effect.succeed(Option.none()),
+      release: () => Effect.void,
       reveal: () => Effect.void,
     })
     const trackingModelLayer = Layer.succeed(ModelWorkbenchService, {
@@ -248,6 +251,7 @@ describe('Workbench Effect services', () => {
           }),
         ),
       pick: () => Effect.succeed(Option.none()),
+      release: () => Effect.void,
       reveal: () => Effect.void,
     })
 
