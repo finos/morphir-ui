@@ -69,7 +69,7 @@ const manifest: ConnectedSessionManifest = {
   ],
 }
 
-const setup = (maximumMessageBytes = 1024) => {
+const setup = (maximumRequestBytes = 1024) => {
   const sockets: Array<FakeSocket> = []
   const retries: Array<() => void> = []
   const scheduler: ReconnectScheduler = (_attempt, reconnect) => {
@@ -79,7 +79,7 @@ const setup = (maximumMessageBytes = 1024) => {
   const client = makeConnectedRpcClient({
     manifest,
     pageUrl: new URL('http://127.0.0.1:4242/'),
-    maximumMessageBytes,
+    maximumRequestBytes,
     webSocketFactory: () => {
       const socket = new FakeSocket()
       sockets.push(socket)
@@ -115,7 +115,7 @@ describe('connected JSON-RPC client', () => {
     await expect(Promise.all([first, second])).resolves.toEqual(['first', 'second'])
   })
 
-  test('publishes notifications and closes on unknown response IDs or oversized frames', async () => {
+  test('publishes notifications and rejects unknown response IDs or oversized requests', async () => {
     const { client, sockets } = setup(256)
     await initialize(sockets[0]!)
     const notification = Effect.runPromise(Stream.runHead(client.notifications))
@@ -144,6 +144,20 @@ describe('connected JSON-RPC client', () => {
       Effect.flip(client.call('example.large', { value: 'x'.repeat(512) }, Schema.String)),
     )
     await expect(oversized).resolves.toMatchObject({ code: 'read-failed' })
+  })
+
+  test('accepts host responses larger than the browser request limit', async () => {
+    const { client, sockets } = setup(256)
+    await initialize(sockets[0]!)
+
+    const pending = Effect.runPromise(client.call('example.large-response', {}, Schema.String))
+    await Promise.resolve()
+    const request = sockets[0]!.requests()[1]!
+    const result = 'x'.repeat(512)
+    sockets[0]!.receive({ jsonrpc: '2.0', id: request.id, result })
+
+    await expect(pending).resolves.toBe(result)
+    expect(sockets[0]!.closeCount).toBe(0)
   })
 
   test('emits one disconnect and reconnects the same session with active watches restored', async () => {
