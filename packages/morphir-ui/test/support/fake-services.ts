@@ -234,22 +234,33 @@ export const makeFakeCore = (opts?: {
             locator: `${descriptor.source.locator}#${projectId}`,
             displayName: projectId,
           } satisfies WorkbenchSourceRef)
-        return Effect.succeed({
+        const modelDescriptor = {
+          id: opts?.development?.projectResultId ?? sourceKey(source),
+          source,
+          name: projectId,
           kind: 'model' as const,
-          descriptor: {
-            id: opts?.development?.projectResultId ?? sourceKey(source),
-            source,
-            name: projectId,
+          distribution: 'single-file' as const,
+          route: 'explorer' as const,
+          openedAt: timestamp,
+          lastUsedAt: timestamp,
+        }
+        return decodeMorphirIr(content).pipe(
+          Effect.map((library) => ({
             kind: 'model' as const,
-            distribution: 'single-file' as const,
-            route: 'overview' as const,
-            openedAt: timestamp,
-            lastUsedAt: timestamp,
-          },
-          library: null,
-          ir: null,
-          manifest: null,
-        })
+            descriptor: modelDescriptor,
+            library,
+            ir: toWorkspaceIr(library),
+            manifest: null,
+          })),
+          Effect.mapError(
+            (error) =>
+              new WorkbenchError({
+                code: 'invalid-distribution',
+                source,
+                message: error.message,
+              }),
+          ),
+        )
       },
       events: (descriptor) => {
         opts?.development?.onEvents?.()

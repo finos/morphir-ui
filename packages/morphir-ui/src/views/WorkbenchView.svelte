@@ -24,7 +24,17 @@
     onRetry={() => void store.retry(entry.descriptor.id)}
   />
 {:else if entry.data.kind === 'development'}
-  <DevelopmentWorkbenchView workbench={entry.data} />
+  <DevelopmentWorkbenchView
+    workbench={entry.data}
+    navigation={store.developmentNavigation(entry.descriptor.id)}
+    onSelectProject={(projectId) =>
+      void store.selectDevelopmentProject(entry.descriptor.id, projectId)}
+    onRetryProject={(projectId) =>
+      void store.retryDevelopmentProject(entry.descriptor.id, projectId)}
+    onSelectDefinition={(projectId, definitionId) =>
+      store.selectDevelopmentDefinition(entry.descriptor.id, projectId, definitionId)}
+    {onInspect}
+  />
 {:else if entry.descriptor.route === 'explorer' && entry.data.ir}
   <IrExplorerView model={entry.data} {onInspect} />
 {:else}

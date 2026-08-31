@@ -1,6 +1,6 @@
 import { cleanup, render, screen, within } from '@testing-library/svelte'
 import { userEvent } from '@testing-library/user-event'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -54,6 +54,23 @@ describe('IrExplorerView', () => {
     expect(screen.getByText('Insight')).toBeTruthy()
     expect(screen.getByText('XRay')).toBeTruthy()
     expect(screen.queryByText('Back')).toBeNull()
+  })
+
+  test('supports a controlled definition selection for Development Workbenches', async () => {
+    const model = await openModel()
+    const onSelectedDefinition = vi.fn()
+    const view = render(IrExplorerView, {
+      props: { model, selectedDefinitionId: null, onSelectedDefinition },
+    })
+
+    await userEvent.click(screen.getByRole('treeitem', { name: 'listExample' }))
+    const selectedId = 'definition:value:Morphir.Example.App:Forecast:listExample'
+    expect(onSelectedDefinition).toHaveBeenCalledWith(selectedId)
+
+    await view.rerender({ model, selectedDefinitionId: selectedId, onSelectedDefinition })
+    expect(
+      screen.getByText('listExample', { selector: '.local' }).closest('.fqn')?.textContent,
+    ).toBe('Morphir.Example.App.Forecast.listExample')
   })
 
   test('keeps selected detail when a kind filter hides its tree leaf', async () => {
