@@ -113,6 +113,9 @@ export class WorkbenchStore {
         (entry) => entry.descriptor.id === descriptor.id,
       )
       if (canonicalExisting) {
+        if (sourceKey(requested) !== sourceKey(canonicalExisting.descriptor.source)) {
+          await this.#releaseIfSession(requested)
+        }
         this.activate(canonicalExisting.descriptor.id)
         if (canonicalExisting.status === 'error') {
           this.#replace(canonicalExisting.descriptor.id, {
@@ -136,6 +139,7 @@ export class WorkbenchStore {
       await this.#load(descriptor)
       return descriptor.id
     } catch (error) {
+      await this.#releaseIfSession(requested)
       const failure: FailedWorkbenchRequest = {
         kind: 'source',
         key: sourceKey(requested),
@@ -194,10 +198,17 @@ export class WorkbenchStore {
     const closing = this.openEntries.find((entry) => entry.descriptor.id === id)
     if (!closing) return
     this.openEntries = this.openEntries.filter((entry) => entry.descriptor.id !== id)
-    this.recent = capRecent([
+    const candidates = [
       closing.descriptor,
       ...this.recent.filter((descriptor) => descriptor.id !== id),
-    ])
+    ]
+    const nextRecent = capRecent(candidates)
+    for (const descriptor of candidates) {
+      if (!nextRecent.some((retained) => retained.id === descriptor.id)) {
+        void this.#releaseIfSession(descriptor.source)
+      }
+    }
+    this.recent = nextRecent
     if (this.activeId === id) this.activeId = this.openEntries[0]?.descriptor.id ?? null
     this.#persist()
   }
@@ -240,8 +251,18 @@ export class WorkbenchStore {
   }
 
   clearRecent(): void {
+    for (const descriptor of this.recent) void this.#releaseIfSession(descriptor.source)
     this.recent = []
     this.#persist()
+  }
+
+  async #releaseIfSession(source: WorkbenchSourceRef): Promise<void> {
+    if (source.persistence !== 'session') return
+    try {
+      await this.#services.releaseWorkbenchSource(source)
+    } catch {
+      // Releasing an in-memory source is best-effort and must not block UI state changes.
+    }
   }
 
   async #load(descriptor: WorkbenchDescriptor): Promise<void> {

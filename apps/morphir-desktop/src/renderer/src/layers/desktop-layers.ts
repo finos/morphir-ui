@@ -143,6 +143,7 @@ export const desktopCore = (rpc: RpcClient): Layer.Layer<CoreServices> =>
                 }),
           ),
         ),
+      release: () => Effect.void,
       reveal: (source) =>
         source.providerId !== 'desktop-local'
           ? Effect.fail(unsupportedProviderError('desktop-local', source))

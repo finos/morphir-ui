@@ -111,7 +111,7 @@ const makeBrowserCoreLayers = (
   version: string,
   dependencies: BrowserWorkspaceDependencies,
 ): Layer.Layer<CoreServices> => {
-  const selectedModels = new Map<string, { name: string; content: string }>()
+  const selectedModels = new Map<string, { name: string; baseName: string; content: string }>()
   const selectedModelNameCounts = new Map<string, number>()
   const providerError = (source: WorkbenchSourceRef): WorkbenchError =>
     unsupportedProviderError('browser-local', source)
@@ -132,6 +132,7 @@ const makeBrowserCoreLayers = (
         providerId: 'browser-local',
         locator: source.locator,
         displayName: selectedModel.name,
+        persistence: 'session' as const,
       }
       return Effect.succeed({
         id: sourceKey(sourceRef),
@@ -163,8 +164,9 @@ const makeBrowserCoreLayers = (
                 providerId: 'browser-local',
                 locator: source,
                 displayName: name,
+                persistence: 'session' as const,
               }
-              selectedModels.set(sourceKey(sourceRef), { name, content })
+              selectedModels.set(sourceKey(sourceRef), { name, baseName: file.name, content })
               resume(Effect.succeed(Option.some(sourceRef)))
             })
             .catch((error) =>
@@ -185,6 +187,15 @@ const makeBrowserCoreLayers = (
           input.onchange = null
           input.oncancel = null
         })
+      }),
+    release: (source) =>
+      Effect.sync(() => {
+        const selected = selectedModels.get(sourceKey(source))
+        if (!selected) return
+        selectedModels.delete(sourceKey(source))
+        if (![...selectedModels.values()].some(({ baseName }) => baseName === selected.baseName)) {
+          selectedModelNameCounts.delete(selected.baseName)
+        }
       }),
   })
 

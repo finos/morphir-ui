@@ -103,6 +103,7 @@ export interface AppServices {
   listWorkbenchProviders(): Promise<ReadonlyArray<WorkbenchProvider>>
   inspectWorkbench(source: WorkbenchSourceRef): Promise<WorkbenchDescriptor>
   pickWorkbenchSource(kind: SourcePickerKind): Promise<WorkbenchSourceRef | null>
+  releaseWorkbenchSource(source: WorkbenchSourceRef): Promise<void>
   revealWorkbenchSource(source: WorkbenchSourceRef): Promise<void>
   loadModelWorkbench(descriptor: ModelWorkbenchDescriptor): Promise<ModelWorkbenchData>
   loadDevelopmentWorkbench(
@@ -176,6 +177,7 @@ const buildFacade = async (
       ),
     pickWorkbenchSource: (kind) =>
       runtime.runPromise(workbenchSource.pick(kind)).then(Option.getOrNull),
+    releaseWorkbenchSource: (source) => runtime.runPromise(workbenchSource.release(source)),
     revealWorkbenchSource: (source) => runtime.runPromise(workbenchSource.reveal(source)),
     loadModelWorkbench: (descriptor) =>
       runtime.runPromise(

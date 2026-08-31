@@ -573,6 +573,12 @@ describe('browserCore', () => {
       { kind: 'file', text: '[project]\nname = "first"' },
       { kind: 'file', text: '[project]\nname = "second"' },
     ])
+
+    await services.releaseWorkbenchSource(first!)
+    await expect(services.inspectWorkbench(first!)).rejects.toThrow(
+      'Workbench source not found in this browser',
+    )
+    await expect(services.inspectWorkbench(second!)).resolves.toMatchObject({ name: 'second' })
   })
 
   test('reserves opaque directory IDs across concurrent upload selections', async () => {
@@ -765,6 +771,10 @@ describe('browserCore', () => {
         ['{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}'],
         'model.json',
       ),
+      new File(
+        ['{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}'],
+        'model.json',
+      ),
     ]
     vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function (
       this: HTMLInputElement,
@@ -782,8 +792,16 @@ describe('browserCore', () => {
 
     expect(first).not.toBeNull()
     expect(second).not.toBeNull()
-    expect(first).toMatchObject({ locator: 'model:1', displayName: 'model.json' })
-    expect(second).toMatchObject({ locator: 'model:2', displayName: 'model.json (2)' })
+    expect(first).toMatchObject({
+      locator: 'model:1',
+      displayName: 'model.json',
+      persistence: 'session',
+    })
+    expect(second).toMatchObject({
+      locator: 'model:2',
+      displayName: 'model.json (2)',
+      persistence: 'session',
+    })
     expect(sourceKey(first!)).not.toBe(sourceKey(second!))
     const firstDescriptor = await services.inspectWorkbench(first!)
     const secondDescriptor = await services.inspectWorkbench(second!)
@@ -799,6 +817,18 @@ describe('browserCore', () => {
     })
     expect(first!.locator).not.toContain('model.json')
     expect(second!.locator).not.toContain('model.json')
+
+    await services.releaseWorkbenchSource(first!)
+    await expect(services.inspectWorkbench(first!)).rejects.toThrow(
+      'Workbench source not found in this browser session',
+    )
+    await expect(services.inspectWorkbench(second!)).resolves.toMatchObject({
+      name: 'model.json (2)',
+    })
+
+    await services.releaseWorkbenchSource(second!)
+    const replacement = await services.pickWorkbenchSource('model-file')
+    expect(replacement).toMatchObject({ displayName: 'model.json', persistence: 'session' })
   })
 
   test('keeps a lone morphir-ir.json as a single-file Model Workbench', async () => {

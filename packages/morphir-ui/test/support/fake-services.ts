@@ -131,6 +131,7 @@ export const makeFakeCore = (opts?: {
         Effect.succeed(
           Option.some(legacySourceRef(opts?.workbenchSources?.[0] ?? '/fake/morphir-ir.json')),
         ),
+      release: () => Effect.void,
       reveal: () => Effect.void,
     }),
     Layer.succeed(WorkbenchProviderService, {

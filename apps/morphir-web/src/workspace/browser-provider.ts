@@ -56,6 +56,7 @@ export interface BrowserModelSourceProvider {
     source: WorkbenchSourceRef,
   ) => Effect.Effect<WorkbenchDescriptor, WorkbenchError>
   readonly pick: () => Effect.Effect<Option.Option<WorkbenchSourceRef>, WorkbenchError>
+  readonly release: (source: WorkbenchSourceRef) => Effect.Effect<void>
 }
 
 interface UploadedTree {
@@ -287,6 +288,12 @@ export const makeBrowserWorkbenchLayers = (
           : models.inspect(source)
       },
       pick: (kind) => (kind === 'folder' ? pickDirectory() : models.pick()),
+      release: (source) =>
+        source.providerId !== PROVIDER_ID || source.persistence !== 'session'
+          ? Effect.void
+          : source.locator.startsWith('directory:')
+            ? Effect.sync(() => void sessionUploads.delete(source.locator))
+            : models.release(source),
       reveal: (source) =>
         Effect.fail(
           new WorkbenchError({
