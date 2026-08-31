@@ -182,11 +182,18 @@ describe('Electron workspace discovery host', () => {
         'linux',
         '/home/alice',
       ),
+    ).toEqual(['/srv/morphir-home/morphir.toml', '/srv/morphir-home/morphir.yaml'])
+    expect(
+      nodeGlobalConfigCandidates(
+        { XDG_CONFIG_HOME: '/srv/config', MORPHIR_HOME: '' },
+        'linux',
+        '/home/alice',
+      ),
     ).toEqual([
       '/srv/config/morphir/morphir.toml',
       '/srv/config/morphir/morphir.yaml',
-      '/srv/morphir-home/morphir.toml',
-      '/srv/morphir-home/morphir.yaml',
+      '/home/alice/.morphir/morphir.toml',
+      '/home/alice/.morphir/morphir.yaml',
     ])
     expect(nodeGlobalConfigCandidates({}, 'darwin', '/Users/Alice')[0]).toBe(
       '/Users/Alice/Library/Application Support/morphir/morphir.toml',

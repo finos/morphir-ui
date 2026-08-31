@@ -32,11 +32,11 @@ export const nodeGlobalConfigCandidates = (
         : platform === 'darwin'
           ? paths.join(home, 'Library', 'Application Support')
           : paths.join(home, '.config')
-  const resolvedHome =
-    env['MORPHIR_HOME'] && env['MORPHIR_HOME'].length > 0
-      ? env['MORPHIR_HOME']
-      : paths.join(home, '.morphir')
-  const roots = [paths.join(platformConfig, 'morphir'), resolvedHome]
+  const configuredHome = env['MORPHIR_HOME']
+  const roots =
+    configuredHome && configuredHome.length > 0
+      ? [configuredHome]
+      : [paths.join(platformConfig, 'morphir'), paths.join(home, '.morphir')]
   return [
     ...new Set(
       roots.flatMap((root) => [paths.join(root, 'morphir.toml'), paths.join(root, 'morphir.yaml')]),
