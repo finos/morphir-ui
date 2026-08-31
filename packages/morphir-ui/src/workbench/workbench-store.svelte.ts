@@ -377,10 +377,19 @@ export class WorkbenchStore {
       const model = await this.#services.loadDevelopmentProjectModel(descriptor, projectId)
       if (!this.#isCurrentProjectLoad(id, projectId, token)) return
       const entry = this.#readyDevelopmentEntry(id)
-      if (!entry || !entry.data.snapshot.projects.some((project) => project.id === projectId)) return
       const current = this.developmentNavigation(id).projects.find(
         (project) => project.projectId === projectId,
       )
+      if (!entry) {
+        this.#replaceDevelopmentProject(id, {
+          projectId,
+          status: 'error',
+          message: 'Project model loading was interrupted by a Workbench reload',
+          selectedDefinitionId: current?.selectedDefinitionId ?? selectedDefinitionId,
+        })
+        return
+      }
+      if (!entry.data.snapshot.projects.some((project) => project.id === projectId)) return
       this.#replaceDevelopmentProject(id, {
         projectId,
         status: 'ready',

@@ -647,6 +647,58 @@ describe('WorkbenchStore', () => {
     })
   })
 
+  test('makes a project load retryable when a parent Workbench reload overtakes it', async () => {
+    const source = legacySourceRef('/dev')
+    const orders = project(source, 'packages/orders', 'Orders')
+    const { core } = makeFakeCore({
+      development: { snapshot: developmentSnapshot(source, [orders]) },
+    })
+    const base = await makeAppServices({ core })
+    let finishProject!: () => void
+    let finishParentReload!: () => void
+    let parentLoads = 0
+    let projectLoads = 0
+    const store = new WorkbenchStore(
+      {
+        ...base,
+        loadDevelopmentWorkbench: async (descriptor) => {
+          parentLoads += 1
+          if (parentLoads > 1) {
+            await new Promise<void>((resolve) => void (finishParentReload = resolve))
+          }
+          return base.loadDevelopmentWorkbench(descriptor)
+        },
+        loadDevelopmentProjectModel: async (descriptor, projectId) => {
+          projectLoads += 1
+          if (projectLoads === 1) {
+            await new Promise<void>((resolve) => void (finishProject = resolve))
+          }
+          return base.loadDevelopmentProjectModel(descriptor, projectId)
+        },
+      },
+      defaultUiConfig.workbenches,
+    )
+
+    const id = (await store.open(source))!
+    const projectLoad = store.selectDevelopmentProject(id, orders.id)
+    await vi.waitFor(() =>
+      expect(store.developmentNavigation(id).projects[0]?.status).toBe('loading'),
+    )
+    const parentReload = store.retry(id)
+    await vi.waitFor(() => expect(store.active?.status).toBe('loading'))
+    finishProject()
+    await projectLoad
+
+    expect(store.developmentNavigation(id).projects[0]?.status).toBe('error')
+
+    finishParentReload()
+    await parentReload
+    await store.retryDevelopmentProject(id, orders.id)
+
+    expect(projectLoads).toBe(2)
+    expect(store.developmentNavigation(id).projects[0]?.status).toBe('ready')
+  })
+
   test('ignores a project ID that is absent from the current Development snapshot', async () => {
     const source = legacySourceRef('/dev')
     const { core } = makeFakeCore({

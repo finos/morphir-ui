@@ -182,7 +182,7 @@ export const ProjectModelOpenResultSchema = Schema.Struct({
     openedAt: NonEmptyStringSchema,
     lastUsedAt: NonEmptyStringSchema,
   }),
-  content: Schema.String,
+  content: NonEmptyStringSchema,
 })
 export type ProjectModelOpenResult = Schema.Schema.Type<typeof ProjectModelOpenResultSchema>
 

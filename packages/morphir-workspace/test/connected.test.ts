@@ -197,5 +197,8 @@ describe('connected host protocol', () => {
         descriptor: { ...result.descriptor, route: 'overview' },
       }),
     ).toThrow()
+    expect(() =>
+      Schema.decodeUnknownSync(ProjectModelOpenResultSchema)({ ...result, content: '' }),
+    ).toThrow()
   })
 })
