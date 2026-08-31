@@ -1,6 +1,12 @@
 import { Effect, Stream } from 'effect'
 import { describe, expect, test, vi } from 'vitest'
-import { projectKey, sourceKey, type ProjectSnapshot, type WorkspaceSnapshot } from '@morphir/workspace'
+import {
+  projectKey,
+  sourceKey,
+  type ProjectSnapshot,
+  type WorkspaceEvent,
+  type WorkspaceSnapshot,
+} from '@morphir/workspace'
 import {
   WorkbenchStore,
   WorkbenchError,
@@ -803,6 +809,51 @@ describe('WorkbenchStore', () => {
     await vi.waitFor(() => {
       expect(store.active).toMatchObject({ status: 'ready', data: { snapshot } })
     })
+  })
+
+  test('prunes project navigation when a disconnected workspace recovers', async () => {
+    const source = legacySourceRef('/dev')
+    const orders = project(source, 'packages/orders', 'Orders')
+    const initial = developmentSnapshot(source, [orders])
+    const recovered = developmentSnapshot(source, [])
+    let emitDisconnect!: () => void
+    let emitRecovery!: () => void
+    const nextEvent = (register: (emit: () => void) => void, event: WorkspaceEvent) =>
+      Stream.fromEffect(
+        Effect.promise(
+          () =>
+            new Promise<WorkspaceEvent>((resolve) => register(() => resolve(event))),
+        ),
+      )
+    const events = Stream.concat(
+      nextEvent(
+        (emit) => void (emitDisconnect = emit),
+        {
+          tag: 'provider-disconnected',
+          providerId: source.providerId,
+          message: 'CLI connection closed',
+        },
+      ),
+      nextEvent(
+        (emit) => void (emitRecovery = emit),
+        { tag: 'snapshot', snapshot: recovered },
+      ),
+    )
+    const { core } = makeFakeCore({ development: { snapshot: initial, events } })
+    const store = new WorkbenchStore(await makeAppServices({ core }), defaultUiConfig.workbenches)
+
+    const id = (await store.open(source))!
+    await vi.waitFor(() => expect(emitDisconnect).toBeTypeOf('function'))
+    await store.selectDevelopmentProject(id, orders.id)
+    expect(store.developmentNavigation(id).activeProjectId).toBe(orders.id)
+
+    emitDisconnect()
+    await vi.waitFor(() => expect(store.active?.status).toBe('error'))
+    await vi.waitFor(() => expect(emitRecovery).toBeTypeOf('function'))
+    emitRecovery()
+
+    await vi.waitFor(() => expect(store.active?.status).toBe('ready'))
+    expect(store.developmentNavigation(id)).toEqual({ activeProjectId: null, projects: [] })
   })
 
   test('stops watching a Development Workbench when it closes or the store disposes', async () => {

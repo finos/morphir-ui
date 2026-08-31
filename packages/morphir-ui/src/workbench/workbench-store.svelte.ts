@@ -523,6 +523,7 @@ export class WorkbenchStore {
         status: 'ready',
         data: { kind: 'development', descriptor: entry.descriptor, snapshot: event.snapshot },
       })
+      this.#reconcileDevelopmentNavigation(id, event.snapshot.projects.map((project) => project.id))
       return
     }
     if (entry.status !== 'ready' || entry.data.kind !== 'development') return
