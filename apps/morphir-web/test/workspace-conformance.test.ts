@@ -67,7 +67,11 @@ const directoryHandle = (name: string, directory: TreeDirectory): DirectoryPermi
               {
                 kind: 'file' as const,
                 name: childName,
-                getFile: async () => ({ text: async () => text }) as File,
+                getFile: async () =>
+                  ({
+                    size: new TextEncoder().encode(text).byteLength,
+                    text: async () => text,
+                  }) as File,
               },
             ] as const,
         ),
@@ -316,15 +320,16 @@ describe('browser workspace discovery conformance', () => {
       const discover = vi.spyOn(engine, 'discover')
 
       await expect(
-        fileTreeFromDirectoryUpload([{ relativePath, text: read }]).then((developmentRoot) =>
-          engine.discover({
-            protocolVersion: 1,
-            developmentRoot,
-            morphirHome: null,
-            systemConfig: null,
-            environment: {},
-            cliOverlay: {},
-          }),
+        fileTreeFromDirectoryUpload([{ relativePath, size: 9, text: read }]).then(
+          (developmentRoot) =>
+            engine.discover({
+              protocolVersion: 1,
+              developmentRoot,
+              morphirHome: null,
+              systemConfig: null,
+              environment: {},
+              cliOverlay: {},
+            }),
         ),
       ).rejects.toMatchObject({ code: 'invalid-path' })
       expect(read).not.toHaveBeenCalled()

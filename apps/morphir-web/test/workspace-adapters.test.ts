@@ -52,7 +52,8 @@ const makeStorage = (): { readonly storage: WorkspaceStorage; readonly values: S
 const file = (name: string, text: string): DirectoryEntryHandle => ({
   kind: 'file',
   name,
-  getFile: async () => ({ text: async () => text }) as File,
+  getFile: async () =>
+    ({ size: new TextEncoder().encode(text).byteLength, text: async () => text }) as File,
 })
 
 const directory = (
@@ -203,6 +204,32 @@ describe('browser workspace adapters', () => {
     expect(failure).not.toBe(revoked)
   })
 
+  test('directory handles enforce entry, depth, and config-byte budgets before reading', async () => {
+    const text = vi.fn(async () => 'abc')
+    const root = directory('workspace', [
+      directory('nested', [
+        {
+          kind: 'file',
+          name: 'morphir.toml',
+          getFile: async () => ({ size: 3, text }),
+        },
+      ]),
+    ])
+
+    for (const budgets of [{ entries: 0 }, { maxDepth: 0 }, { configBytes: 2 }]) {
+      await expect(fileTreeFromDirectoryHandle(root, { budgets })).rejects.toMatchObject({
+        name: 'BrowserDirectoryError',
+        code: 'resource-limit',
+      })
+    }
+    expect(text).not.toHaveBeenCalled()
+    expect(
+      await fileTreeFromDirectoryHandle(root, {
+        budgets: { entries: 2, maxDepth: 1, configBytes: 3 },
+      }),
+    ).toBeDefined()
+  })
+
   test.each([
     {
       boundary: 'getFile',
@@ -220,6 +247,7 @@ describe('browser workspace adapters', () => {
         kind: 'file',
         name: 'morphir.toml',
         getFile: async () => ({
+          size: 0,
           text: async () => {
             throw new Error('text failed')
           },
@@ -278,7 +306,7 @@ describe('browser workspace adapters', () => {
     async (relativePath) => {
       const read = vi.fn(async () => '[project]')
       const discover = vi.fn(async (_tree: FileTree) => undefined)
-      const upload: UploadedDirectoryFile = { relativePath, text: read }
+      const upload: UploadedDirectoryFile = { relativePath, size: 9, text: read }
 
       await expect(fileTreeFromDirectoryUpload([upload]).then(discover)).rejects.toThrow(
         'canonical, confined relative path',
@@ -296,12 +324,12 @@ describe('browser workspace adapters', () => {
   ])('upload fallback rejects unsafe nested segment in %s before reading', async (relativePath) => {
     const read = vi.fn(async () => '[project]')
 
-    await expect(fileTreeFromDirectoryUpload([{ relativePath, text: read }])).rejects.toMatchObject(
-      {
-        name: 'BrowserDirectoryError',
-        code: 'invalid-path',
-      },
-    )
+    await expect(
+      fileTreeFromDirectoryUpload([{ relativePath, size: 9, text: read }]),
+    ).rejects.toMatchObject({
+      name: 'BrowserDirectoryError',
+      code: 'invalid-path',
+    })
     expect(read).not.toHaveBeenCalled()
   })
 
@@ -310,8 +338,8 @@ describe('browser workspace adapters', () => {
 
     await expect(
       fileTreeFromDirectoryUpload([
-        { relativePath: 'root/morphir.toml', text: reads[0]! },
-        { relativePath: 'root/morphir.toml', text: reads[1]! },
+        { relativePath: 'root/morphir.toml', size: 9, text: reads[0]! },
+        { relativePath: 'root/morphir.toml', size: 9, text: reads[1]! },
       ]),
     ).rejects.toMatchObject({
       name: 'BrowserDirectoryError',
@@ -330,7 +358,7 @@ describe('browser workspace adapters', () => {
 
       await expect(
         fileTreeFromDirectoryUpload(
-          paths.map((relativePath, index) => ({ relativePath, text: reads[index]! })),
+          paths.map((relativePath, index) => ({ relativePath, size: 9, text: reads[index]! })),
         ),
       ).rejects.toMatchObject({
         name: 'BrowserDirectoryError',
@@ -342,14 +370,32 @@ describe('browser workspace adapters', () => {
 
   test('upload fallback preserves __proto__ path entries', async () => {
     const tree = await fileTreeFromDirectoryUpload([
-      { relativePath: '__proto__/morphir.toml', text: async () => '[project]' },
-      { relativePath: 'packages/orders/notes.txt', text: async () => 'ignored' },
+      { relativePath: '__proto__/morphir.toml', size: 9, text: async () => '[project]' },
+      { relativePath: 'packages/orders/notes.txt', size: 7, text: async () => 'ignored' },
     ])
 
     expect(Object.hasOwn(tree.entries, '__proto__')).toBe(true)
     expect(tree.entries['__proto__']).toEqual({ kind: 'directory' })
     expect(tree.entries['__proto__/morphir.toml']).toEqual({ kind: 'file', text: '[project]' })
     expect(() => Schema.decodeUnknownSync(FileTreeSchema)(tree)).not.toThrow()
+  })
+
+  test('upload fallback enforces entry, depth, and config-byte budgets before reading', async () => {
+    const text = vi.fn(async () => 'abc')
+    const files = [{ relativePath: 'root/packages/morphir.toml', size: 3, text }]
+
+    for (const budgets of [{ entries: 0 }, { maxDepth: 0 }, { configBytes: 2 }]) {
+      await expect(fileTreeFromDirectoryUpload(files, { budgets })).rejects.toMatchObject({
+        name: 'BrowserDirectoryError',
+        code: 'resource-limit',
+      })
+    }
+    expect(text).not.toHaveBeenCalled()
+    expect(
+      await fileTreeFromDirectoryUpload(files, {
+        budgets: { entries: 2, maxDepth: 1, configBytes: 3 },
+      }),
+    ).toBeDefined()
   })
 })
 

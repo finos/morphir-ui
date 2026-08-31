@@ -116,6 +116,7 @@ const directoryUpload = (): Promise<PickedBrowserDirectory | null> =>
         name,
         files: selected.map((file) => ({
           relativePath: file.webkitRelativePath || file.name,
+          size: file.size,
           text: () => file.text(),
         })),
       })

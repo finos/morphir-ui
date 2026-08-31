@@ -4,7 +4,7 @@ import { RelativePathSchema, type FileTree, type RelativePath } from '@morphir/w
 export interface DirectoryFileHandle {
   readonly kind: 'file'
   readonly name: string
-  readonly getFile: () => Promise<Pick<File, 'text'>>
+  readonly getFile: () => Promise<Pick<File, 'size' | 'text'>>
 }
 
 export interface DirectoryReadHandle {
@@ -26,14 +26,32 @@ export interface DirectoryPermissionHandle extends DirectoryReadHandle {
 
 export interface UploadedDirectoryFile {
   readonly relativePath: string
+  readonly size: number
   readonly text: () => Promise<string>
+}
+
+export interface BrowserFileTreeBudgets {
+  readonly entries: number
+  readonly maxDepth: number
+  readonly configBytes: number
+}
+
+export const DEFAULT_BROWSER_FILE_TREE_BUDGETS: BrowserFileTreeBudgets = {
+  entries: 262_144,
+  maxDepth: 128,
+  configBytes: 64 * 1024 * 1024,
+}
+
+export interface BrowserFileTreeOptions {
+  readonly budgets?: Partial<BrowserFileTreeBudgets>
 }
 
 export class BrowserDirectoryError extends Error {
   readonly name = 'BrowserDirectoryError'
 
   constructor(
-    readonly code: 'permission-denied' | 'invalid-path' | 'path-conflict' | 'read-failed',
+    readonly code:
+      'permission-denied' | 'invalid-path' | 'path-conflict' | 'read-failed' | 'resource-limit',
     message: string,
     options?: ErrorOptions,
   ) {
@@ -153,34 +171,83 @@ const decodeUploadPath = (path: string): RelativePath => {
 const comparePaths = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0
 
+interface TraversalState {
+  entries: number
+  configBytes: number
+}
+
+const resourceLimit = (resource: keyof BrowserFileTreeBudgets, maximum: number): never => {
+  throw new BrowserDirectoryError(
+    'resource-limit',
+    `workspace.traversal.resource-limit: ${resource} budget ${maximum}`,
+  )
+}
+
+const chargeEntry = (state: TraversalState, budgets: BrowserFileTreeBudgets): void => {
+  if (state.entries >= budgets.entries) resourceLimit('entries', budgets.entries)
+  state.entries += 1
+}
+
+const ensureConfigSize = (
+  size: number,
+  state: TraversalState,
+  budgets: BrowserFileTreeBudgets,
+): void => {
+  if (size > budgets.configBytes - state.configBytes) {
+    resourceLimit('configBytes', budgets.configBytes)
+  }
+}
+
+const chargeConfigText = (
+  text: string,
+  state: TraversalState,
+  budgets: BrowserFileTreeBudgets,
+): void => {
+  const bytes = new TextEncoder().encode(text).byteLength
+  ensureConfigSize(bytes, state, budgets)
+  state.configBytes += bytes
+}
+
 const walkDirectory = async (
   handle: DirectoryReadHandle,
   path: RelativePath,
   entries: Map<RelativePath, FileTree['entries'][string]>,
+  budgets: BrowserFileTreeBudgets,
+  state: TraversalState,
+  depth: number,
 ): Promise<void> => {
   const children: Array<readonly [string, DirectoryEntryHandle]> = []
-  for await (const child of handle.entries()) children.push(child)
+  for await (const child of handle.entries()) {
+    chargeEntry(state, budgets)
+    children.push(child)
+  }
   children.sort(([left], [right]) => comparePaths(left, right))
 
   for (const [name, child] of children) {
     const childPath = decodeRelativePath(joinRelative(path, decodeChildSegment(name)))
     if (child.kind === 'directory') {
+      if (depth >= budgets.maxDepth) resourceLimit('maxDepth', budgets.maxDepth)
       entries.set(childPath, { kind: 'directory' })
-      await walkDirectory(child, childPath, entries)
+      await walkDirectory(child, childPath, entries, budgets, state, depth + 1)
     } else if (isRecognizedConfig(childPath)) {
       const selectedFile = await child.getFile()
-      entries.set(childPath, { kind: 'file', text: await selectedFile.text() })
+      ensureConfigSize(selectedFile.size, state, budgets)
+      const text = await selectedFile.text()
+      chargeConfigText(text, state, budgets)
+      entries.set(childPath, { kind: 'file', text })
     }
   }
 }
 
 export const fileTreeFromDirectoryHandle = async (
   handle: DirectoryPermissionHandle,
+  options: BrowserFileTreeOptions = {},
 ): Promise<FileTree> => {
   await ensureReadPermission(handle)
+  const budgets = { ...DEFAULT_BROWSER_FILE_TREE_BUDGETS, ...options.budgets }
   const entries = new Map<RelativePath, FileTree['entries'][string]>([['.', { kind: 'directory' }]])
   try {
-    await walkDirectory(handle, '.', entries)
+    await walkDirectory(handle, '.', entries, budgets, { entries: 0, configBytes: 0 }, 0)
   } catch (cause) {
     throw normalizeReadFailure(cause, `Unable to read workspace directory ${handle.name}`)
   }
@@ -230,7 +297,10 @@ const validateUploadTree = (files: ReadonlyArray<{ readonly path: RelativePath }
 
 export const fileTreeFromDirectoryUpload = async (
   files: ReadonlyArray<UploadedDirectoryFile>,
+  options: BrowserFileTreeOptions = {},
 ): Promise<FileTree> => {
+  const budgets = { ...DEFAULT_BROWSER_FILE_TREE_BUDGETS, ...options.budgets }
+  if (files.length > budgets.entries) resourceLimit('entries', budgets.entries)
   const validated = files.map((file) => ({ file, path: decodeUploadPath(file.relativePath) }))
   const root = commonUploadRoot(validated.map(({ path }) => path))
   const normalized = validated
@@ -241,15 +311,36 @@ export const fileTreeFromDirectoryUpload = async (
     .sort(({ path: left }, { path: right }) => comparePaths(left, right))
   validateUploadTree(normalized)
 
+  for (const { path } of normalized) {
+    const depth = path.split('/').length - 1
+    if (depth > budgets.maxDepth) resourceLimit('maxDepth', budgets.maxDepth)
+  }
+
   const directories = new Set<string>(['.'])
   for (const { path } of normalized) addAncestors(path, directories)
+  if (directories.size - 1 + normalized.length > budgets.entries) {
+    resourceLimit('entries', budgets.entries)
+  }
+
+  let declaredConfigBytes = 0
+  for (const { file, path } of normalized) {
+    if (!isRecognizedConfig(path)) continue
+    if (file.size > budgets.configBytes - declaredConfigBytes) {
+      resourceLimit('configBytes', budgets.configBytes)
+    }
+    declaredConfigBytes += file.size
+  }
 
   const entries = new Map<string, FileTree['entries'][string]>()
+  const state: TraversalState = { entries: 0, configBytes: 0 }
   for (const path of [...directories].sort()) entries.set(path, { kind: 'directory' })
   for (const { file, path } of normalized) {
     if (!isRecognizedConfig(path)) continue
     try {
-      entries.set(path, { kind: 'file', text: await file.text() })
+      ensureConfigSize(file.size, state, budgets)
+      const text = await file.text()
+      chargeConfigText(text, state, budgets)
+      entries.set(path, { kind: 'file', text })
     } catch (cause) {
       throw normalizeReadFailure(cause, `Unable to read uploaded workspace file ${path}`)
     }

@@ -70,7 +70,8 @@ const directoryHandle = (
           {
             kind: 'file' as const,
             name: entryName,
-            getFile: async () => ({ text: async () => text }) as File,
+            getFile: async () =>
+              ({ size: new TextEncoder().encode(text).byteLength, text: async () => text }) as File,
           },
         ] as const
       }
@@ -497,7 +498,11 @@ describe('browserCore', () => {
         kind: 'upload' as const,
         name: 'first',
         files: [
-          { relativePath: 'first/morphir.toml', text: async () => '[project]\nname = "first"' },
+          {
+            relativePath: 'first/morphir.toml',
+            size: 24,
+            text: async () => '[project]\nname = "first"',
+          },
         ],
       },
       {
@@ -506,6 +511,7 @@ describe('browserCore', () => {
         files: [
           {
             relativePath: 'second/morphir.toml',
+            size: 25,
             text: async () => '[project]\nname = "second"',
           },
         ],
@@ -573,7 +579,11 @@ describe('browserCore', () => {
       kind: 'upload' as const,
       name,
       files: [
-        { relativePath: `${name}/morphir.toml`, text: async () => `[project]\nname = "${name}"` },
+        {
+          relativePath: `${name}/morphir.toml`,
+          size: 25,
+          text: async () => `[project]\nname = "${name}"`,
+        },
       ],
     }))
     const services = await makeAppServices({
@@ -656,7 +666,11 @@ describe('browserCore', () => {
       kind: 'upload' as const,
       name,
       files: [
-        { relativePath: `${name}/morphir.toml`, text: async () => `[project]\nname = "${name}"` },
+        {
+          relativePath: `${name}/morphir.toml`,
+          size: 25,
+          text: async () => `[project]\nname = "${name}"`,
+        },
       ],
     })
     const sharedHandles = {
@@ -698,7 +712,7 @@ describe('browserCore', () => {
     const upload = {
       kind: 'upload' as const,
       name: 'workspace',
-      files: [{ relativePath: 'workspace/morphir.toml', text: async () => '[project]' }],
+      files: [{ relativePath: 'workspace/morphir.toml', size: 9, text: async () => '[project]' }],
     }
     const core = browserCoreWith('1.0.0', {
       engine: { discover: async () => Promise.reject(new Error('not used')) },
