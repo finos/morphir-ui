@@ -94,6 +94,24 @@
   const refusalFor = (target: string): string | null =>
     refusals.find((refusal) => refusal.entry.target === target)?.reason ?? null
 
+  // A persisted target whose extension is gone resolves to no catalog entry, which would
+  // leave Generate dead and the refusals list — which only walks catalog.targets —
+  // saying nothing at all. Same silent misinformation as a hidden incompatible target,
+  // reached from the other direction, so it gets the same treatment: kept visible,
+  // disabled, and explained.
+  const retiredTarget = $derived(
+    playground.selectedTarget !== null &&
+      !playground.catalog.targets.some((entry) => entry.target === playground.selectedTarget)
+      ? playground.selectedTarget
+      : null,
+  )
+  const retiredTargetReason = $derived(
+    retiredTarget === null
+      ? null
+      : `${retiredTarget} is no longer offered by this session; the extension that provided it may have been removed`,
+  )
+  const hasRefusals = $derived(refusals.length > 0 || retiredTargetReason !== null)
+
   const busy = $derived(playground.status === 'compiling' || playground.status === 'generating')
   const canCompile = $derived(pipeline !== null && selectedFrontend !== null && !busy)
   const compiledIr = $derived(playground.compileResult?.ir ?? null)
@@ -502,9 +520,15 @@
           id="playground-target"
           value={playground.selectedTarget ?? ''}
           disabled={pipeline === null}
+          aria-describedby={hasRefusals ? 'playground-target-refusals' : undefined}
           onchange={(event) => chooseTarget(event.currentTarget.value)}
         >
           <option value="">Choose a target…</option>
+          {#if retiredTarget !== null}
+            <option value={retiredTarget} disabled title={retiredTargetReason}>
+              {retiredTarget} (no longer offered)
+            </option>
+          {/if}
           {#each playground.catalog.targets as entry (entry.target)}
             {@const refusal = refusalFor(entry.target)}
             <!-- An incompatible target is disabled, never hidden: a vanished target
@@ -516,14 +540,22 @@
         </select>
       </div>
 
-      {#if refusals.length > 0}
+      {#if hasRefusals}
         <!-- Repeated in the open, because a disabled <option>'s title is not reachable by
-             keyboard or screen reader in most browsers. -->
-        <ul class="refusals" data-testid="target-refusals">
-          {#each refusals as refusal (refusal.entry.target)}
-            <li>{refusal.reason}</li>
-          {/each}
-        </ul>
+             keyboard or screen reader in most browsers. The select points here through
+             aria-describedby so the explanation is announced with the control it explains,
+             rather than being something only a sighted user happens to scroll past. -->
+        <div class="refusal-group" id="playground-target-refusals" data-testid="target-refusals">
+          <span class="pane-title">Unavailable targets</span>
+          <ul class="refusals">
+            {#if retiredTargetReason !== null}
+              <li>{retiredTargetReason}</li>
+            {/if}
+            {#each refusals as refusal (refusal.entry.target)}
+              <li>{refusal.reason}</li>
+            {/each}
+          </ul>
+        </div>
       {/if}
 
       <div class="actions">
@@ -730,6 +762,11 @@
     font-family: var(--mono);
     font-size: 10.5px;
     color: var(--muted2);
+  }
+  .refusal-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
   .refusals li {
     font-size: 11.5px;

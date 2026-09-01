@@ -392,4 +392,66 @@ describe('PlaygroundView', () => {
     expect(saves).toBe(savesAfterFlush)
   })
 
+  // Requirement 2 arrived at from the other side: a target that silently vanishes leaves
+  // Generate dead with nothing on screen explaining why.
+  test('a persisted target this session no longer offers is shown, disabled, with a reason', async () => {
+    const { core } = makeFakeCore({
+      config: {
+        ...defaultUiConfig,
+        playground: {
+          documents: [],
+          activeDocumentId: null,
+          languageId: null,
+          target: 'retired',
+        },
+      },
+    })
+    const fake = makeFakePipeline({ catalog: catalog() })
+    const services = await makeAppServices({ core, pipeline: fake.pipeline })
+    render(PlaygroundView, { props: { services } })
+
+    const select = (await screen.findByLabelText('Generation target')) as HTMLSelectElement
+    await waitFor(() => expect(select.value).toBe('retired'))
+    const retired = Array.from(select.options).find((option) => option.value === 'retired')
+    expect(retired).toBeTruthy()
+    expect(retired!.disabled).toBe(true)
+    const reasons = await screen.findByTestId('target-refusals')
+    expect(reasons.textContent).toContain('retired')
+    expect(reasons.textContent).toMatch(/no longer offered/i)
+    expect(screen.getByRole('button', { name: 'Generate' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  // The refusal list is the load-bearing explanation in this view, so a screen reader
+  // that reaches the select must reach the reasons too.
+  test('the target select is described by the refusal list', async () => {
+    await setup()
+    const select = await catalogLoaded()
+
+    const describedBy = select.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    const reasons = document.getElementById(describedBy!)
+    expect(reasons).toBeTruthy()
+    expect(reasons!.textContent).toContain('requires Morphir IR 4')
+  })
+
+  test('no refusals means nothing dangling for aria-describedby to point at', async () => {
+    const fake = makeFakePipeline({
+      catalog: catalog({
+        targets: [
+          {
+            target: 'scala',
+            displayName: 'Scala',
+            irVersions: ['3'],
+            generate: true,
+            provider: provider('morphir-scala'),
+          },
+        ],
+      }),
+    })
+    await setup({ pipeline: fake })
+    const select = await catalogLoaded(1)
+
+    expect(select.getAttribute('aria-describedby')).toBeNull()
+    expect(screen.queryByTestId('target-refusals')).toBeNull()
+  })
 })
