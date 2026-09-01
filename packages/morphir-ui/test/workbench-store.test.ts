@@ -14,6 +14,7 @@ import {
   legacyModelDescriptor,
   legacySourceRef,
   makeAppServices,
+  projectModelForDisplay,
   type ModelWorkbenchDescriptor,
 } from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
@@ -446,7 +447,33 @@ describe('WorkbenchStore', () => {
     expect(store.openEntries[0]).toMatchObject({
       descriptor,
       status: 'error',
-      message: 'Invalid Morphir distribution: /bad.json',
+      reason: { tag: 'load-failed', message: 'Invalid Morphir distribution: /bad.json' },
+    })
+  })
+
+  test('an initial permission failure keeps its typed recovery action', async () => {
+    const source = legacySourceRef('/dev')
+    const { core } = makeFakeCore()
+    const base = await makeAppServices({ core })
+    const store = new WorkbenchStore(
+      {
+        ...base,
+        loadDevelopmentWorkbench: async (descriptor) => {
+          throw new WorkbenchError({
+            code: 'permission-denied',
+            source: descriptor.source,
+            message: 'Directory access was revoked',
+          })
+        },
+      },
+      defaultUiConfig.workbenches,
+    )
+
+    await store.open(source)
+
+    expect(store.active).toMatchObject({
+      status: 'error',
+      reason: { tag: 'permission-required', message: 'Directory access was revoked' },
     })
   })
 
@@ -499,7 +526,10 @@ describe('WorkbenchStore', () => {
       store.openEntries.find((entry) => entry.descriptor.id === sourceKey(foreign)),
     ).toMatchObject({
       status: 'error',
-      message: 'Workbench source belongs to provider cli:session-1',
+      reason: {
+        tag: 'load-failed',
+        message: 'Workbench source belongs to provider cli:session-1',
+      },
     })
   })
 
@@ -525,7 +555,9 @@ describe('WorkbenchStore', () => {
     const base = await makeAppServices({ core })
     const services = {
       ...base,
-      loadDevelopmentWorkbench: async (descriptor: Parameters<typeof base.loadDevelopmentWorkbench>[0]) => {
+      loadDevelopmentWorkbench: async (
+        descriptor: Parameters<typeof base.loadDevelopmentWorkbench>[0],
+      ) => {
         const orders = project(descriptor.source, 'packages/orders', 'Orders')
         const pricing = project(descriptor.source, 'packages/pricing', 'Pricing')
         return {
@@ -556,19 +588,28 @@ describe('WorkbenchStore', () => {
       projects: [
         {
           projectId: firstOrders,
-          status: 'ready',
-          selectedDefinitionId: 'definition:value:A:B:c',
+          modelState: {
+            tag: 'ready',
+            current: { selectedDefinitionId: 'definition:value:A:B:c' },
+          },
         },
         {
           projectId: firstPricing,
-          status: 'ready',
-          selectedDefinitionId: 'definition:type:A:B:T',
+          modelState: {
+            tag: 'ready',
+            current: { selectedDefinitionId: 'definition:type:A:B:T' },
+          },
         },
       ],
     })
     expect(store.developmentNavigation(secondId)).toMatchObject({
       activeProjectId: secondOrders,
-      projects: [{ projectId: secondOrders, status: 'ready', selectedDefinitionId: null }],
+      projects: [
+        {
+          projectId: secondOrders,
+          modelState: { tag: 'ready', current: { selectedDefinitionId: null } },
+        },
+      ],
     })
   })
 
@@ -598,12 +639,20 @@ describe('WorkbenchStore', () => {
     await store.selectDevelopmentProject(id, orders.id)
     expect(store.developmentNavigation(id)).toMatchObject({
       activeProjectId: orders.id,
-      projects: [{ projectId: orders.id, status: 'error', message: 'morphir-ir.json was not found' }],
+      projects: [
+        {
+          projectId: orders.id,
+          modelState: {
+            tag: 'failed',
+            failure: { tag: 'load-failed', message: 'morphir-ir.json was not found' },
+          },
+        },
+      ],
     })
 
     const retry = store.retryDevelopmentProject(id, orders.id)
     await vi.waitFor(() =>
-      expect(store.developmentNavigation(id).projects[0]?.status).toBe('loading'),
+      expect(store.developmentNavigation(id).projects[0]?.modelState.tag).toBe('loading'),
     )
     store.close(id)
     finishLoad()
@@ -638,7 +687,7 @@ describe('WorkbenchStore', () => {
     const id = (await store.open(source))!
     const first = store.selectDevelopmentProject(id, orders.id)
     await vi.waitFor(() =>
-      expect(store.developmentNavigation(id).projects[0]?.status).toBe('loading'),
+      expect(store.developmentNavigation(id).projects[0]?.modelState.tag).toBe('loading'),
     )
     await store.selectDevelopmentProject(id, pricing.id)
     finishOrders()
@@ -647,10 +696,92 @@ describe('WorkbenchStore', () => {
     expect(store.developmentNavigation(id)).toMatchObject({
       activeProjectId: pricing.id,
       projects: [
-        { projectId: orders.id, status: 'ready' },
-        { projectId: pricing.id, status: 'ready' },
+        { projectId: orders.id, modelState: { tag: 'ready' } },
+        { projectId: pricing.id, modelState: { tag: 'ready' } },
       ],
     })
+  })
+
+  test('keeps the last usable model when a project refresh loses browser permission', async () => {
+    const source = legacySourceRef('/dev')
+    const orders = project(source, 'packages/orders', 'Orders')
+    const { core } = makeFakeCore({
+      development: { snapshot: developmentSnapshot(source, [orders]) },
+    })
+    const base = await makeAppServices({ core })
+    let permissionDenied = false
+    const store = new WorkbenchStore(
+      {
+        ...base,
+        loadDevelopmentProjectModel: async (descriptor, projectId) => {
+          if (permissionDenied) {
+            throw new WorkbenchError({
+              code: 'permission-denied',
+              source: descriptor.source,
+              message: 'Read permission was revoked',
+            })
+          }
+          return base.loadDevelopmentProjectModel(descriptor, projectId)
+        },
+      },
+      defaultUiConfig.workbenches,
+    )
+
+    const id = (await store.open(source))!
+    await store.selectDevelopmentProject(id, orders.id)
+    const firstState = store.developmentNavigation(id).projects[0]!.modelState
+    const firstModel = projectModelForDisplay(firstState)
+    expect(firstState.tag).toBe('ready')
+
+    permissionDenied = true
+    await store.retryDevelopmentProject(id, orders.id)
+    const failed = store.developmentNavigation(id).projects[0]!.modelState
+
+    expect(failed).toMatchObject({
+      tag: 'failed',
+      failure: { tag: 'permission-required', message: 'Read permission was revoked' },
+    })
+    expect(projectModelForDisplay(failed)).toBe(firstModel)
+
+    permissionDenied = false
+    await store.retryDevelopmentProject(id, orders.id)
+    expect(store.developmentNavigation(id).projects[0]?.modelState.tag).toBe('ready')
+  })
+
+  test('keeps cached models while provider snapshots move through every project lifecycle state', async () => {
+    const source = legacySourceRef('/dev')
+    const orders = project(source, 'packages/orders', 'Orders')
+    let publish!: (event: WorkspaceEvent) => void
+    const events = Stream.async<WorkspaceEvent>((emit) => {
+      publish = (event) => emit.single(event)
+      return Effect.void
+    })
+    const { core } = makeFakeCore({
+      development: { snapshot: developmentSnapshot(source, [orders]), events },
+    })
+    const store = new WorkbenchStore(await makeAppServices({ core }), defaultUiConfig.workbenches)
+
+    const id = (await store.open(source))!
+    await vi.waitFor(() => expect(publish).toBeTypeOf('function'))
+    await store.selectDevelopmentProject(id, orders.id)
+    const firstModel = projectModelForDisplay(
+      store.developmentNavigation(id).projects[0]!.modelState,
+    )
+
+    for (const state of ['loading', 'ready', 'stale', 'error', 'unloaded'] as const) {
+      const snapshot = developmentSnapshot(source, [{ ...orders, state }])
+      publish({ tag: 'snapshot', snapshot })
+      await vi.waitFor(() => {
+        const active = store.active
+        expect(active?.status).toBe('ready')
+        if (active?.status === 'ready' && active.data.kind === 'development') {
+          expect(active.data.snapshot.projects[0]?.state).toBe(state)
+        }
+      })
+      expect(projectModelForDisplay(store.developmentNavigation(id).projects[0]!.modelState)).toBe(
+        firstModel,
+      )
+    }
   })
 
   test('makes a project load retryable when a parent Workbench reload overtakes it', async () => {
@@ -688,21 +819,21 @@ describe('WorkbenchStore', () => {
     const id = (await store.open(source))!
     const projectLoad = store.selectDevelopmentProject(id, orders.id)
     await vi.waitFor(() =>
-      expect(store.developmentNavigation(id).projects[0]?.status).toBe('loading'),
+      expect(store.developmentNavigation(id).projects[0]?.modelState.tag).toBe('loading'),
     )
     const parentReload = store.retry(id)
     await vi.waitFor(() => expect(store.active?.status).toBe('loading'))
     finishProject()
     await projectLoad
 
-    expect(store.developmentNavigation(id).projects[0]?.status).toBe('error')
+    expect(store.developmentNavigation(id).projects[0]?.modelState.tag).toBe('failed')
 
     finishParentReload()
     await parentReload
     await store.retryDevelopmentProject(id, orders.id)
 
     expect(projectLoads).toBe(2)
-    expect(store.developmentNavigation(id).projects[0]?.status).toBe('ready')
+    expect(store.developmentNavigation(id).projects[0]?.modelState.tag).toBe('ready')
   })
 
   test('ignores a project ID that is absent from the current Development snapshot', async () => {
@@ -773,7 +904,11 @@ describe('WorkbenchStore', () => {
     await store.open(source)
 
     await vi.waitFor(() => {
-      expect(store.active).toMatchObject({ status: 'error', message: 'CLI connection closed' })
+      expect(store.active).toMatchObject({
+        status: 'unavailable',
+        reason: { tag: 'provider-disconnected', message: 'CLI connection closed' },
+        data: { kind: 'development' },
+      })
     })
   })
 
@@ -811,6 +946,181 @@ describe('WorkbenchStore', () => {
     })
   })
 
+  test('reconnects without discarding the selected project model or definition', async () => {
+    const source = legacySourceRef('/dev')
+    const orders = project(source, 'packages/orders', 'Orders')
+    const snapshot = developmentSnapshot(source, [orders])
+    let publish!: (event: WorkspaceEvent) => void
+    const events = Stream.async<WorkspaceEvent>((emit) => {
+      publish = (event) => emit.single(event)
+      return Effect.void
+    })
+    const { core } = makeFakeCore({ development: { snapshot, events } })
+    const store = new WorkbenchStore(await makeAppServices({ core }), defaultUiConfig.workbenches)
+
+    const id = (await store.open(source))!
+    await vi.waitFor(() => expect(publish).toBeTypeOf('function'))
+    await store.selectDevelopmentProject(id, orders.id)
+    store.selectDevelopmentDefinition(id, orders.id, 'definition:orders')
+    const firstModel = projectModelForDisplay(
+      store.developmentNavigation(id).projects[0]!.modelState,
+    )
+
+    publish({
+      tag: 'provider-disconnected',
+      providerId: source.providerId,
+      message: 'CLI connection closed',
+    })
+    await vi.waitFor(() => expect(store.active?.status).toBe('unavailable'))
+
+    expect(projectModelForDisplay(store.developmentNavigation(id).projects[0]!.modelState)).toBe(
+      firstModel,
+    )
+
+    publish({ tag: 'snapshot', snapshot })
+    await vi.waitFor(() => expect(store.active?.status).toBe('ready'))
+    expect(store.developmentNavigation(id)).toMatchObject({
+      activeProjectId: orders.id,
+      projects: [
+        {
+          projectId: orders.id,
+          modelState: {
+            tag: 'ready',
+            current: { selectedDefinitionId: 'definition:orders' },
+          },
+        },
+      ],
+    })
+  })
+
+  test('switches among cached projects while their provider is disconnected', async () => {
+    const source = legacySourceRef('/dev')
+    const orders = project(source, 'packages/orders', 'Orders')
+    const pricing = project(source, 'packages/pricing', 'Pricing')
+    let publish!: (event: WorkspaceEvent) => void
+    const events = Stream.async<WorkspaceEvent>((emit) => {
+      publish = (event) => emit.single(event)
+      return Effect.void
+    })
+    const { core } = makeFakeCore({
+      development: { snapshot: developmentSnapshot(source, [orders, pricing]), events },
+    })
+    const services = await makeAppServices({ core })
+    const loadDevelopmentProjectModel = vi.spyOn(services, 'loadDevelopmentProjectModel')
+    const store = new WorkbenchStore(services, defaultUiConfig.workbenches)
+
+    const id = (await store.open(source))!
+    await vi.waitFor(() => expect(publish).toBeTypeOf('function'))
+    await store.selectDevelopmentProject(id, orders.id)
+    await store.selectDevelopmentProject(id, pricing.id)
+    publish({
+      tag: 'provider-disconnected',
+      providerId: source.providerId,
+      message: 'CLI connection closed',
+    })
+    await vi.waitFor(() => expect(store.active?.status).toBe('unavailable'))
+    const callsBeforeOfflineSelection = loadDevelopmentProjectModel.mock.calls.length
+
+    await store.selectDevelopmentProject(id, orders.id)
+
+    expect(loadDevelopmentProjectModel).toHaveBeenCalledTimes(callsBeforeOfflineSelection)
+    expect(store.developmentNavigation(id).activeProjectId).toBe(orders.id)
+    expect(
+      projectModelForDisplay(
+        store.developmentNavigation(id).projects.find((entry) => entry.projectId === orders.id)!
+          .modelState,
+      ),
+    ).not.toBeNull()
+  })
+
+  test('reconciles removed projects when reconnect succeeds through a Workbench reload', async () => {
+    const source = legacySourceRef('/dev')
+    const orders = project(source, 'packages/orders', 'Orders')
+    const pricing = project(source, 'packages/pricing', 'Pricing')
+    const initial = developmentSnapshot(source, [orders, pricing])
+    const recovered = developmentSnapshot(source, [orders])
+    let publish!: (event: WorkspaceEvent) => void
+    const events = Stream.async<WorkspaceEvent>((emit) => {
+      publish = (event) => emit.single(event)
+      return Effect.void
+    })
+    const { core } = makeFakeCore({ development: { snapshot: initial, events } })
+    const base = await makeAppServices({ core })
+    let reconnecting = false
+    const store = new WorkbenchStore(
+      {
+        ...base,
+        loadDevelopmentWorkbench: async (descriptor) => ({
+          kind: 'development',
+          descriptor,
+          snapshot: reconnecting ? recovered : initial,
+        }),
+      },
+      defaultUiConfig.workbenches,
+    )
+
+    const id = (await store.open(source))!
+    await vi.waitFor(() => expect(publish).toBeTypeOf('function'))
+    await store.selectDevelopmentProject(id, pricing.id)
+    publish({
+      tag: 'provider-disconnected',
+      providerId: source.providerId,
+      message: 'CLI connection closed',
+    })
+    await vi.waitFor(() => expect(store.active?.status).toBe('unavailable'))
+    reconnecting = true
+
+    await store.retry(id)
+
+    expect(store.active?.status).toBe('ready')
+    expect(store.developmentNavigation(id)).toEqual({ activeProjectId: null, projects: [] })
+  })
+
+  test('ignores a superseded workspace watch after a reload starts', async () => {
+    const source = legacySourceRef('/dev')
+    const orders = project(source, 'packages/orders', 'Orders')
+    const snapshot = developmentSnapshot(source, [orders])
+    let publishOld!: (event: WorkspaceEvent) => void
+    const oldEvents = Stream.async<WorkspaceEvent>((emit) => {
+      publishOld = (event) => emit.single(event)
+      return Effect.void
+    })
+    const { core } = makeFakeCore({ development: { snapshot } })
+    const base = await makeAppServices({ core })
+    let loads = 0
+    let finishReload!: () => void
+    const store = new WorkbenchStore(
+      {
+        ...base,
+        loadDevelopmentWorkbench: async (descriptor) => {
+          loads += 1
+          if (loads > 1) await new Promise<void>((resolve) => void (finishReload = resolve))
+          return { kind: 'development', descriptor, snapshot }
+        },
+        workspaceEvents: () => (loads === 1 ? oldEvents : Stream.never),
+      },
+      defaultUiConfig.workbenches,
+    )
+
+    const id = (await store.open(source))!
+    await vi.waitFor(() => expect(publishOld).toBeTypeOf('function'))
+
+    const reload = store.retry(id)
+    expect(store.active?.status).toBe('loading')
+    publishOld({
+      tag: 'provider-disconnected',
+      providerId: source.providerId,
+      message: 'late disconnect from old watch',
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(store.active?.status).toBe('loading')
+    finishReload()
+    await reload
+    expect(store.active?.status).toBe('ready')
+  })
+
   test('prunes project navigation when a disconnected workspace recovers', async () => {
     const source = legacySourceRef('/dev')
     const orders = project(source, 'packages/orders', 'Orders')
@@ -821,23 +1131,16 @@ describe('WorkbenchStore', () => {
     const nextEvent = (register: (emit: () => void) => void, event: WorkspaceEvent) =>
       Stream.fromEffect(
         Effect.promise(
-          () =>
-            new Promise<WorkspaceEvent>((resolve) => register(() => resolve(event))),
+          () => new Promise<WorkspaceEvent>((resolve) => register(() => resolve(event))),
         ),
       )
     const events = Stream.concat(
-      nextEvent(
-        (emit) => void (emitDisconnect = emit),
-        {
-          tag: 'provider-disconnected',
-          providerId: source.providerId,
-          message: 'CLI connection closed',
-        },
-      ),
-      nextEvent(
-        (emit) => void (emitRecovery = emit),
-        { tag: 'snapshot', snapshot: recovered },
-      ),
+      nextEvent((emit) => void (emitDisconnect = emit), {
+        tag: 'provider-disconnected',
+        providerId: source.providerId,
+        message: 'CLI connection closed',
+      }),
+      nextEvent((emit) => void (emitRecovery = emit), { tag: 'snapshot', snapshot: recovered }),
     )
     const { core } = makeFakeCore({ development: { snapshot: initial, events } })
     const store = new WorkbenchStore(await makeAppServices({ core }), defaultUiConfig.workbenches)
@@ -848,7 +1151,7 @@ describe('WorkbenchStore', () => {
     expect(store.developmentNavigation(id).activeProjectId).toBe(orders.id)
 
     emitDisconnect()
-    await vi.waitFor(() => expect(store.active?.status).toBe('error'))
+    await vi.waitFor(() => expect(store.active?.status).toBe('unavailable'))
     await vi.waitFor(() => expect(emitRecovery).toBeTypeOf('function'))
     emitRecovery()
 

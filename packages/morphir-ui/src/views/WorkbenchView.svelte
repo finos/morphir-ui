@@ -3,6 +3,7 @@
   import IrExplorerView from './IrExplorerView.svelte'
   import DevelopmentWorkbenchView from './DevelopmentWorkbenchView.svelte'
   import WorkbenchErrorView from './WorkbenchErrorView.svelte'
+  import { recoveryActionLabel } from '../workbench/project-model-state.ts'
   import type { WorkbenchStore } from '../workbench/workbench-store.svelte.ts'
   import type { WorkbenchEntry } from '../workbench/types.ts'
   import type { InspectMeta } from './insight/insight-context.ts'
@@ -20,8 +21,23 @@
 {:else if entry.status === 'error'}
   <WorkbenchErrorView
     name={entry.descriptor.name}
-    message={entry.message}
+    message={entry.reason.message}
+    actionLabel={recoveryActionLabel(entry.reason)}
     onRetry={() => void store.retry(entry.descriptor.id)}
+  />
+{:else if entry.status === 'unavailable'}
+  <DevelopmentWorkbenchView
+    workbench={entry.data}
+    navigation={store.developmentNavigation(entry.descriptor.id)}
+    unavailableReason={entry.reason}
+    onRecoverWorkbench={() => void store.retry(entry.descriptor.id)}
+    onSelectProject={(projectId) =>
+      void store.selectDevelopmentProject(entry.descriptor.id, projectId)}
+    onRetryProject={(projectId) =>
+      void store.retryDevelopmentProject(entry.descriptor.id, projectId)}
+    onSelectDefinition={(projectId, definitionId) =>
+      store.selectDevelopmentDefinition(entry.descriptor.id, projectId, definitionId)}
+    {onInspect}
   />
 {:else if entry.data.kind === 'development'}
   <DevelopmentWorkbenchView

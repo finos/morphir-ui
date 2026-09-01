@@ -3,7 +3,13 @@ import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, test } from 'vitest'
 import { sourceKey } from '@morphir/workspace'
 import WorkbenchRail from '../src/shell/WorkbenchRail.svelte'
-import { WorkbenchStore, defaultUiConfig, makeAppServices } from '../src/index.ts'
+import {
+  WorkbenchError,
+  WorkbenchStore,
+  defaultUiConfig,
+  legacySourceRef,
+  makeAppServices,
+} from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
 
 afterEach(() => cleanup())
@@ -67,8 +73,31 @@ describe('WorkbenchRail', () => {
     await store.open('/bad.json')
     render(WorkbenchRail, { props: { store, onOpenSettings: () => undefined } })
 
-    expect(screen.getByText('error')).toBeTruthy()
+    expect(screen.getByText('load-failed')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Retry bad.json' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Reveal bad.json' })).toBeTruthy()
+  })
+
+  test('qualifies permission recovery actions with the Workbench name', async () => {
+    const source = legacySourceRef('/dev')
+    const { core } = makeFakeCore()
+    const base = await makeAppServices({ core })
+    const store = new WorkbenchStore(
+      {
+        ...base,
+        loadDevelopmentWorkbench: async () => {
+          throw new WorkbenchError({
+            code: 'permission-denied',
+            source,
+            message: 'Directory access was revoked',
+          })
+        },
+      },
+      defaultUiConfig.workbenches,
+    )
+    await store.open(source)
+    render(WorkbenchRail, { props: { store, onOpenSettings: () => undefined } })
+
+    expect(screen.getByRole('button', { name: 'Grant access dev' })).toBeTruthy()
   })
 })

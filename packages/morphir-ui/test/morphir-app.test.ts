@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import MorphirApp from '../src/shell/MorphirApp.svelte'
-import { defaultUiConfig, legacySourceRef, makeAppServices } from '../src/index.ts'
+import { WorkbenchError, defaultUiConfig, legacySourceRef, makeAppServices } from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
 import { projectKey, sourceKey, type WorkspaceSnapshot } from '@morphir/workspace'
 
@@ -171,13 +171,43 @@ describe('MorphirApp', () => {
     })
 
     const project = await screen.findByRole('button', {
-      name: 'Pricing, packages/pricing, unloaded',
+      name: 'Project Pricing, packages/pricing, unloaded',
     })
     await userEvent.click(project)
 
     expect(await screen.findByRole('tree', { name: 'Model hierarchy' })).toBeTruthy()
     expect(screen.getByRole('searchbox', { name: 'Search model' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Projects' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Projects, workspace open, 1 project' })).toBeTruthy()
+  })
+
+  test('offers access recovery when the initial Development load loses permission', async () => {
+    const source = legacySourceRef('/dev')
+    const { core } = makeFakeCore()
+    const base = await makeAppServices({ core })
+    const services = {
+      ...base,
+      loadDevelopmentWorkbench: async () => {
+        throw new WorkbenchError({
+          code: 'permission-denied',
+          source,
+          message: 'Directory access was revoked',
+        })
+      },
+    }
+
+    render(MorphirApp, {
+      props: {
+        services,
+        badge: 'WEB',
+        version: '0.0.1',
+        initialConfig: defaultUiConfig,
+        initialSources: [source],
+      },
+    })
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Directory access was revoked')
+    expect(alert.querySelector('button')?.textContent).toBe('Grant access')
   })
 
   test('limits a Document Tree model to its available overview', async () => {

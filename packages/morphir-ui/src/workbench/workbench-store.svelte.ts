@@ -3,7 +3,15 @@ import { SvelteMap } from 'svelte/reactivity'
 import type { UiConfig } from '../services/config.ts'
 import type { AppServices } from '../services/services.ts'
 import { sourceKey, type WorkbenchSourceRef, type WorkspaceEvent } from '@morphir/workspace'
-import type { SourcePickerKind } from './services.ts'
+import { WorkbenchError, type SourcePickerKind } from './services.ts'
+import {
+  beginProjectModelLoad,
+  completeProjectModelLoad,
+  failProjectModelLoad,
+  selectProjectDefinition,
+  unloadedProjectModel,
+  type WorkbenchRecoveryReason,
+} from './project-model-state.ts'
 import { legacySourceRef } from './types.ts'
 import type {
   DevelopmentNavigationState,
@@ -25,6 +33,31 @@ const EMPTY_DEVELOPMENT_NAVIGATION: DevelopmentNavigationState = {
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
+
+const recoveryReasonOf = (error: unknown): WorkbenchRecoveryReason => {
+  const message = messageOf(error)
+  if (!(error instanceof WorkbenchError)) return { tag: 'load-failed', message }
+  switch (error.code) {
+    case 'provider-disconnected':
+      return { tag: 'provider-disconnected', message }
+    case 'permission-denied':
+      return { tag: 'permission-required', message }
+    default:
+      return { tag: 'load-failed', message }
+  }
+}
+
+type DevelopmentEntryWithData =
+  | Extract<WorkbenchEntry, { readonly status: 'ready'; readonly data: DevelopmentWorkbenchData }>
+  | Extract<WorkbenchEntry, { readonly status: 'unavailable' }>
+
+const isDevelopmentEntryWithData = (
+  entry: WorkbenchEntry | undefined,
+): entry is DevelopmentEntryWithData =>
+  entry?.status === 'unavailable' ||
+  (entry?.status === 'ready' &&
+    entry.descriptor.kind === 'development' &&
+    entry.data.kind === 'development')
 
 const matchesQuery = (descriptor: WorkbenchDescriptor, query: string): boolean => {
   const normalized = query.trim().toLocaleLowerCase()
@@ -85,6 +118,7 @@ export class WorkbenchStore {
   readonly #services: AppServices
   readonly #reopenOnLaunch: boolean
   readonly #workspaceWatches = new SvelteMap<WorkbenchId, Fiber.RuntimeFiber<void, never>>()
+  readonly #workspaceWatchTokens = new SvelteMap<WorkbenchId, object>()
   readonly #loadTokens = new SvelteMap<WorkbenchId, object>()
   readonly #projectLoadTokens = new SvelteMap<WorkbenchId, SvelteMap<string, object>>()
 
@@ -248,7 +282,9 @@ export class WorkbenchStore {
   async retry(id: WorkbenchId): Promise<void> {
     const entry = this.openEntries.find((candidate) => candidate.descriptor.id === id)
     if (!entry) return
-    this.#replace(id, { descriptor: entry.descriptor, status: 'loading' })
+    if (entry.status !== 'unavailable') {
+      this.#replace(id, { descriptor: entry.descriptor, status: 'loading' })
+    }
     await this.#load(entry.descriptor)
   }
 
@@ -273,33 +309,21 @@ export class WorkbenchStore {
   }
 
   async selectDevelopmentProject(id: WorkbenchId, projectId: string): Promise<void> {
-    const entry = this.#readyDevelopmentEntry(id)
+    const entry = this.#developmentEntryWithData(id)
     if (!entry || !entry.data.snapshot.projects.some((project) => project.id === projectId)) return
 
     const navigation = this.developmentNavigation(id)
     this.#setDevelopmentNavigation(id, { ...navigation, activeProjectId: projectId })
     const existing = navigation.projects.find((project) => project.projectId === projectId)
-    if (existing?.status === 'ready' || existing?.status === 'loading') return
-    await this.#loadDevelopmentProject(
-      id,
-      entry.descriptor,
-      projectId,
-      existing?.selectedDefinitionId ?? null,
-    )
+    if (entry.status === 'unavailable') return
+    if (existing?.modelState.tag === 'ready' || existing?.modelState.tag === 'loading') return
+    await this.#loadDevelopmentProject(id, entry.descriptor, projectId)
   }
 
   async retryDevelopmentProject(id: WorkbenchId, projectId: string): Promise<void> {
     const entry = this.#readyDevelopmentEntry(id)
     if (!entry || !entry.data.snapshot.projects.some((project) => project.id === projectId)) return
-    const existing = this.developmentNavigation(id).projects.find(
-      (project) => project.projectId === projectId,
-    )
-    await this.#loadDevelopmentProject(
-      id,
-      entry.descriptor,
-      projectId,
-      existing?.selectedDefinitionId ?? null,
-    )
+    await this.#loadDevelopmentProject(id, entry.descriptor, projectId)
   }
 
   selectDevelopmentDefinition(
@@ -309,12 +333,12 @@ export class WorkbenchStore {
   ): void {
     const navigation = this.developmentNavigation(id)
     const current = navigation.projects.find((project) => project.projectId === projectId)
-    if (!current || current.status !== 'ready') return
+    if (!current) return
     this.#setDevelopmentNavigation(id, {
       ...navigation,
       projects: navigation.projects.map((project) =>
         project.projectId === projectId
-          ? { ...project, selectedDefinitionId: definitionId }
+          ? { ...project, modelState: selectProjectDefinition(project.modelState, definitionId) }
           : project,
       ),
     })
@@ -341,36 +365,36 @@ export class WorkbenchStore {
     }
   }
 
-  #readyDevelopmentEntry(id: WorkbenchId):
-    | {
-        readonly descriptor: DevelopmentWorkbenchDescriptor
-        readonly status: 'ready'
-        readonly data: DevelopmentWorkbenchData
-      }
-    | null {
+  #developmentEntryWithData(id: WorkbenchId): DevelopmentEntryWithData | null {
     const entry = this.openEntries.find((candidate) => candidate.descriptor.id === id)
-    if (entry?.status !== 'ready') return null
-    const descriptor = entry.descriptor
-    const data = entry.data
-    return descriptor.kind === 'development' && data.kind === 'development'
-      ? { descriptor, status: 'ready', data }
-      : null
+    return isDevelopmentEntryWithData(entry) ? entry : null
+  }
+
+  #readyDevelopmentEntry(
+    id: WorkbenchId,
+  ): Extract<
+    WorkbenchEntry,
+    { readonly status: 'ready'; readonly data: DevelopmentWorkbenchData }
+  > | null {
+    const entry = this.#developmentEntryWithData(id)
+    return entry?.status === 'ready' ? entry : null
   }
 
   async #loadDevelopmentProject(
     id: WorkbenchId,
     descriptor: DevelopmentWorkbenchDescriptor,
     projectId: string,
-    selectedDefinitionId: string | null,
   ): Promise<void> {
     const token = {}
     const tokens = this.#projectLoadTokens.get(id) ?? new SvelteMap<string, object>()
     tokens.set(projectId, token)
     this.#projectLoadTokens.set(id, tokens)
+    const previous =
+      this.developmentNavigation(id).projects.find((project) => project.projectId === projectId)
+        ?.modelState ?? unloadedProjectModel()
     this.#replaceDevelopmentProject(id, {
       projectId,
-      status: 'loading',
-      selectedDefinitionId,
+      modelState: beginProjectModelLoad(previous),
     })
 
     try {
@@ -383,18 +407,17 @@ export class WorkbenchStore {
       if (!entry) {
         this.#replaceDevelopmentProject(id, {
           projectId,
-          status: 'error',
-          message: 'Project model loading was interrupted by a Workbench reload',
-          selectedDefinitionId: current?.selectedDefinitionId ?? selectedDefinitionId,
+          modelState: failProjectModelLoad(current?.modelState ?? unloadedProjectModel(), {
+            tag: 'load-failed',
+            message: 'Project model loading was interrupted by a Workbench reload',
+          }),
         })
         return
       }
       if (!entry.data.snapshot.projects.some((project) => project.id === projectId)) return
       this.#replaceDevelopmentProject(id, {
         projectId,
-        status: 'ready',
-        model,
-        selectedDefinitionId: current?.selectedDefinitionId ?? selectedDefinitionId,
+        modelState: completeProjectModelLoad(current?.modelState ?? unloadedProjectModel(), model),
       })
     } catch (error) {
       if (!this.#isCurrentProjectLoad(id, projectId, token)) return
@@ -403,9 +426,10 @@ export class WorkbenchStore {
       )
       this.#replaceDevelopmentProject(id, {
         projectId,
-        status: 'error',
-        message: messageOf(error),
-        selectedDefinitionId: current?.selectedDefinitionId ?? selectedDefinitionId,
+        modelState: failProjectModelLoad(
+          current?.modelState ?? unloadedProjectModel(),
+          recoveryReasonOf(error),
+        ),
       })
     } finally {
       if (this.#isCurrentProjectLoad(id, projectId, token)) {
@@ -472,21 +496,44 @@ export class WorkbenchStore {
       const current = this.openEntries.find((entry) => entry.descriptor.id === descriptor.id)
       if (this.#loadTokens.get(descriptor.id) !== token || !current) return
       const currentDescriptor = current.descriptor
-      this.#replace(descriptor.id, {
-        descriptor: currentDescriptor,
-        status: 'ready',
-        data: { ...data, descriptor: currentDescriptor } as typeof data,
-      })
-      if (currentDescriptor.kind === 'development') {
+      if (currentDescriptor.kind === 'model' && data.kind === 'model') {
+        this.#replace(descriptor.id, {
+          descriptor: currentDescriptor,
+          status: 'ready',
+          data: { ...data, descriptor: currentDescriptor },
+        })
+      } else if (currentDescriptor.kind === 'development' && data.kind === 'development') {
+        this.#replace(descriptor.id, {
+          descriptor: currentDescriptor,
+          status: 'ready',
+          data: { ...data, descriptor: currentDescriptor },
+        })
+        this.#reconcileDevelopmentNavigation(
+          descriptor.id,
+          data.snapshot.projects.map((project) => project.id),
+        )
         this.#startWorkspaceWatch(currentDescriptor)
+      } else {
+        this.#replace(descriptor.id, {
+          descriptor: currentDescriptor,
+          status: 'error',
+          reason: {
+            tag: 'load-failed',
+            message: 'Workbench provider returned data for a different Workbench kind',
+          },
+        })
       }
     } catch (error) {
       const current = this.openEntries.find((entry) => entry.descriptor.id === descriptor.id)
       if (this.#loadTokens.get(descriptor.id) !== token || !current) return
+      if (current.status === 'unavailable') {
+        this.#markWorkspaceUnavailable(descriptor.id, recoveryReasonOf(error))
+        return
+      }
       this.#replace(descriptor.id, {
         descriptor: current.descriptor,
         status: 'error',
-        message: messageOf(error),
+        reason: recoveryReasonOf(error),
       })
     } finally {
       if (this.#loadTokens.get(descriptor.id) === token) this.#loadTokens.delete(descriptor.id)
@@ -495,52 +542,90 @@ export class WorkbenchStore {
 
   #startWorkspaceWatch(descriptor: Extract<WorkbenchDescriptor, { kind: 'development' }>): void {
     const id = descriptor.id
+    const token = {}
+    this.#workspaceWatchTokens.set(id, token)
     const watch = Effect.runFork(
       Stream.runForEach(this.#services.workspaceEvents(descriptor), (event) =>
-        Effect.sync(() => this.#applyWorkspaceEvent(id, event)),
+        Effect.sync(() => {
+          if (this.#workspaceWatchTokens.get(id) === token) {
+            this.#applyWorkspaceEvent(id, event)
+          }
+        }),
       ).pipe(
         Effect.catchAll((error) =>
-          Effect.sync(() => this.#markWorkspaceError(id, messageOf(error))),
+          Effect.sync(() => {
+            if (this.#workspaceWatchTokens.get(id) === token) {
+              this.#markWorkspaceUnavailable(id, recoveryReasonOf(error))
+            }
+          }),
         ),
       ),
     )
     this.#workspaceWatches.set(id, watch)
     watch.addObserver(() => {
-      if (this.#workspaceWatches.get(id) === watch) this.#workspaceWatches.delete(id)
+      if (this.#workspaceWatches.get(id) === watch) {
+        this.#workspaceWatches.delete(id)
+        if (this.#workspaceWatchTokens.get(id) === token) this.#workspaceWatchTokens.delete(id)
+      }
     })
   }
 
   #applyWorkspaceEvent(id: WorkbenchId, event: WorkspaceEvent): void {
     if (event.tag === 'provider-disconnected') {
-      this.#markWorkspaceError(id, event.message)
+      this.#markWorkspaceUnavailable(id, {
+        tag: 'provider-disconnected',
+        message: event.message,
+      })
       return
     }
     const entry = this.openEntries.find((candidate) => candidate.descriptor.id === id)
     if (!entry || entry.descriptor.kind !== 'development') return
-    if (entry.status === 'error') {
+    if (entry.status === 'error' || entry.status === 'unavailable') {
       this.#replace(id, {
         descriptor: entry.descriptor,
         status: 'ready',
         data: { kind: 'development', descriptor: entry.descriptor, snapshot: event.snapshot },
       })
-      this.#reconcileDevelopmentNavigation(id, event.snapshot.projects.map((project) => project.id))
+      this.#reconcileDevelopmentNavigation(
+        id,
+        event.snapshot.projects.map((project) => project.id),
+      )
       return
     }
-    if (entry.status !== 'ready' || entry.data.kind !== 'development') return
+    const ready = this.#readyDevelopmentEntry(id)
+    if (!ready) return
     this.#replace(id, {
-      ...entry,
-      data: { ...entry.data, snapshot: event.snapshot },
+      descriptor: ready.descriptor,
+      status: 'ready',
+      data: { ...ready.data, snapshot: event.snapshot },
     })
-    this.#reconcileDevelopmentNavigation(id, event.snapshot.projects.map((project) => project.id))
+    this.#reconcileDevelopmentNavigation(
+      id,
+      event.snapshot.projects.map((project) => project.id),
+    )
   }
 
-  #markWorkspaceError(id: WorkbenchId, message: string): void {
+  #markWorkspaceUnavailable(id: WorkbenchId, reason: WorkbenchRecoveryReason): void {
     const entry = this.openEntries.find((candidate) => candidate.descriptor.id === id)
     if (!entry) return
-    this.#replace(id, { descriptor: entry.descriptor, status: 'error', message })
+    if (
+      entry.descriptor.kind === 'development' &&
+      (entry.status === 'ready' || entry.status === 'unavailable') &&
+      entry.data.kind === 'development'
+    ) {
+      this.#replace(id, {
+        descriptor: entry.descriptor,
+        status: 'unavailable',
+        data: entry.data,
+        reason,
+      })
+      return
+    }
+    this.#replace(id, { descriptor: entry.descriptor, status: 'error', reason })
   }
 
   #stopWorkspaceWatch(id: WorkbenchId): void {
+    this.#workspaceWatchTokens.delete(id)
     const watch = this.#workspaceWatches.get(id)
     if (!watch) return
     this.#workspaceWatches.delete(id)

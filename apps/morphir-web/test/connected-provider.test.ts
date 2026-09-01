@@ -2,9 +2,11 @@ import { Effect, Option, Stream } from 'effect'
 import { describe, expect, test } from 'vitest'
 import {
   CONNECTED_METHODS,
+  projectKey,
   sourceKey,
   type ConnectedNotification,
   type ConnectedSessionManifest,
+  type ProjectState,
   type WorkbenchSourceRef,
   type WorkspaceSnapshot,
 } from '@morphir/workspace'
@@ -141,14 +143,18 @@ describe('connected Workbench provider', () => {
   test('rejects provider drift and invalid IR from project-model responses', async () => {
     const foreignSource = { ...modelSource, providerId: 'cli:other' }
     const foreignAdapter = makeConnectedWorkbenchAdapters(
-      client(Stream.empty, { descriptor }, {
-        ...projectModelResult,
-        descriptor: {
-          ...projectModelResult.descriptor,
-          id: sourceKey(foreignSource),
-          source: foreignSource,
+      client(
+        Stream.empty,
+        { descriptor },
+        {
+          ...projectModelResult,
+          descriptor: {
+            ...projectModelResult.descriptor,
+            id: sourceKey(foreignSource),
+            source: foreignSource,
+          },
         },
-      }),
+      ),
     )[0]!
     const foreignError = await Effect.runPromise(
       Effect.flip(foreignAdapter.loadProjectModel(descriptor, 'project-1')),
@@ -184,5 +190,45 @@ describe('connected Workbench provider', () => {
         message: 'network unavailable',
       },
     ])
+  })
+
+  test('preserves every project lifecycle state from connected workspace snapshots', async () => {
+    const states: ReadonlyArray<ProjectState> = ['unloaded', 'loading', 'ready', 'stale', 'error']
+    const notifications = Stream.fromIterable<ConnectedNotification>(
+      states.map((state) => ({
+        tag: 'notification' as const,
+        method: CONNECTED_METHODS.workspaceEvent,
+        params: {
+          subscriptionId: 'watch-1',
+          event: {
+            tag: 'snapshot' as const,
+            snapshot: {
+              ...snapshot,
+              projects: [
+                {
+                  id: projectKey(source, '.'),
+                  name: 'orders',
+                  version: null,
+                  relativePath: '.',
+                  configAnchor: 'morphir.yaml',
+                  sourceDirectory: 'src',
+                  state,
+                  modelSources: [],
+                  knowledgeBaseSources: [],
+                  diagnostics: [],
+                },
+              ],
+            },
+          },
+        },
+      })),
+    )
+    const adapter = makeConnectedWorkbenchAdapters(client(notifications))[0]!
+
+    const events = await Effect.runPromise(Stream.runCollect(adapter.events(descriptor)))
+
+    expect(
+      Array.from(events, (event) => event.tag === 'snapshot' && event.snapshot.projects[0]?.state),
+    ).toEqual(states)
   })
 })

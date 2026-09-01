@@ -55,7 +55,7 @@
   const explorerActive = $derived.by(() => {
     const active = workbenches.active
     return (
-      active?.status === 'ready' &&
+      (active?.status === 'ready' || active?.status === 'unavailable') &&
       ((active.descriptor.kind === 'development' && active.data.kind === 'development') ||
         (active.descriptor.kind === 'model' &&
           active.data.kind === 'model' &&
