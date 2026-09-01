@@ -17,6 +17,9 @@ export const CONNECTED_METHODS = {
   workspaceWatch: 'morphir.workspace.watch',
   workspaceUnwatch: 'morphir.workspace.unwatch',
   workspaceEvent: 'morphir.workspace.event',
+  playgroundCatalog: 'morphir.playground.catalog',
+  playgroundCompile: 'morphir.playground.compile',
+  playgroundGenerate: 'morphir.playground.generate',
 } as const
 
 const NonEmptyStringSchema = Schema.String.pipe(
@@ -205,6 +208,92 @@ export const WorkspaceEventNotificationParamsSchema = Schema.Struct({
 export type WorkspaceEventNotificationParams = Schema.Schema.Type<
   typeof WorkspaceEventNotificationParamsSchema
 >
+
+export const ProviderRefSchema = Schema.Struct({
+  extensionId: Schema.String,
+  extensionName: Schema.String,
+  version: Schema.NullOr(Schema.String),
+  kind: Schema.Literal('builtin', 'installed'),
+  // A string for installed providers (e.g. "channel stable", "version 1.0.0"),
+  // null for builtins.
+  selection: Schema.optionalWith(Schema.NullOr(Schema.String), { default: () => null }),
+})
+export type ProviderRef = Schema.Schema.Type<typeof ProviderRefSchema>
+
+export const FrontendEntrySchema = Schema.Struct({
+  languageId: Schema.String,
+  // The extension's display name, not a per-language one: a frontend that
+  // declares two languages yields two entries sharing this same value.
+  // Prefer languageId for labelling.
+  displayName: Schema.String,
+  fileExtensions: Schema.Array(Schema.String),
+  irVersions: Schema.Array(Schema.String),
+  languagesDeclared: Schema.Boolean,
+  compile: Schema.Boolean,
+  provider: ProviderRefSchema,
+})
+export type FrontendEntry = Schema.Schema.Type<typeof FrontendEntrySchema>
+
+export const TargetEntrySchema = Schema.Struct({
+  target: Schema.String,
+  displayName: Schema.String,
+  irVersions: Schema.Array(Schema.String),
+  generate: Schema.Boolean,
+  provider: ProviderRefSchema,
+})
+export type TargetEntry = Schema.Schema.Type<typeof TargetEntrySchema>
+
+export const CapabilityCatalogSchema = Schema.Struct({
+  frontends: Schema.Array(FrontendEntrySchema),
+  targets: Schema.Array(TargetEntrySchema),
+})
+export type CapabilityCatalog = Schema.Schema.Type<typeof CapabilityCatalogSchema>
+
+export const PlaygroundPositionSchema = Schema.Struct({
+  line: Schema.Number,
+  character: Schema.Number,
+})
+export type PlaygroundPosition = Schema.Schema.Type<typeof PlaygroundPositionSchema>
+
+export const PlaygroundLocationSchema = Schema.Struct({
+  uri: Schema.String,
+  range: Schema.Struct({
+    start: PlaygroundPositionSchema,
+    end: PlaygroundPositionSchema,
+  }),
+})
+export type PlaygroundLocation = Schema.Schema.Type<typeof PlaygroundLocationSchema>
+
+export const PlaygroundDiagnosticSchema = Schema.Struct({
+  severity: Schema.Literal('error', 'warning', 'info', 'hint'),
+  code: Schema.optionalWith(Schema.NullOr(Schema.String), { default: () => null }),
+  message: Schema.String,
+  location: Schema.optionalWith(Schema.NullOr(PlaygroundLocationSchema), { default: () => null }),
+})
+export type PlaygroundDiagnostic = Schema.Schema.Type<typeof PlaygroundDiagnosticSchema>
+
+export const PlaygroundCompileResultSchema = Schema.Struct({
+  success: Schema.Boolean,
+  irVersion: Schema.NullOr(Schema.String),
+  ir: Schema.NullOr(JsonValueSchema),
+  diagnostics: Schema.Array(PlaygroundDiagnosticSchema),
+  modules: Schema.Array(Schema.String),
+})
+export type PlaygroundCompileResult = Schema.Schema.Type<typeof PlaygroundCompileResultSchema>
+
+export const PlaygroundArtifactSchema = Schema.Struct({
+  path: Schema.String,
+  content: Schema.String,
+  binary: Schema.Boolean,
+})
+export type PlaygroundArtifact = Schema.Schema.Type<typeof PlaygroundArtifactSchema>
+
+export const PlaygroundGenerateResultSchema = Schema.Struct({
+  success: Schema.Boolean,
+  artifacts: Schema.Array(PlaygroundArtifactSchema),
+  diagnostics: Schema.Array(PlaygroundDiagnosticSchema),
+})
+export type PlaygroundGenerateResult = Schema.Schema.Type<typeof PlaygroundGenerateResultSchema>
 
 export type ConnectedNotification =
   | {
