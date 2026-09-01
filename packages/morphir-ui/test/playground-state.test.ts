@@ -267,3 +267,85 @@ describe('preferredIrVersion', () => {
     expect(preferredIrVersion(frontend('elm', []), null)).toBe('')
   })
 })
+
+// Reachability here is a fact about what extensions are installed, not a code invariant:
+// the frontend select is populated straight from the daemon's catalog, so a second
+// frontend makes every one of these paths live.
+describe('switching frontend', () => {
+  const twoFrontends = {
+    frontends: [
+      { ...frontend('elm', ['3']), fileExtensions: ['.elm'] },
+      { ...frontend('gleam', ['3']), fileExtensions: ['.gleam'] },
+    ],
+    targets: [target('scala', ['3'])],
+  }
+
+  test('retargets every document language and uri to the new frontend', () => {
+    const state = new PlaygroundState()
+    state.catalog = twoFrontends
+    state.updateActiveDocument('typed = 1')
+
+    state.selectFrontend('gleam')
+
+    expect(state.activeDocument?.languageId).toBe('gleam')
+    expect(state.activeDocument?.uri).toBe('morphir-playground:/Main.gleam')
+    expect(state.documents.every((doc) => doc.languageId === 'gleam')).toBe(true)
+  })
+
+  // The same argument that clears results on edit: IR derived from Elm source, shown
+  // under a Gleam frontend label, silently misleads.
+  test('clears the previous compile and generate results', () => {
+    const state = new PlaygroundState()
+    state.catalog = twoFrontends
+    state.compileResult = { success: true, irVersion: '3', ir: {}, diagnostics: [], modules: [] }
+    state.generateResult = { success: true, artifacts: [], diagnostics: [] }
+
+    state.selectFrontend('gleam')
+
+    expect(state.compileResult).toBeNull()
+    expect(state.generateResult).toBeNull()
+  })
+
+  test('keeps text the user actually typed', () => {
+    const state = new PlaygroundState()
+    state.catalog = twoFrontends
+    state.updateActiveDocument('mine = 1')
+
+    state.selectFrontend('gleam')
+
+    expect(state.activeDocument?.text).toBe('mine = 1')
+  })
+
+  test('swaps an untouched sample for the new language sample', () => {
+    const state = new PlaygroundState()
+    state.catalog = twoFrontends
+    const elmSample = state.activeDocument?.text
+
+    state.selectFrontend('gleam')
+
+    expect(state.activeDocument?.text).not.toBe(elmSample)
+    expect(state.activeDocument?.text).toContain('gleam')
+  })
+
+  test('re-selecting the current frontend changes nothing', () => {
+    const state = new PlaygroundState()
+    state.catalog = twoFrontends
+    state.updateActiveDocument('typed = 1')
+    state.compileResult = { success: true, irVersion: '3', ir: {}, diagnostics: [], modules: [] }
+    const before = state.activeDocument
+
+    state.selectFrontend('elm')
+
+    expect(state.activeDocument).toEqual(before)
+    expect(state.compileResult).not.toBeNull()
+  })
+
+  test('a frontend that declares no extensions falls back to its language id', () => {
+    const state = new PlaygroundState()
+    state.catalog = { frontends: [frontend('elm', ['3']), frontend('gleam', ['3'])], targets: [] }
+
+    state.selectFrontend('gleam')
+
+    expect(state.activeDocument?.uri).toBe('morphir-playground:/Main.gleam')
+  })
+})

@@ -56,6 +56,26 @@ const SAMPLE_TEXT_BY_LANGUAGE: Record<string, string> = {
 const sampleTextFor = (languageId: string): string =>
   SAMPLE_TEXT_BY_LANGUAGE[languageId] ?? `-- Morphir Playground sample for ${languageId}\n`
 
+/** The file extension a frontend's documents should carry. Catalog entries declare
+ * these with a leading dot (the daemon's protocol emits ".elm", ".gleam"), but the wire
+ * schema is a bare string array, so a missing dot is normalized rather than trusted. A
+ * frontend that declares no extensions at all falls back to its own language id, which
+ * is what makeMainDocument already assumes. */
+const extensionFor = (frontend: FrontendEntry | undefined, languageId: string): string => {
+  const declared = frontend?.fileExtensions[0]
+  if (declared === undefined || declared === '') return `.${languageId}`
+  return declared.startsWith('.') ? declared : `.${declared}`
+}
+
+/** Swaps a document URI's extension, leaving its directory and stem alone. */
+const retargetUri = (uri: string, extension: string): string => {
+  const lastSlash = uri.lastIndexOf('/')
+  const name = uri.slice(lastSlash + 1)
+  const dot = name.lastIndexOf('.')
+  const stem = dot > 0 ? name.slice(0, dot) : name
+  return `${uri.slice(0, lastSlash + 1)}${stem}${extension}`
+}
+
 const makeMainDocument = (languageId: string): PlaygroundDocument => ({
   id: 'main',
   uri: `morphir-playground:/Main.${languageId}`,
@@ -182,15 +202,44 @@ export class PlaygroundState {
     return this.documents.find((doc) => doc.id === this.activeDocumentId) ?? null
   }
 
-  /** Changes the source language. A previously selected target that is no
-   * longer compatible with the new frontend is cleared: leaving a stale,
-   * incompatible target selected in place would fail the next compile for a
-   * reason invisible to the user. */
+  /** Changes the source language, and moves everything that language owns with it.
+   *
+   * Documents are retargeted rather than left behind. A document that kept its old
+   * languageId and URI extension while the compile payload claimed the new language is
+   * not a cosmetic mismatch: if the extension normalizes the URI in its diagnostics,
+   * they stop matching the active document's URI, and the editor gutter goes clean while
+   * the diagnostics list underneath still prints the errors. An editor that claims the
+   * code compiles while errors are shown below it is the exact misinformation this view
+   * exists to avoid.
+   *
+   * Both results are cleared for the same reason `updateActiveDocument` clears them:
+   * IR derived from the previous language, displayed under the new frontend's label, is
+   * worse than an empty pane.
+   *
+   * A previously selected target that is no longer compatible is cleared too, since
+   * leaving a stale one selected would fail the next compile for an invisible reason.
+   *
+   * Text the user typed is never touched. A document still holding the untouched sample
+   * for its old language does get the new language's sample, because leaving Elm sample
+   * code in a Gleam editor teaches the wrong thing and destroys no work. */
   selectFrontend(languageId: string): void {
-    this.selectedLanguageId = languageId
-    if (this.selectedTarget === null) return
+    const previous = this.selectedLanguageId
+    if (previous === languageId) return
 
+    this.selectedLanguageId = languageId
     const frontend = this.catalog.frontends.find((entry) => entry.languageId === languageId)
+    const extension = extensionFor(frontend, languageId)
+    const previousSample = sampleTextFor(previous)
+    this.documents = this.documents.map((doc) => ({
+      ...doc,
+      languageId,
+      uri: retargetUri(doc.uri, extension),
+      text: doc.text === previousSample ? sampleTextFor(languageId) : doc.text,
+    }))
+    this.compileResult = null
+    this.generateResult = null
+
+    if (this.selectedTarget === null) return
     const stillCompatible =
       frontend !== undefined &&
       compatibleTargets(this.catalog, frontend).some(
