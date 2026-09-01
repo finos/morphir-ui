@@ -6,8 +6,16 @@ const KNOWN_SECTIONS: ReadonlySet<string> = new Set(SETTINGS_SECTIONS)
 const isSettingsSection = (value: string): value is SettingsSection => KNOWN_SECTIONS.has(value)
 
 /** The canonical hash for a route. The inverse of {@link hashToRoute}. */
-export const routeToHash = (route: Route): string =>
-  route.kind === 'workspace' ? '#/' : `#/settings/${route.section}`
+export const routeToHash = (route: Route): string => {
+  switch (route.kind) {
+    case 'workspace':
+      return '#/'
+    case 'playground':
+      return '#/playground'
+    case 'settings':
+      return `#/settings/${route.section}`
+  }
+}
 
 /**
  * Parses a `location.hash` into a Route. Returns `null` for anything that isn't a
@@ -19,6 +27,11 @@ export const hashToRoute = (hash: string): Route | null => {
   if (path === '') return { kind: 'workspace' }
 
   const [first, section] = path.split('/')
+  if (first === 'playground') {
+    // The Playground has no sub-routes; a trailing segment is a typo, not a
+    // deep link, so it parses as nothing rather than silently as the Playground.
+    return section === undefined ? { kind: 'playground' } : null
+  }
   if (first !== 'settings') return null
   if (section === undefined) return { kind: 'settings', section: 'general' }
   return isSettingsSection(section) ? { kind: 'settings', section } : null

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { flushSync } from 'svelte'
 import { bindRouteToLocation, hashToRoute, routeToHash } from '../src/state/router.ts'
-import { ShellState, type Route } from '../src/state/shell-state.svelte.ts'
+import { SETTINGS_SECTIONS, ShellState, type Route } from '../src/state/shell-state.svelte.ts'
 
 describe('route parsing', () => {
   test('an empty hash is the workspace', () => {
@@ -29,14 +29,25 @@ describe('route parsing', () => {
     expect(hashToRoute('#/nope')).toBeNull()
   })
 
+  test('the playground is a route', () => {
+    expect(hashToRoute('#/playground')).toEqual({ kind: 'playground' })
+    expect(routeToHash({ kind: 'playground' })).toBe('#/playground')
+  })
+
+  test('a playground sub-path is not a route', () => {
+    expect(hashToRoute('#/playground/elm')).toBeNull()
+  })
+
+  // Enumerating the sections by hand here let a new SettingsSection ship without any
+  // round-trip coverage. Deriving them from SETTINGS_SECTIONS forces every future
+  // section through this test the moment it is added to the union.
   test('every route round-trips through its hash', () => {
     const routes: Route[] = [
       { kind: 'workspace' },
-      { kind: 'settings', section: 'general' },
-      { kind: 'settings', section: 'appearance' },
-      { kind: 'settings', section: 'github' },
-      { kind: 'settings', section: 'about' },
+      { kind: 'playground' },
+      ...SETTINGS_SECTIONS.map((section) => ({ kind: 'settings', section }) as const),
     ]
+    expect(routes.length).toBe(SETTINGS_SECTIONS.length + 2)
     for (const route of routes) {
       expect(hashToRoute(routeToHash(route))).toEqual(route)
     }
@@ -79,6 +90,28 @@ describe('bindRouteToLocation', () => {
 
     expect(location.hash).toBe('#/settings/about')
     expect(history.length).toBe(lengthBefore)
+    teardown()
+  })
+
+  test('launching at #/playground opens the playground', () => {
+    const shell = new ShellState()
+    location.hash = '#/playground'
+
+    const teardown = bindRouteToLocation(shell)
+
+    expect(shell.route).toEqual({ kind: 'playground' })
+    teardown()
+  })
+
+  test('opening the playground writes its hash back', () => {
+    const shell = new ShellState()
+    location.hash = ''
+    const teardown = bindRouteToLocation(shell)
+
+    shell.openPlayground()
+    flushSync()
+
+    expect(location.hash).toBe('#/playground')
     teardown()
   })
 

@@ -1,7 +1,10 @@
 export type ColorScheme = 'system' | 'light' | 'dark'
 export const SETTINGS_SECTIONS = ['general', 'appearance', 'github', 'about'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
-export type Route = { kind: 'workspace' } | { kind: 'settings'; section: SettingsSection }
+export type Route =
+  | { kind: 'workspace' }
+  | { kind: 'settings'; section: SettingsSection }
+  | { kind: 'playground' }
 
 export const SCHEME_CLASSES: Record<ColorScheme, string> = {
   system: 'theme-system',

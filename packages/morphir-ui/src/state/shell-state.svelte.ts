@@ -37,6 +37,9 @@ export class ShellState {
   get isSettings() {
     return this.route.kind === 'settings'
   }
+  get isPlayground() {
+    return this.route.kind === 'playground'
+  }
 
   toggleLeft() {
     this.leftVisible = !this.leftVisible
@@ -59,8 +62,16 @@ export class ShellState {
   openSettings(section: SettingsSection = 'general') {
     this.route = { kind: 'settings', section }
   }
-  closeSettings() {
+  openPlayground() {
+    this.route = { kind: 'playground' }
+  }
+  /** Returns to the workspace from whichever full-screen route is open. Settings and the
+   * Playground both cover the workbench, and both need the same way back. */
+  closeOverlay() {
     this.route = { kind: 'workspace' }
+  }
+  closeSettings() {
+    this.closeOverlay()
   }
   selectSettingsSection(section: SettingsSection) {
     this.route = { kind: 'settings', section }
