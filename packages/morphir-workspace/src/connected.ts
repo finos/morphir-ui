@@ -212,11 +212,11 @@ export type WorkspaceEventNotificationParams = Schema.Schema.Type<
 export const ProviderRefSchema = Schema.Struct({
   extensionId: Schema.String,
   extensionName: Schema.String,
-  version: Schema.NullOr(Schema.String),
-  kind: Schema.Literal('builtin', 'installed'),
-  // A string for installed providers (e.g. "channel stable", "version 1.0.0"),
-  // null for builtins.
-  selection: Schema.optionalWith(Schema.NullOr(Schema.String), { default: () => null }),
+  version: Schema.String,
+  origin: Schema.Literal('builtin', 'installed'),
+  // How the host would invoke this provider (e.g. "native-direct",
+  // "process-mep"), reported so a bug report can say which transport ran.
+  invocationMode: Schema.String,
 })
 export type ProviderRef = Schema.Schema.Type<typeof ProviderRefSchema>
 
@@ -228,8 +228,15 @@ export const FrontendEntrySchema = Schema.Struct({
   displayName: Schema.String,
   fileExtensions: Schema.Array(Schema.String),
   irVersions: Schema.Array(Schema.String),
-  languagesDeclared: Schema.Boolean,
   compile: Schema.Boolean,
+  // Whether the provider supports incremental compilation / compiling source
+  // fragments, or null when the session cannot tell. An installed provider's
+  // capability metadata is rebuilt from what its install persisted, and the
+  // persisted record holds only languages, IR versions and the compile flag
+  // — so `false` here would wrongly claim a refusal the extension may not
+  // mean. The key is always present; only its value may be null.
+  incremental: Schema.NullOr(Schema.Boolean),
+  fragments: Schema.NullOr(Schema.Boolean),
   provider: ProviderRefSchema,
 })
 export type FrontendEntry = Schema.Schema.Type<typeof FrontendEntrySchema>
