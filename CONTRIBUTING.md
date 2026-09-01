@@ -53,6 +53,12 @@ This repository also uses EasyCLA. Contributors must sign the free [FINOS Contri
 
 Open a pull request to start the check. If EasyCLA cannot confirm your coverage, the bot will explain how to sign or confirm your company affiliation. Email [help@finos.org](mailto:help@finos.org) if you have trouble with the process.
 
+## Engineering principles
+
+Morphir UI follows the ecosystem [domain modeling policy](https://github.com/finos/morphir/blob/main/docs/developers/domain-modeling.md). Public APIs and application state should make invalid states unrepresentable. Prefer discriminated unions, exhaustive matching, opaque or branded values, and validating constructors over boolean state flags, optional payload combinations, and unconstrained strings.
+
+Performance-critical private code may use compact representations when profiling or a reproducible benchmark proves the benefit. Keep the representation behind named helpers, test conversion to the domain type, and do not expose it through public APIs.
+
 ## Contribution process
 
 1. Search existing issues for the same problem or proposal.
