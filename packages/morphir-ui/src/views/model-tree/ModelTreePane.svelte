@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { DefinitionInfo, WorkspaceIr } from '@morphir/ir'
-  import { tick } from 'svelte'
+  import { tick, type Snippet } from 'svelte'
   import Icon from '../../icons/Icon.svelte'
   import ResizeHandle from '../../shell/ResizeHandle.svelte'
   import {
@@ -21,10 +21,12 @@
     ir,
     selectedId = null,
     onSelect,
+    leading,
   }: {
     ir: WorkspaceIr
     selectedId?: string | null
     onSelect?: (definition: DefinitionInfo) => void
+    leading?: Snippet
   } = $props()
 
   let query = $state('')
@@ -214,6 +216,10 @@
           <Icon name="sidebar" />
         </button>
       </header>
+
+      {#if leading}
+        {@render leading()}
+      {/if}
 
       <div class="controls">
         <input

@@ -13,6 +13,7 @@ import {
   inspectDevelopment,
   inspectWorkbenchSource,
   readModelSource,
+  readProjectModelSource,
 } from './workbench-source.ts'
 import { registerWorkbenchHandlers } from './workbench-rpc.ts'
 import { LaunchRequestQueue, parseOpenSources } from './launch-requests.ts'
@@ -117,6 +118,7 @@ registerWorkbenchHandlers(registry, {
   },
   readModel: readModelSource,
   inspectDevelopment,
+  readProjectModel: readProjectModelSource,
   reveal: async (source) => void shell.showItemInFolder(source.locator),
   takeInitialSources: () => launchRequests.takeInitial().map(desktopSourceRef),
 })

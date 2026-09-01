@@ -1,12 +1,18 @@
 import { Schema } from 'effect'
 import { JsonValueSchema, type JsonValue } from './discovery.ts'
-import { WorkbenchSourceRefSchema, WorkspaceEventSchema, WorkspaceSnapshotSchema } from './model.ts'
+import {
+  WORKBENCH_CAPABILITIES,
+  WorkbenchSourceRefSchema,
+  WorkspaceEventSchema,
+  WorkspaceSnapshotSchema,
+} from './model.ts'
 
 export const CONNECTED_PROTOCOL_VERSION = 1 as const
 
 export const CONNECTED_METHODS = {
   initialize: 'morphir.session.initialize',
   developmentInspect: 'morphir.development.inspect',
+  projectModelOpen: 'morphir.project-model.open',
   workspaceOpen: 'morphir.workspace.open',
   workspaceWatch: 'morphir.workspace.watch',
   workspaceUnwatch: 'morphir.workspace.unwatch',
@@ -58,9 +64,10 @@ export const ConnectedSessionManifestSchema = ConnectedSessionManifestBaseSchema
       const providerIds = manifest.providers.map(({ id }) => id)
       const knownProviderIds = new Set(providerIds)
       const requiredCapabilities = new Set([
-        'morphir/development/inspect',
-        'morphir/workspace/open',
-        'morphir/workspace/watch',
+        WORKBENCH_CAPABILITIES.developmentInspect,
+        WORKBENCH_CAPABILITIES.projectModelOpen,
+        WORKBENCH_CAPABILITIES.workspaceOpen,
+        WORKBENCH_CAPABILITIES.workspaceWatch,
       ])
       return (
         knownProviderIds.size === providerIds.length &&
@@ -157,6 +164,27 @@ export type WorkspaceOpenParams = Schema.Schema.Type<typeof WorkspaceOpenParamsS
 
 export const WorkspaceOpenResultSchema = Schema.Struct({ snapshot: WorkspaceSnapshotSchema })
 export type WorkspaceOpenResult = Schema.Schema.Type<typeof WorkspaceOpenResultSchema>
+
+export const ProjectModelOpenParamsSchema = Schema.Struct({
+  source: WorkbenchSourceRefSchema,
+  projectId: NonEmptyStringSchema,
+})
+export type ProjectModelOpenParams = Schema.Schema.Type<typeof ProjectModelOpenParamsSchema>
+
+export const ProjectModelOpenResultSchema = Schema.Struct({
+  descriptor: Schema.Struct({
+    id: NonEmptyStringSchema,
+    source: WorkbenchSourceRefSchema,
+    name: NonEmptyStringSchema,
+    kind: Schema.Literal('model'),
+    distribution: Schema.Literal('single-file'),
+    route: Schema.Literal('explorer'),
+    openedAt: NonEmptyStringSchema,
+    lastUsedAt: NonEmptyStringSchema,
+  }),
+  content: NonEmptyStringSchema,
+})
+export type ProjectModelOpenResult = Schema.Schema.Type<typeof ProjectModelOpenResultSchema>
 
 export const WorkspaceWatchParamsSchema = Schema.Struct({ source: WorkbenchSourceRefSchema })
 export type WorkspaceWatchParams = Schema.Schema.Type<typeof WorkspaceWatchParamsSchema>

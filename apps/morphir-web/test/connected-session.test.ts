@@ -14,6 +14,7 @@ const validManifest = {
       status: 'available',
       capabilities: [
         { name: 'morphir/development/inspect', version: '1' },
+        { name: 'morphir/project-model/open', version: '1' },
         { name: 'morphir/workspace/open', version: '1' },
         { name: 'morphir/workspace/watch', version: '1' },
       ],

@@ -2,6 +2,7 @@ import { Effect, Option, Schema, Stream } from 'effect'
 import {
   CONNECTED_METHODS,
   DevelopmentInspectResultSchema,
+  ProjectModelOpenResultSchema,
   WorkspaceEventNotificationParamsSchema,
   WorkspaceOpenResultSchema,
   WorkspaceUnwatchResultSchema,
@@ -13,8 +14,10 @@ import {
   WorkbenchError,
   validateDevelopmentWorkbenchData,
   validateInspectionResult,
+  validateProjectModelWorkbenchData,
   type WorkbenchProviderAdapter,
 } from '@morphir/ui'
+import { decodeMorphirIr, toWorkspaceIr } from '@morphir/ir'
 import type { ConnectedRpcClient } from './rpc-client.ts'
 
 const unsupported = (providerId: string, operation: string): WorkbenchError =>
@@ -87,8 +90,35 @@ export const makeConnectedWorkbenchAdapters = (
           })),
           Effect.flatMap((data) => validateDevelopmentWorkbenchData(descriptor, data)),
         ),
-    loadProjectModel: () =>
-      Effect.fail(unsupported(provider.id, 'Development project model loading')),
+    loadProjectModel: (descriptor, projectId) =>
+      client
+        .call(
+          CONNECTED_METHODS.projectModelOpen,
+          { source: descriptor.source, projectId },
+          ProjectModelOpenResultSchema,
+        )
+        .pipe(
+          Effect.flatMap(({ descriptor: modelDescriptor, content }) =>
+            decodeMorphirIr(content).pipe(
+              Effect.map((library) => ({
+                kind: 'model' as const,
+                descriptor: modelDescriptor,
+                library,
+                ir: toWorkspaceIr(library),
+                manifest: null,
+              })),
+              Effect.mapError(
+                (error) =>
+                  new WorkbenchError({
+                    code: 'invalid-distribution',
+                    source: modelDescriptor.source,
+                    message: error.message,
+                  }),
+              ),
+            ),
+          ),
+          Effect.flatMap((data) => validateProjectModelWorkbenchData(provider.id, data)),
+        ),
     events: (descriptor) =>
       Stream.unwrap(
         client

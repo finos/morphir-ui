@@ -19,6 +19,13 @@ interface WorkbenchHost {
   readonly inspectDevelopment: (
     descriptor: DevelopmentWorkbenchDescriptor,
   ) => Promise<WorkspaceSnapshot>
+  readonly readProjectModel: (
+    descriptor: DevelopmentWorkbenchDescriptor,
+    projectId: string,
+  ) => Promise<{
+    readonly descriptor: ModelWorkbenchDescriptor
+    readonly content: string
+  }>
   readonly reveal: (source: WorkbenchSourceRef) => Promise<void>
   readonly takeInitialSources: () => ReadonlyArray<WorkbenchSourceRef>
 }
@@ -54,6 +61,18 @@ export const registerWorkbenchHandlers = (registry: RpcRegistry, host: Workbench
     }
     assertDesktopWorkbenchProvider(descriptor)
     return host.inspectDevelopment(descriptor)
+  })
+  registry.register('morphir/workbench/readProjectModel', (params) => {
+    const descriptor = record(params)['descriptor'] as DevelopmentWorkbenchDescriptor | undefined
+    const projectId = record(params)['projectId']
+    if (descriptor?.kind !== 'development') {
+      throw new Error('Development Workbench descriptor is required')
+    }
+    if (typeof projectId !== 'string' || projectId.length === 0) {
+      throw new Error('Project id is required')
+    }
+    assertDesktopWorkbenchProvider(descriptor)
+    return host.readProjectModel(descriptor, projectId)
   })
   registry.register('morphir/workbench/reveal', async (params) => {
     await host.reveal(requiredSource(params))

@@ -6,7 +6,11 @@ import { sourceKey, type WorkbenchSourceRef, type WorkspaceEvent } from '@morphi
 import type { SourcePickerKind } from './services.ts'
 import { legacySourceRef } from './types.ts'
 import type {
+  DevelopmentNavigationState,
+  DevelopmentProjectModelEntry,
   DevelopmentRoute,
+  DevelopmentWorkbenchData,
+  DevelopmentWorkbenchDescriptor,
   ModelRoute,
   WorkbenchDescriptor,
   WorkbenchEntry,
@@ -14,6 +18,10 @@ import type {
 } from './types.ts'
 
 const MAX_RECENT = 20
+const EMPTY_DEVELOPMENT_NAVIGATION: DevelopmentNavigationState = {
+  activeProjectId: null,
+  projects: [],
+}
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
@@ -72,11 +80,13 @@ export class WorkbenchStore {
   failedRequests = $state<ReadonlyArray<FailedWorkbenchRequest>>([])
   query = $state('')
   recentExpanded = $state(false)
+  developmentNavigationById = $state<Readonly<Record<WorkbenchId, DevelopmentNavigationState>>>({})
 
   readonly #services: AppServices
   readonly #reopenOnLaunch: boolean
   readonly #workspaceWatches = new SvelteMap<WorkbenchId, Fiber.RuntimeFiber<void, never>>()
   readonly #loadTokens = new SvelteMap<WorkbenchId, object>()
+  readonly #projectLoadTokens = new SvelteMap<WorkbenchId, SvelteMap<string, object>>()
 
   constructor(services: AppServices, initial: UiConfig['workbenches']) {
     this.#services = services
@@ -105,6 +115,10 @@ export class WorkbenchStore {
 
   get filteredRecent(): ReadonlyArray<WorkbenchDescriptor> {
     return this.recent.filter((descriptor) => matchesQuery(descriptor, this.query))
+  }
+
+  developmentNavigation(id: WorkbenchId): DevelopmentNavigationState {
+    return this.developmentNavigationById[id] ?? EMPTY_DEVELOPMENT_NAVIGATION
   }
 
   async open(source: WorkbenchSourceRef | string): Promise<WorkbenchId | null> {
@@ -202,6 +216,8 @@ export class WorkbenchStore {
     const closing = this.openEntries.find((entry) => entry.descriptor.id === id)
     if (!closing) return
     this.#loadTokens.delete(id)
+    this.#projectLoadTokens.delete(id)
+    this.#removeDevelopmentNavigation(id)
     this.#stopWorkspaceWatch(id)
     this.openEntries = this.openEntries.filter((entry) => entry.descriptor.id !== id)
     const candidates = [
@@ -256,6 +272,54 @@ export class WorkbenchStore {
     this.#persist()
   }
 
+  async selectDevelopmentProject(id: WorkbenchId, projectId: string): Promise<void> {
+    const entry = this.#readyDevelopmentEntry(id)
+    if (!entry || !entry.data.snapshot.projects.some((project) => project.id === projectId)) return
+
+    const navigation = this.developmentNavigation(id)
+    this.#setDevelopmentNavigation(id, { ...navigation, activeProjectId: projectId })
+    const existing = navigation.projects.find((project) => project.projectId === projectId)
+    if (existing?.status === 'ready' || existing?.status === 'loading') return
+    await this.#loadDevelopmentProject(
+      id,
+      entry.descriptor,
+      projectId,
+      existing?.selectedDefinitionId ?? null,
+    )
+  }
+
+  async retryDevelopmentProject(id: WorkbenchId, projectId: string): Promise<void> {
+    const entry = this.#readyDevelopmentEntry(id)
+    if (!entry || !entry.data.snapshot.projects.some((project) => project.id === projectId)) return
+    const existing = this.developmentNavigation(id).projects.find(
+      (project) => project.projectId === projectId,
+    )
+    await this.#loadDevelopmentProject(
+      id,
+      entry.descriptor,
+      projectId,
+      existing?.selectedDefinitionId ?? null,
+    )
+  }
+
+  selectDevelopmentDefinition(
+    id: WorkbenchId,
+    projectId: string,
+    definitionId: string | null,
+  ): void {
+    const navigation = this.developmentNavigation(id)
+    const current = navigation.projects.find((project) => project.projectId === projectId)
+    if (!current || current.status !== 'ready') return
+    this.#setDevelopmentNavigation(id, {
+      ...navigation,
+      projects: navigation.projects.map((project) =>
+        project.projectId === projectId
+          ? { ...project, selectedDefinitionId: definitionId }
+          : project,
+      ),
+    })
+  }
+
   clearRecent(): void {
     for (const descriptor of this.recent) void this.#release(descriptor.source)
     this.recent = []
@@ -264,6 +328,8 @@ export class WorkbenchStore {
 
   dispose(): void {
     this.#loadTokens.clear()
+    this.#projectLoadTokens.clear()
+    this.developmentNavigationById = {}
     for (const id of this.#workspaceWatches.keys()) this.#stopWorkspaceWatch(id)
   }
 
@@ -273,6 +339,125 @@ export class WorkbenchStore {
     } catch {
       // Releasing an unreachable provider resource is best-effort and must not block UI changes.
     }
+  }
+
+  #readyDevelopmentEntry(id: WorkbenchId):
+    | {
+        readonly descriptor: DevelopmentWorkbenchDescriptor
+        readonly status: 'ready'
+        readonly data: DevelopmentWorkbenchData
+      }
+    | null {
+    const entry = this.openEntries.find((candidate) => candidate.descriptor.id === id)
+    if (entry?.status !== 'ready') return null
+    const descriptor = entry.descriptor
+    const data = entry.data
+    return descriptor.kind === 'development' && data.kind === 'development'
+      ? { descriptor, status: 'ready', data }
+      : null
+  }
+
+  async #loadDevelopmentProject(
+    id: WorkbenchId,
+    descriptor: DevelopmentWorkbenchDescriptor,
+    projectId: string,
+    selectedDefinitionId: string | null,
+  ): Promise<void> {
+    const token = {}
+    const tokens = this.#projectLoadTokens.get(id) ?? new SvelteMap<string, object>()
+    tokens.set(projectId, token)
+    this.#projectLoadTokens.set(id, tokens)
+    this.#replaceDevelopmentProject(id, {
+      projectId,
+      status: 'loading',
+      selectedDefinitionId,
+    })
+
+    try {
+      const model = await this.#services.loadDevelopmentProjectModel(descriptor, projectId)
+      if (!this.#isCurrentProjectLoad(id, projectId, token)) return
+      const entry = this.#readyDevelopmentEntry(id)
+      const current = this.developmentNavigation(id).projects.find(
+        (project) => project.projectId === projectId,
+      )
+      if (!entry) {
+        this.#replaceDevelopmentProject(id, {
+          projectId,
+          status: 'error',
+          message: 'Project model loading was interrupted by a Workbench reload',
+          selectedDefinitionId: current?.selectedDefinitionId ?? selectedDefinitionId,
+        })
+        return
+      }
+      if (!entry.data.snapshot.projects.some((project) => project.id === projectId)) return
+      this.#replaceDevelopmentProject(id, {
+        projectId,
+        status: 'ready',
+        model,
+        selectedDefinitionId: current?.selectedDefinitionId ?? selectedDefinitionId,
+      })
+    } catch (error) {
+      if (!this.#isCurrentProjectLoad(id, projectId, token)) return
+      const current = this.developmentNavigation(id).projects.find(
+        (project) => project.projectId === projectId,
+      )
+      this.#replaceDevelopmentProject(id, {
+        projectId,
+        status: 'error',
+        message: messageOf(error),
+        selectedDefinitionId: current?.selectedDefinitionId ?? selectedDefinitionId,
+      })
+    } finally {
+      if (this.#isCurrentProjectLoad(id, projectId, token)) {
+        const currentTokens = this.#projectLoadTokens.get(id)
+        currentTokens?.delete(projectId)
+        if (currentTokens?.size === 0) this.#projectLoadTokens.delete(id)
+      }
+    }
+  }
+
+  #isCurrentProjectLoad(id: WorkbenchId, projectId: string, token: object): boolean {
+    return this.#projectLoadTokens.get(id)?.get(projectId) === token
+  }
+
+  #replaceDevelopmentProject(id: WorkbenchId, entry: DevelopmentProjectModelEntry): void {
+    const navigation = this.developmentNavigation(id)
+    const exists = navigation.projects.some((project) => project.projectId === entry.projectId)
+    this.#setDevelopmentNavigation(id, {
+      ...navigation,
+      projects: exists
+        ? navigation.projects.map((project) =>
+            project.projectId === entry.projectId ? entry : project,
+          )
+        : [...navigation.projects, entry],
+    })
+  }
+
+  #setDevelopmentNavigation(id: WorkbenchId, state: DevelopmentNavigationState): void {
+    this.developmentNavigationById = { ...this.developmentNavigationById, [id]: state }
+  }
+
+  #removeDevelopmentNavigation(id: WorkbenchId): void {
+    this.developmentNavigationById = Object.fromEntries(
+      Object.entries(this.developmentNavigationById).filter(([candidate]) => candidate !== id),
+    )
+  }
+
+  #reconcileDevelopmentNavigation(id: WorkbenchId, projectIds: ReadonlyArray<string>): void {
+    const navigation = this.developmentNavigationById[id]
+    if (!navigation) return
+    const projects = navigation.projects.filter((project) => projectIds.includes(project.projectId))
+    const activeProjectId =
+      navigation.activeProjectId && projectIds.includes(navigation.activeProjectId)
+        ? navigation.activeProjectId
+        : null
+    this.#setDevelopmentNavigation(id, { activeProjectId, projects })
+    const tokens = this.#projectLoadTokens.get(id)
+    if (!tokens) return
+    for (const projectId of tokens.keys()) {
+      if (!projectIds.includes(projectId)) tokens.delete(projectId)
+    }
+    if (tokens.size === 0) this.#projectLoadTokens.delete(id)
   }
 
   async #load(descriptor: WorkbenchDescriptor): Promise<void> {
@@ -338,6 +523,7 @@ export class WorkbenchStore {
         status: 'ready',
         data: { kind: 'development', descriptor: entry.descriptor, snapshot: event.snapshot },
       })
+      this.#reconcileDevelopmentNavigation(id, event.snapshot.projects.map((project) => project.id))
       return
     }
     if (entry.status !== 'ready' || entry.data.kind !== 'development') return
@@ -345,6 +531,7 @@ export class WorkbenchStore {
       ...entry,
       data: { ...entry.data, snapshot: event.snapshot },
     })
+    this.#reconcileDevelopmentNavigation(id, event.snapshot.projects.map((project) => project.id))
   }
 
   #markWorkspaceError(id: WorkbenchId, message: string): void {

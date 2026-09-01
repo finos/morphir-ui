@@ -1,6 +1,12 @@
 import { Effect, Stream } from 'effect'
 import { describe, expect, test, vi } from 'vitest'
-import { sourceKey, type WorkspaceSnapshot } from '@morphir/workspace'
+import {
+  projectKey,
+  sourceKey,
+  type ProjectSnapshot,
+  type WorkspaceEvent,
+  type WorkspaceSnapshot,
+} from '@morphir/workspace'
 import {
   WorkbenchStore,
   WorkbenchError,
@@ -22,6 +28,38 @@ const makeStore = async (
 
 const workbenchId = (locator: string): string =>
   sourceKey({ providerId: 'legacy-local', locator, displayName: locator })
+
+const project = (
+  source: ReturnType<typeof legacySourceRef>,
+  relativePath: string,
+  name: string,
+): ProjectSnapshot => ({
+  id: projectKey(source, relativePath),
+  name,
+  version: '1.0.0',
+  relativePath,
+  configAnchor: `${relativePath}/morphir.toml`,
+  sourceDirectory: 'src',
+  state: 'unloaded',
+  modelSources: [],
+  knowledgeBaseSources: [],
+  diagnostics: [],
+})
+
+const developmentSnapshot = (
+  source: ReturnType<typeof legacySourceRef>,
+  projects: ReadonlyArray<ProjectSnapshot>,
+): WorkspaceSnapshot => ({
+  id: sourceKey(source),
+  root: source,
+  name: source.displayName,
+  configAnchor: 'morphir.toml',
+  state: 'open',
+  projects,
+  modelSources: [],
+  knowledgeBaseSources: [],
+  diagnostics: [],
+})
 
 describe('WorkbenchStore', () => {
   test('restoration deduplicates canonical command-line sources and activates the first', async () => {
@@ -482,6 +520,210 @@ describe('WorkbenchStore', () => {
     expect(store.filteredRecent.map((entry) => entry.source.locator)).toEqual(['/knowledge'])
   })
 
+  test('keeps project and definition navigation independent per Development Workbench', async () => {
+    const { core } = makeFakeCore()
+    const base = await makeAppServices({ core })
+    const services = {
+      ...base,
+      loadDevelopmentWorkbench: async (descriptor: Parameters<typeof base.loadDevelopmentWorkbench>[0]) => {
+        const orders = project(descriptor.source, 'packages/orders', 'Orders')
+        const pricing = project(descriptor.source, 'packages/pricing', 'Pricing')
+        return {
+          kind: 'development' as const,
+          descriptor,
+          snapshot: developmentSnapshot(descriptor.source, [orders, pricing]),
+        }
+      },
+    }
+    const store = new WorkbenchStore(services, defaultUiConfig.workbenches)
+
+    const firstId = (await store.open('/dev-a'))!
+    const secondId = (await store.open('/dev-b'))!
+    const firstSource = legacySourceRef('/dev-a')
+    const secondSource = legacySourceRef('/dev-b')
+    const firstOrders = projectKey(firstSource, 'packages/orders')
+    const firstPricing = projectKey(firstSource, 'packages/pricing')
+    const secondOrders = projectKey(secondSource, 'packages/orders')
+
+    await store.selectDevelopmentProject(firstId, firstOrders)
+    store.selectDevelopmentDefinition(firstId, firstOrders, 'definition:value:A:B:c')
+    await store.selectDevelopmentProject(firstId, firstPricing)
+    store.selectDevelopmentDefinition(firstId, firstPricing, 'definition:type:A:B:T')
+    await store.selectDevelopmentProject(secondId, secondOrders)
+
+    expect(store.developmentNavigation(firstId)).toMatchObject({
+      activeProjectId: firstPricing,
+      projects: [
+        {
+          projectId: firstOrders,
+          status: 'ready',
+          selectedDefinitionId: 'definition:value:A:B:c',
+        },
+        {
+          projectId: firstPricing,
+          status: 'ready',
+          selectedDefinitionId: 'definition:type:A:B:T',
+        },
+      ],
+    })
+    expect(store.developmentNavigation(secondId)).toMatchObject({
+      activeProjectId: secondOrders,
+      projects: [{ projectId: secondOrders, status: 'ready', selectedDefinitionId: null }],
+    })
+  })
+
+  test('exposes loading and error states, retries, and ignores project loads after close', async () => {
+    const source = legacySourceRef('/dev')
+    const orders = project(source, 'packages/orders', 'Orders')
+    const { core } = makeFakeCore({
+      development: { snapshot: developmentSnapshot(source, [orders]) },
+    })
+    const base = await makeAppServices({ core })
+    let finishLoad!: () => void
+    let attempts = 0
+    const store = new WorkbenchStore(
+      {
+        ...base,
+        loadDevelopmentProjectModel: async (descriptor, projectId) => {
+          attempts += 1
+          if (attempts === 1) throw new Error('morphir-ir.json was not found')
+          await new Promise<void>((resolve) => void (finishLoad = resolve))
+          return base.loadDevelopmentProjectModel(descriptor, projectId)
+        },
+      },
+      defaultUiConfig.workbenches,
+    )
+
+    const id = (await store.open(source))!
+    await store.selectDevelopmentProject(id, orders.id)
+    expect(store.developmentNavigation(id)).toMatchObject({
+      activeProjectId: orders.id,
+      projects: [{ projectId: orders.id, status: 'error', message: 'morphir-ir.json was not found' }],
+    })
+
+    const retry = store.retryDevelopmentProject(id, orders.id)
+    await vi.waitFor(() =>
+      expect(store.developmentNavigation(id).projects[0]?.status).toBe('loading'),
+    )
+    store.close(id)
+    finishLoad()
+    await retry
+
+    expect(store.developmentNavigation(id)).toEqual({ activeProjectId: null, projects: [] })
+    expect(store.openEntries).toEqual([])
+  })
+
+  test('keeps the newest active project when an earlier project load finishes later', async () => {
+    const source = legacySourceRef('/dev')
+    const orders = project(source, 'packages/orders', 'Orders')
+    const pricing = project(source, 'packages/pricing', 'Pricing')
+    const { core } = makeFakeCore({
+      development: { snapshot: developmentSnapshot(source, [orders, pricing]) },
+    })
+    const base = await makeAppServices({ core })
+    let finishOrders!: () => void
+    const store = new WorkbenchStore(
+      {
+        ...base,
+        loadDevelopmentProjectModel: async (descriptor, projectId) => {
+          if (projectId === orders.id) {
+            await new Promise<void>((resolve) => void (finishOrders = resolve))
+          }
+          return base.loadDevelopmentProjectModel(descriptor, projectId)
+        },
+      },
+      defaultUiConfig.workbenches,
+    )
+
+    const id = (await store.open(source))!
+    const first = store.selectDevelopmentProject(id, orders.id)
+    await vi.waitFor(() =>
+      expect(store.developmentNavigation(id).projects[0]?.status).toBe('loading'),
+    )
+    await store.selectDevelopmentProject(id, pricing.id)
+    finishOrders()
+    await first
+
+    expect(store.developmentNavigation(id)).toMatchObject({
+      activeProjectId: pricing.id,
+      projects: [
+        { projectId: orders.id, status: 'ready' },
+        { projectId: pricing.id, status: 'ready' },
+      ],
+    })
+  })
+
+  test('makes a project load retryable when a parent Workbench reload overtakes it', async () => {
+    const source = legacySourceRef('/dev')
+    const orders = project(source, 'packages/orders', 'Orders')
+    const { core } = makeFakeCore({
+      development: { snapshot: developmentSnapshot(source, [orders]) },
+    })
+    const base = await makeAppServices({ core })
+    let finishProject!: () => void
+    let finishParentReload!: () => void
+    let parentLoads = 0
+    let projectLoads = 0
+    const store = new WorkbenchStore(
+      {
+        ...base,
+        loadDevelopmentWorkbench: async (descriptor) => {
+          parentLoads += 1
+          if (parentLoads > 1) {
+            await new Promise<void>((resolve) => void (finishParentReload = resolve))
+          }
+          return base.loadDevelopmentWorkbench(descriptor)
+        },
+        loadDevelopmentProjectModel: async (descriptor, projectId) => {
+          projectLoads += 1
+          if (projectLoads === 1) {
+            await new Promise<void>((resolve) => void (finishProject = resolve))
+          }
+          return base.loadDevelopmentProjectModel(descriptor, projectId)
+        },
+      },
+      defaultUiConfig.workbenches,
+    )
+
+    const id = (await store.open(source))!
+    const projectLoad = store.selectDevelopmentProject(id, orders.id)
+    await vi.waitFor(() =>
+      expect(store.developmentNavigation(id).projects[0]?.status).toBe('loading'),
+    )
+    const parentReload = store.retry(id)
+    await vi.waitFor(() => expect(store.active?.status).toBe('loading'))
+    finishProject()
+    await projectLoad
+
+    expect(store.developmentNavigation(id).projects[0]?.status).toBe('error')
+
+    finishParentReload()
+    await parentReload
+    await store.retryDevelopmentProject(id, orders.id)
+
+    expect(projectLoads).toBe(2)
+    expect(store.developmentNavigation(id).projects[0]?.status).toBe('ready')
+  })
+
+  test('ignores a project ID that is absent from the current Development snapshot', async () => {
+    const source = legacySourceRef('/dev')
+    const { core } = makeFakeCore({
+      development: { snapshot: developmentSnapshot(source, []) },
+    })
+    const base = await makeAppServices({ core })
+    const loadDevelopmentProjectModel = vi.fn(base.loadDevelopmentProjectModel)
+    const store = new WorkbenchStore(
+      { ...base, loadDevelopmentProjectModel },
+      defaultUiConfig.workbenches,
+    )
+
+    const id = (await store.open(source))!
+    await store.selectDevelopmentProject(id, 'unknown-project')
+
+    expect(store.developmentNavigation(id)).toEqual({ activeProjectId: null, projects: [] })
+    expect(loadDevelopmentProjectModel).not.toHaveBeenCalled()
+  })
+
   test('applies watched snapshots to an open Development Workbench', async () => {
     const source = legacySourceRef('/dev')
     const snapshot: WorkspaceSnapshot = {
@@ -567,6 +809,51 @@ describe('WorkbenchStore', () => {
     await vi.waitFor(() => {
       expect(store.active).toMatchObject({ status: 'ready', data: { snapshot } })
     })
+  })
+
+  test('prunes project navigation when a disconnected workspace recovers', async () => {
+    const source = legacySourceRef('/dev')
+    const orders = project(source, 'packages/orders', 'Orders')
+    const initial = developmentSnapshot(source, [orders])
+    const recovered = developmentSnapshot(source, [])
+    let emitDisconnect!: () => void
+    let emitRecovery!: () => void
+    const nextEvent = (register: (emit: () => void) => void, event: WorkspaceEvent) =>
+      Stream.fromEffect(
+        Effect.promise(
+          () =>
+            new Promise<WorkspaceEvent>((resolve) => register(() => resolve(event))),
+        ),
+      )
+    const events = Stream.concat(
+      nextEvent(
+        (emit) => void (emitDisconnect = emit),
+        {
+          tag: 'provider-disconnected',
+          providerId: source.providerId,
+          message: 'CLI connection closed',
+        },
+      ),
+      nextEvent(
+        (emit) => void (emitRecovery = emit),
+        { tag: 'snapshot', snapshot: recovered },
+      ),
+    )
+    const { core } = makeFakeCore({ development: { snapshot: initial, events } })
+    const store = new WorkbenchStore(await makeAppServices({ core }), defaultUiConfig.workbenches)
+
+    const id = (await store.open(source))!
+    await vi.waitFor(() => expect(emitDisconnect).toBeTypeOf('function'))
+    await store.selectDevelopmentProject(id, orders.id)
+    expect(store.developmentNavigation(id).activeProjectId).toBe(orders.id)
+
+    emitDisconnect()
+    await vi.waitFor(() => expect(store.active?.status).toBe('error'))
+    await vi.waitFor(() => expect(emitRecovery).toBeTypeOf('function'))
+    emitRecovery()
+
+    await vi.waitFor(() => expect(store.active?.status).toBe('ready'))
+    expect(store.developmentNavigation(id)).toEqual({ activeProjectId: null, projects: [] })
   })
 
   test('stops watching a Development Workbench when it closes or the store disposes', async () => {

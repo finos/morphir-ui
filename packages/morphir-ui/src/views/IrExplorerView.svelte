@@ -11,17 +11,60 @@
   import type { InspectMeta } from './insight/insight-context.ts'
   import ModelTreePane from './model-tree/ModelTreePane.svelte'
   import { definitionNodeId } from './model-tree/model-tree.ts'
+  import type { Snippet } from 'svelte'
 
-  let { model, onInspect }: { model: ModelWorkbenchData; onInspect?: (meta: InspectMeta) => void } =
-    $props()
+  let {
+    model,
+    onInspect,
+    treeLeading,
+    selectedDefinitionId,
+    onSelectedDefinition,
+  }: {
+    model: ModelWorkbenchData
+    onInspect?: (meta: InspectMeta) => void
+    treeLeading?: Snippet
+    selectedDefinitionId?: string | null
+    onSelectedDefinition?: (definitionId: string | null) => void
+  } = $props()
 
   const ir = $derived(model.ir)
   let selected = $state<{ info: DefinitionInfo; entry: RawDefEntry } | null>(null)
   let resolutionError = $state<string | null>(null)
   let stateModelId = $state('')
-  const currentSelected = $derived(stateModelId === model.descriptor.id ? selected : null)
+  const controlledInfo = $derived(
+    selectedDefinitionId === undefined
+      ? null
+      : (ir?.definitions.find(
+          (definition) => definitionNodeId(definition) === selectedDefinitionId,
+        ) ?? null),
+  )
+  const controlledEntry = $derived(
+    controlledInfo
+      ? findEntry(
+          controlledInfo.ref.packageName,
+          controlledInfo.ref.moduleName,
+          controlledInfo.ref.localName,
+          controlledInfo.kind,
+        )
+      : null,
+  )
+  const currentSelected = $derived(
+    selectedDefinitionId === undefined
+      ? stateModelId === model.descriptor.id
+        ? selected
+        : null
+      : controlledInfo && controlledEntry
+        ? { info: controlledInfo, entry: controlledEntry }
+        : null,
+  )
   const currentResolutionError = $derived(
-    stateModelId === model.descriptor.id ? resolutionError : null,
+    selectedDefinitionId === undefined
+      ? stateModelId === model.descriptor.id
+        ? resolutionError
+        : null
+      : selectedDefinitionId && !currentSelected
+        ? selectedDefinitionId
+        : null,
   )
   const selectedId = $derived(currentSelected ? definitionNodeId(currentSelected.info) : null)
 
@@ -34,12 +77,12 @@
     }
   })
 
-  const findEntry = (
+  function findEntry(
     packageName: string,
     moduleName: string,
     localName: string,
     kind: 'type' | 'value',
-  ): RawDefEntry | null => {
+  ): RawDefEntry | null {
     const lib = model.library
     if (!lib || pathToTitle(lib.packageName) !== packageName) return null
     for (const m of lib.modules) {
@@ -54,6 +97,10 @@
   }
 
   function selectDefinition(info: DefinitionInfo): void {
+    if (selectedDefinitionId !== undefined) {
+      onSelectedDefinition?.(definitionNodeId(info))
+      return
+    }
     const entry = findEntry(
       info.ref.packageName,
       info.ref.moduleName,
@@ -79,7 +126,7 @@
 {:else}
   <section class="ir-explorer">
     {#key model.descriptor.id}
-      <ModelTreePane {ir} {selectedId} onSelect={selectDefinition} />
+      <ModelTreePane {ir} {selectedId} onSelect={selectDefinition} leading={treeLeading} />
     {/key}
     <div class="definition-detail">
       {#if currentResolutionError}

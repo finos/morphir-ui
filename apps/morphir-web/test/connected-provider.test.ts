@@ -37,6 +37,24 @@ const snapshot: WorkspaceSnapshot = {
   knowledgeBaseSources: [],
   diagnostics: [],
 }
+const modelSource: WorkbenchSourceRef = {
+  providerId: 'cli:session-1',
+  locator: 'model:orders',
+  displayName: 'orders / morphir-ir.json',
+}
+const projectModelResult = {
+  descriptor: {
+    id: sourceKey(modelSource),
+    source: modelSource,
+    name: 'orders',
+    kind: 'model' as const,
+    distribution: 'single-file' as const,
+    route: 'explorer' as const,
+    openedAt: timestamp,
+    lastUsedAt: timestamp,
+  },
+  content: '{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}',
+}
 const manifest: ConnectedSessionManifest = {
   protocolVersion: 1,
   webSocketPath: '/rpc',
@@ -49,6 +67,7 @@ const manifest: ConnectedSessionManifest = {
       status: 'available',
       capabilities: [
         { name: 'morphir/development/inspect', version: '1' },
+        { name: 'morphir/project-model/open', version: '1' },
         { name: 'morphir/workspace/open', version: '1' },
         { name: 'morphir/workspace/watch', version: '1' },
       ],
@@ -60,6 +79,7 @@ const manifest: ConnectedSessionManifest = {
 const client = (
   notifications: Stream.Stream<ConnectedNotification> = Stream.empty,
   inspectResult: unknown = { descriptor },
+  modelResult: unknown = projectModelResult,
 ): ConnectedRpcClient => ({
   manifest,
   notifications,
@@ -69,6 +89,8 @@ const client = (
         return Effect.succeed(inspectResult)
       case CONNECTED_METHODS.workspaceOpen:
         return Effect.succeed({ snapshot })
+      case CONNECTED_METHODS.projectModelOpen:
+        return Effect.succeed(modelResult)
       case CONNECTED_METHODS.workspaceWatch:
         return Effect.succeed({ subscriptionId: 'watch-1' })
       case CONNECTED_METHODS.workspaceUnwatch:
@@ -93,6 +115,16 @@ describe('connected Workbench provider', () => {
     expect(adapter.provider.id).toBe('cli:session-1')
   })
 
+  test('opens and decodes a provider-qualified project model', async () => {
+    const adapter = makeConnectedWorkbenchAdapters(client())[0]!
+
+    const model = await Effect.runPromise(adapter.loadProjectModel(descriptor, 'project-1'))
+
+    expect(model.descriptor).toEqual(projectModelResult.descriptor)
+    expect(model.library?.modules).toEqual([])
+    expect(model.ir?.modules).toEqual([])
+  })
+
   test('rejects provider switching and unsupported connected operations', async () => {
     const foreign = { ...source, providerId: 'cli:other' }
     const adapter = makeConnectedWorkbenchAdapters(
@@ -103,11 +135,33 @@ describe('connected Workbench provider', () => {
 
     const inspectError = await Effect.runPromise(Effect.flip(adapter.inspect(source)))
     expect(inspectError.code).toBe('unsupported-capability')
-    const projectError = await Effect.runPromise(
-      Effect.flip(adapter.loadProjectModel(descriptor, 'project-1')),
-    )
-    expect(projectError.message).toContain('not available')
     expect(Option.isNone(await Effect.runPromise(adapter.pick('folder')))).toBe(true)
+  })
+
+  test('rejects provider drift and invalid IR from project-model responses', async () => {
+    const foreignSource = { ...modelSource, providerId: 'cli:other' }
+    const foreignAdapter = makeConnectedWorkbenchAdapters(
+      client(Stream.empty, { descriptor }, {
+        ...projectModelResult,
+        descriptor: {
+          ...projectModelResult.descriptor,
+          id: sourceKey(foreignSource),
+          source: foreignSource,
+        },
+      }),
+    )[0]!
+    const foreignError = await Effect.runPromise(
+      Effect.flip(foreignAdapter.loadProjectModel(descriptor, 'project-1')),
+    )
+    expect(foreignError).toMatchObject({ code: 'unsupported-capability' })
+
+    const invalidAdapter = makeConnectedWorkbenchAdapters(
+      client(Stream.empty, { descriptor }, { ...projectModelResult, content: '{' }),
+    )[0]!
+    const invalidError = await Effect.runPromise(
+      Effect.flip(invalidAdapter.loadProjectModel(descriptor, 'project-1')),
+    )
+    expect(invalidError).toMatchObject({ code: 'invalid-distribution' })
   })
 
   test('maps qualified events and transport disconnects without changing provider identity', async () => {

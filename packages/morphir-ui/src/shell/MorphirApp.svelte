@@ -56,10 +56,11 @@
     const active = workbenches.active
     return (
       active?.status === 'ready' &&
-      active.descriptor.kind === 'model' &&
-      active.data.kind === 'model' &&
-      active.descriptor.route === 'explorer' &&
-      active.data.ir !== null
+      ((active.descriptor.kind === 'development' && active.data.kind === 'development') ||
+        (active.descriptor.kind === 'model' &&
+          active.data.kind === 'model' &&
+          active.descriptor.route === 'explorer' &&
+          active.data.ir !== null))
     )
   })
 

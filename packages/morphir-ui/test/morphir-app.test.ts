@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import MorphirApp from '../src/shell/MorphirApp.svelte'
 import { defaultUiConfig, legacySourceRef, makeAppServices } from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
+import { projectKey, sourceKey, type WorkspaceSnapshot } from '@morphir/workspace'
 
 // See ir-explorer.test.ts: readFileSync(new URL(rel, import.meta.url)) breaks under Vite's
 // import-analysis in this happy-dom environment. Resolve manually instead.
@@ -127,13 +128,36 @@ describe('MorphirApp', () => {
     expect(screen.getByRole('button', { name: 'Types' }).getAttribute('aria-pressed')).toBe('true')
   })
 
-  test('shows a Development Workbench summary', async () => {
+  test('opens a Development Workbench project in the existing explorer', async () => {
+    const source = legacySourceRef('/dev')
+    const projectId = projectKey(source, 'packages/pricing')
+    const snapshot: WorkspaceSnapshot = {
+      id: sourceKey(source),
+      root: source,
+      name: 'Development',
+      configAnchor: '/dev/morphir.toml',
+      state: 'open',
+      projects: [
+        {
+          id: projectId,
+          name: 'Pricing',
+          version: '1.0.0',
+          relativePath: 'packages/pricing',
+          configAnchor: 'packages/pricing/morphir.toml',
+          sourceDirectory: 'src',
+          state: 'unloaded',
+          modelSources: [],
+          knowledgeBaseSources: [],
+          diagnostics: [],
+        },
+      ],
+      modelSources: [],
+      knowledgeBaseSources: [],
+      diagnostics: [],
+    }
     const { core } = makeFakeCore({
-      development: {
-        configAnchor: '/dev/morphir.toml',
-        modelSources: ['/dev/models/pricing'],
-        knowledgeBaseSources: ['/dev/knowledge/rules'],
-      },
+      workspaceContent: insightFixture,
+      development: { snapshot },
     })
     const services = await makeAppServices({ core })
     render(MorphirApp, {
@@ -146,10 +170,14 @@ describe('MorphirApp', () => {
       },
     })
 
-    expect(await screen.findByText('Development Workbench')).toBeTruthy()
-    expect(screen.getByText('/dev/morphir.toml')).toBeTruthy()
-    expect(screen.getByText('/dev/models/pricing')).toBeTruthy()
-    expect(screen.getByText('/dev/knowledge/rules')).toBeTruthy()
+    const project = await screen.findByRole('button', {
+      name: 'Pricing, packages/pricing, unloaded',
+    })
+    await userEvent.click(project)
+
+    expect(await screen.findByRole('tree', { name: 'Model hierarchy' })).toBeTruthy()
+    expect(screen.getByRole('searchbox', { name: 'Search model' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Projects' })).toBeTruthy()
   })
 
   test('limits a Document Tree model to its available overview', async () => {
