@@ -15,39 +15,66 @@ const URL_PATTERN = /https?:\/\/[^\s"'<>]+/gi
 type LogValue = string | number | boolean | null
 type EventDetails = Readonly<Record<string, unknown>>
 
+interface DesktopWriterState {
+  disabled: boolean
+  warnOnce: (message: string) => void
+}
+
 export interface DesktopLogEvent {
   timestamp: string
   level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
   fields: Record<string, LogValue>
 }
 
-export interface DesktopLogContext {
+interface DesktopLogContextBase {
   sessionId: string
   operationId: string
-  parentOperationId?: string
-  launchId?: string
   processId: number
   now?: () => Date
   warn?: (message: string) => void
 }
 
-export interface InheritedCorrelation {
-  parentOperationId?: string
-  launchId?: string
-}
+export type InheritedCorrelation =
+  | { readonly kind: 'standalone' }
+  | {
+      readonly kind: 'managed'
+      readonly parentOperationId: string
+      readonly launchId: string
+    }
 
-const validCorrelationId = (value: string | undefined, pattern: RegExp): string | undefined =>
-  value && pattern.test(value) ? value : undefined
+export type ManagedCorrelation = Extract<InheritedCorrelation, { readonly kind: 'managed' }>
+export type DesktopLogContext = DesktopLogContextBase & InheritedCorrelation
+
+const validCorrelationId = (value: unknown, pattern: RegExp): string | undefined =>
+  typeof value === 'string' && pattern.test(value) ? value.toLowerCase() : undefined
+
+const correlationPair = (parent: unknown, launch: unknown): InheritedCorrelation => {
+  const parentOperationId = validCorrelationId(parent, OPERATION_ID)
+  const launchId = validCorrelationId(launch, LAUNCH_ID)
+  return parentOperationId && launchId
+    ? { kind: 'managed', parentOperationId, launchId }
+    : { kind: 'standalone' }
+}
 
 export const inheritedCorrelation = (
   env: Record<string, string | undefined> = process.env,
-): InheritedCorrelation => {
-  const parentOperationId = validCorrelationId(env['MORPHIR_PARENT_OPERATION_ID'], OPERATION_ID)
-  const launchId = validCorrelationId(env['MORPHIR_LAUNCH_ID'], LAUNCH_ID)
-  return {
-    ...(parentOperationId ? { parentOperationId } : {}),
-    ...(launchId ? { launchId } : {}),
-  }
+): InheritedCorrelation =>
+  correlationPair(env['MORPHIR_PARENT_OPERATION_ID'], env['MORPHIR_LAUNCH_ID'])
+
+export const correlationAdditionalData = (
+  correlation: InheritedCorrelation,
+): Readonly<Record<string, string>> =>
+  correlation.kind === 'managed'
+    ? {
+        parentOperationId: correlation.parentOperationId,
+        launchId: correlation.launchId,
+      }
+    : {}
+
+export const forwardedCorrelation = (data: unknown): InheritedCorrelation => {
+  if (typeof data !== 'object' || data === null) return { kind: 'standalone' }
+  const values = data as Record<string, unknown>
+  return correlationPair(values['parentOperationId'], values['launchId'])
 }
 
 const withoutUrlCredentials = (value: string): string =>
@@ -103,16 +130,21 @@ export const desktopLogLocation = (
 }
 
 export class DesktopLogger {
-  private disabled = false
   private readonly now: () => Date
-  private readonly warnOnce: (message: string) => void
+  private readonly writerState: DesktopWriterState
 
   constructor(
     private readonly context: DesktopLogContext,
     private readonly append: (line: string) => void,
+    writerState?: DesktopWriterState,
   ) {
     this.now = context.now ?? (() => new Date())
-    this.warnOnce = context.warn ?? ((message) => console.error(message))
+    this.writerState =
+      writerState ??
+      ({
+        disabled: false,
+        warnOnce: context.warn ?? ((message) => console.error(message)),
+      } satisfies DesktopWriterState)
   }
 
   debug(eventName: string, details: EventDetails = {}): void {
@@ -131,8 +163,21 @@ export class DesktopLogger {
     this.write('ERROR', eventName, details)
   }
 
+  forManagedLaunch(correlation: ManagedCorrelation): DesktopLogger {
+    return new DesktopLogger(
+      {
+        ...this.context,
+        kind: 'managed',
+        parentOperationId: correlation.parentOperationId,
+        launchId: correlation.launchId,
+      },
+      this.append,
+      this.writerState,
+    )
+  }
+
   private write(level: DesktopLogEvent['level'], eventName: string, details: EventDetails): void {
-    if (this.disabled) return
+    if (this.writerState.disabled) return
     const fields: Record<string, LogValue> = {
       ...Object.fromEntries(Object.entries(details).map(([key, value]) => [key, safeValue(value)])),
       schema_version: 1,
@@ -140,19 +185,21 @@ export class DesktopLogger {
       process_id: this.context.processId,
       session_id: this.context.sessionId,
       operation_id: this.context.operationId,
-      ...(this.context.parentOperationId
-        ? { parent_operation_id: this.context.parentOperationId }
+      ...(this.context.kind === 'managed'
+        ? {
+            parent_operation_id: this.context.parentOperationId,
+            launch_id: this.context.launchId,
+          }
         : {}),
-      ...(this.context.launchId ? { launch_id: this.context.launchId } : {}),
       event_name: eventName,
     }
     const event: DesktopLogEvent = { timestamp: this.now().toISOString(), level, fields }
     try {
       this.append(`${JSON.stringify(event)}\n`)
     } catch (error) {
-      this.disabled = true
+      this.writerState.disabled = true
       const reason = error instanceof Error ? redactLogText(error.message) : 'unknown error'
-      this.warnOnce(`Warning: Desktop logging disabled: ${reason}`)
+      this.writerState.warnOnce(`Warning: Desktop logging disabled: ${reason}`)
     }
   }
 }

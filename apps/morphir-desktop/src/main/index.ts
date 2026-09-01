@@ -8,7 +8,19 @@ import { readWorkspaceFile } from './workspace.ts'
 import { decodeUiConfig } from '@morphir/ui/config'
 import { GH_SECRET_KEY, SecretStore } from './secrets.ts'
 import { ghCliToken, verifyGitHubToken } from './github.ts'
-import { createDesktopLogSession, desktopCrashDirectory, redactLogText } from './logging.ts'
+import {
+  correlationAdditionalData,
+  createDesktopLogSession,
+  desktopCrashDirectory,
+  forwardedCorrelation,
+  inheritedCorrelation,
+} from './logging.ts'
+import {
+  DESKTOP_ERROR_CODES,
+  DesktopExitSignal,
+  DesktopLaunchObservability,
+  DesktopReadySignal,
+} from './launch-observability.ts'
 import {
   inspectDevelopment,
   inspectWorkbenchSource,
@@ -22,16 +34,28 @@ import { enforceDesktopCrashRetention, type DesktopRetentionResult } from './log
 
 const smoke = process.env['MORPHIR_SMOKE'] === '1'
 const registry = new RpcRegistry()
-const hasSingleInstanceLock = smoke || app.requestSingleInstanceLock()
+const initialCorrelation = inheritedCorrelation()
+const hasSingleInstanceLock =
+  smoke || app.requestSingleInstanceLock(correlationAdditionalData(initialCorrelation))
 const launchRequests = new LaunchRequestQueue(parseOpenSources(process.argv, app.isPackaged))
 let mainWindow: BrowserWindow | null = null
 const logSession = createDesktopLogSession()
 const logger = logSession.logger
+const launchObservability = new DesktopLaunchObservability(logger)
+const exitSignal = new DesktopExitSignal(launchObservability, logSession.close)
+const readySignal = new DesktopReadySignal((correlation) => {
+  if (correlation) new DesktopLaunchObservability(logger.forManagedLaunch(correlation)).ready()
+  else launchObservability.ready()
+})
 const crashDirectory = desktopCrashDirectory()
 let crashRetention: DesktopRetentionResult = {
   removedFiles: 0,
   removedBytes: 0,
   skippedEntries: 0,
+}
+
+const exitApplication = (code: number): void => {
+  exitSignal.immediately(code, (exitCode) => app.exit(exitCode))
 }
 
 try {
@@ -41,6 +65,7 @@ try {
   crashReporter.start({ uploadToServer: false })
 } catch (error) {
   logger.warn('desktop.crash-reporter.unavailable', {
+    error_code: DESKTOP_ERROR_CODES.crashReporterUnavailable,
     error_type: error instanceof Error ? error.name : 'UnknownError',
   })
 }
@@ -57,27 +82,24 @@ logger.debug('desktop.crashes.retention', {
   skipped_entries: crashRetention.skippedEntries,
 })
 process.on('uncaughtExceptionMonitor', (error) => {
-  logger.error('desktop.main.uncaught-exception', {
-    error_type: error.name,
-    message: redactLogText(error.message),
-  })
+  launchObservability.crashed(DESKTOP_ERROR_CODES.mainUncaughtException, 'main', error.name, 1)
 })
 process.on('unhandledRejection', (reason) => {
-  logger.error('desktop.main.unhandled-rejection', {
-    error_type: reason instanceof Error ? reason.name : typeof reason,
-    message: reason instanceof Error ? redactLogText(reason.message) : '[omitted]',
-  })
-  app.exit(1)
+  launchObservability.crashed(
+    DESKTOP_ERROR_CODES.mainUnhandledRejection,
+    'main',
+    reason instanceof Error ? reason.name : typeof reason,
+    1,
+  )
+  exitApplication(1)
 })
-
-if (!hasSingleInstanceLock) app.quit()
 
 registry.register('morphir/shell/appVersion', async () => ({ version: app.getVersion() }))
 registry.register('morphir/shell/smokeReport', async (params) => {
   const ok =
     typeof params === 'object' && params !== null && (params as { ok?: boolean }).ok === true
   console.log(ok ? 'SMOKE OK' : 'SMOKE FAILED')
-  if (smoke) app.exit(ok ? 0 : 1)
+  if (smoke) exitApplication(ok ? 0 : 1)
   return {}
 })
 registry.register('morphir/config/load', async () => loadConfigFile())
@@ -151,13 +173,18 @@ function createWindow(): BrowserWindow {
       query: smoke ? { smoke: '1' } : undefined,
     })
   }
-  win.webContents.on('did-finish-load', () => logger.info('desktop.renderer.ready'))
-  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
-    logger.error('desktop.renderer.load-failed', {
-      error_code: errorCode,
-      message: errorDescription,
-    })
-  })
+  win.webContents.on('did-finish-load', () => readySignal.rendererReady())
+  win.webContents.on(
+    'did-fail-load',
+    (_event, errorCode, _errorDescription, _validatedUrl, isMainFrame) => {
+      if (isMainFrame)
+        launchObservability.failed(
+          DESKTOP_ERROR_CODES.rendererLoadFailed,
+          'ElectronLoadError',
+          errorCode,
+        )
+    },
+  )
   return win
 }
 
@@ -174,13 +201,23 @@ const forwardOpenSources = (sources: ReadonlyArray<string>): void => {
 }
 
 if (hasSingleInstanceLock) {
-  app.on('second-instance', (_event, argv) => {
+  app.on('second-instance', (_event, argv, _workingDirectory, additionalData) => {
     forwardOpenSources(parseOpenSources(argv, app.isPackaged))
+    const correlation = forwardedCorrelation(additionalData)
+    if (correlation.kind === 'managed') readySignal.forwarded(correlation)
   })
   app.on('open-file', (event, path) => {
     event.preventDefault()
     forwardOpenSources([path])
   })
+}
+
+const handleAppReadyFailure = (error: unknown): void => {
+  launchObservability.failed(
+    DESKTOP_ERROR_CODES.appReadyFailed,
+    error instanceof Error ? error.name : typeof error,
+  )
+  exitApplication(1)
 }
 
 if (hasSingleInstanceLock)
@@ -237,35 +274,41 @@ if (hasSingleInstanceLock)
     if (smoke) {
       setTimeout(() => {
         console.error('SMOKE TIMEOUT')
-        app.exit(1)
+        exitApplication(1)
       }, 90_000)
     }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })
-  })
+  }, handleAppReadyFailure)
 
 app.on('render-process-gone', (_event, _webContents, details) => {
-  logger.error('desktop.renderer.gone', {
-    reason: details.reason,
-    exit_code: details.exitCode,
-  })
+  if (details.reason !== 'clean-exit')
+    launchObservability.crashed(
+      DESKTOP_ERROR_CODES.rendererCrashed,
+      'renderer',
+      details.reason,
+      details.exitCode,
+    )
 })
 
 app.on('child-process-gone', (_event, details) => {
-  logger.error('desktop.child.gone', {
-    process_type: details.type,
-    reason: details.reason,
-    exit_code: details.exitCode,
-  })
+  if (details.reason !== 'clean-exit')
+    launchObservability.crashed(
+      DESKTOP_ERROR_CODES.childProcessCrashed,
+      'child-process',
+      `${details.type}:${details.reason}`,
+      details.exitCode,
+    )
 })
 
 app.on('before-quit', () => {
-  logger.info('desktop.session.exit')
-  logSession.close()
+  exitSignal.record(0)
 })
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' || smoke) app.quit()
 })
+
+if (!hasSingleInstanceLock) app.quit()
