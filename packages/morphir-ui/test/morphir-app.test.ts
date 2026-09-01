@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import MorphirApp from '../src/shell/MorphirApp.svelte'
 import { WorkbenchError, defaultUiConfig, legacySourceRef, makeAppServices } from '../src/index.ts'
-import { makeFakeCore } from './support/fake-services.ts'
+import { makeFakeCore, makeFakePipeline } from './support/fake-services.ts'
 import { projectKey, sourceKey, type WorkspaceSnapshot } from '@morphir/workspace'
 
 // See ir-explorer.test.ts: readFileSync(new URL(rel, import.meta.url)) breaks under Vite's
@@ -322,5 +322,52 @@ describe('MorphirApp', () => {
     await userEvent.click(button)
 
     expect(screen.getByText('Morphir.Ui.Fixtures.Insight.helperFn')).toBeTruthy()
+  })
+
+  // The rail footer already hosts the global Settings action, so the Playground — the
+  // other route that is about the session rather than about an open Workbench — belongs
+  // beside it.
+  test('the Workbench rail opens the Playground', async () => {
+    const { core } = makeFakeCore()
+    const { pipeline } = makeFakePipeline()
+    const services = await makeAppServices({ core, pipeline })
+    render(MorphirApp, {
+      props: { services, badge: 'WEB', version: '0.0.1', initialConfig: defaultUiConfig },
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Playground' }))
+
+    expect(await screen.findByLabelText('Source language')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Compile' })).toBeTruthy()
+    expect(location.hash).toBe('#/playground')
+  })
+
+  test('leaving the Playground returns to the Workbench chrome', async () => {
+    const { core } = makeFakeCore()
+    const { pipeline } = makeFakePipeline()
+    const services = await makeAppServices({ core, pipeline })
+    render(MorphirApp, {
+      props: { services, badge: 'WEB', version: '0.0.1', initialConfig: defaultUiConfig },
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Playground' }))
+    await screen.findByLabelText('Source language')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back to workspace' }))
+
+    expect(screen.queryByLabelText('Source language')).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'Open model file' }).length).toBeGreaterThan(0)
+  })
+
+  test('a session with no pipeline still reaches the Playground and is told why it is inert', async () => {
+    const { core } = makeFakeCore()
+    const services = await makeAppServices({ core })
+    render(MorphirApp, {
+      props: { services, badge: 'WEB', version: '0.0.1', initialConfig: defaultUiConfig },
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Playground' }))
+
+    expect((await screen.findByRole('status')).textContent).toMatch(/no compilation pipeline/i)
+    expect(screen.getByRole('button', { name: 'Compile' }).hasAttribute('disabled')).toBe(true)
   })
 })

@@ -2,7 +2,15 @@
   import type { WorkbenchStore } from '../workbench/workbench-store.svelte.ts'
   import { recoveryActionLabel } from '../workbench/project-model-state.ts'
 
-  let { store, onOpenSettings }: { store: WorkbenchStore; onOpenSettings: () => void } = $props()
+  let {
+    store,
+    onOpenSettings,
+    onOpenPlayground,
+  }: {
+    store: WorkbenchStore
+    onOpenSettings: () => void
+    onOpenPlayground: () => void
+  } = $props()
 </script>
 
 <nav class="workbench-rail" aria-label="Workbenches">
@@ -136,7 +144,14 @@
   </div>
 
   <div class="rail-footer">
-    <button type="button" onclick={onOpenSettings}>⚙ <span>Settings</span></button>
+    <!-- The two session-wide destinations, as opposed to everything above, which acts on
+         an open Workbench. -->
+    <button type="button" onclick={onOpenPlayground}
+      ><span aria-hidden="true">▶</span> <span>Playground</span></button
+    >
+    <button type="button" onclick={onOpenSettings}
+      ><span aria-hidden="true">⚙</span> <span>Settings</span></button
+    >
   </div>
 </nav>
 
@@ -377,6 +392,8 @@
   }
   .rail-footer {
     margin-top: auto;
+    display: grid;
+    gap: 6px;
     padding: 10px 12px;
     border-top: 1px solid var(--edge);
   }
