@@ -25,10 +25,10 @@ export type ReconnectScheduler = (attempt: number, reconnect: () => void) => () 
 
 export interface ConnectedRpcClient {
   readonly manifest: ConnectedSessionManifest
-  readonly call: <A, I>(
+  readonly call: <A, I, Encoded = A>(
     method: string,
     params: I,
-    schema: Schema.Schema<A>,
+    schema: Schema.Schema<A, Encoded>,
   ) => Effect.Effect<A, WorkbenchError>
   readonly notifications: Stream.Stream<ConnectedNotification>
   readonly close: Effect.Effect<void>
@@ -366,7 +366,7 @@ export const makeConnectedRpcClient = ({
 
   return {
     manifest,
-    call: <A, I>(method: string, params: I, schema: Schema.Schema<A>) =>
+    call: <A, I, Encoded = A>(method: string, params: I, schema: Schema.Schema<A, Encoded>) =>
       Effect.async<A, WorkbenchError>((resume) => {
         if (disposed) {
           resume(Effect.fail(disconnectedError('Connected host client is closed')))
