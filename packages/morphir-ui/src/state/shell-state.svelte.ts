@@ -65,6 +65,16 @@ export class ShellState {
   selectSettingsSection(section: SettingsSection) {
     this.route = { kind: 'settings', section }
   }
+  // Runes only compile in .svelte/.svelte.ts files, so router.ts (a plain .ts module,
+  // required for its test to import it without a Svelte-aware loader) cannot watch
+  // `route` with $effect itself. It subscribes through this method instead.
+  onRouteChange(listener: (route: Route) => void): () => void {
+    return $effect.root(() => {
+      $effect(() => {
+        listener(this.route)
+      })
+    })
+  }
   selectColorScheme(scheme: ColorScheme) {
     this.colorScheme = scheme
   }

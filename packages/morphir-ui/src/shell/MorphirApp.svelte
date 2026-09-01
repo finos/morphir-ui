@@ -5,6 +5,7 @@
   import WorkbenchView from '../views/WorkbenchView.svelte'
   import SettingsView from '../views/settings/SettingsView.svelte'
   import { ShellState, type SettingsSection } from '../state/shell-state.svelte.ts'
+  import { bindRouteToLocation } from '../state/router.ts'
   import { WorkbenchStore } from '../workbench/workbench-store.svelte.ts'
   import { configToSnapshot, withSnapshot, type UiConfig } from '../services/config.ts'
   import type { AppServices } from '../services/services.ts'
@@ -97,8 +98,10 @@
         else if (activeBefore) workbenches.activate(activeBefore)
       })()
     })
+    const unbindRoute = bindRouteToLocation(shell)
     return () => {
       unsubscribe?.()
+      unbindRoute()
       workbenches.dispose()
     }
   })

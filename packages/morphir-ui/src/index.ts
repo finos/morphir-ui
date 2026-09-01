@@ -1,5 +1,6 @@
 // Public API of @morphir/ui — exports accumulate as modules land.
 export * from './state/shell-state.svelte.ts'
+export * from './state/router.ts'
 export { default as Icon, type IconName } from './icons/Icon.svelte'
 export { default as CodeEditor } from './components/editor/CodeEditor.svelte'
 export type { CodeEditorProps, EditorDiagnostic } from './components/editor/types.ts'
