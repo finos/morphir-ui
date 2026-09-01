@@ -12,13 +12,13 @@ Guidance for AI coding agents working on **finos/morphir-ui**, the Morphir ecosy
 
 A moonrepo + mise + bun monorepo with two deployables over one shared application:
 
-| Path | Package | Role |
-| ---- | ------- | ---- |
-| `packages/morphir-ir` | `@morphir/ir` | Morphir IR v3 decoding — envelope, explorer model, full value/type AST. Pure TypeScript. |
+| Path                       | Package            | Role                                                                                          |
+| -------------------------- | ------------------ | --------------------------------------------------------------------------------------------- |
+| `packages/morphir-ir`      | `@morphir/ir`      | Morphir IR v3 decoding — envelope, explorer model, full value/type AST. Pure TypeScript.      |
 | `packages/morphir-insight` | `@morphir/insight` | IR → display-tree transform (the insight visualization). Pure; depends only on `@morphir/ir`. |
-| `packages/morphir-ui` | `@morphir/ui` | The shared Svelte 5 + Effect application: shell, theme, IR explorer, insight views, settings. |
-| `apps/morphir-web` | | Browser host. |
-| `apps/morphir-desktop` | | Electron host — `MORPHIR_HOME` config, `safeStorage` token capture. |
+| `packages/morphir-ui`      | `@morphir/ui`      | The shared Svelte 5 + Effect application: shell, theme, IR explorer, insight views, settings. |
+| `apps/morphir-web`         |                    | Browser host.                                                                                 |
+| `apps/morphir-desktop`     |                    | Electron host — `MORPHIR_HOME` config, `safeStorage` token capture.                           |
 
 Designs live in `docs/specs/`, implementation plans in `docs/plans/`. Read the relevant spec before changing architecture; the decisions in them were reviewed and are binding.
 
@@ -36,6 +36,9 @@ moon global tasks live under `.moon/tasks/**` — **not** `.moon/tasks.yml`, whi
 
 ## Conventions
 
+- **Domain modeling.** Follow Morphir's [domain modeling policy](https://github.com/finos/morphir/blob/main/docs/developers/domain-modeling.md). Make invalid states unrepresentable with discriminated unions and exhaustive matching. Use opaque or branded types and schema-backed smart constructors for values that share a primitive representation but have different meanings. Lifecycle variants carry exactly the data valid for that state; do not maintain parallel boolean flags and optional payloads. Effect services expose these domain types at capability boundaries.
+- **Existing vocabulary first.** Before adding a primitive parameter, boolean state flag, or free-form string, inspect and extend the existing workspace, project, provider, and IR domain types when the concept already exists. Test boundary validation and lifecycle transitions.
+- **Performance-sensitive internals.** A private compact representation is acceptable only when profiling or a reproducible benchmark proves the benefit. Keep it behind named helpers, test conversion to the public domain type, and document why it exists. Unrelated boolean flags are not an acceptable optimization.
 - **Purity boundaries.** `@morphir/ir` and `@morphir/insight` contain no Svelte and no DOM, so Electron's main process and future non-browser hosts can import them.
 - **Svelte 5 idiom.** Runes (`$state`/`$derived`/`$props`/`$effect`), `.svelte.ts` modules for stateful logic, snippets over slots.
 - **No inline styles.** No `style=` attributes; use scoped `<style>` blocks and `style:` directives bound to CSS custom properties. Colors come from theme tokens with `light-dark()`; scheme classes only flip `color-scheme`.
@@ -51,6 +54,7 @@ moon global tasks live under `.moon/tasks/**` — **not** `.moon/tasks.yml`, whi
 Shell commands like `cp`, `mv`, and `rm` may be aliased to include `-i` (interactive) mode on some systems, causing the agent to hang indefinitely waiting for y/n input.
 
 **Use these forms instead:**
+
 ```bash
 # Force overwrite without prompting
 cp -f source dest           # NOT: cp source dest
@@ -63,12 +67,14 @@ cp -rf source dest          # NOT: cp -r source dest
 ```
 
 **Other commands that may prompt:**
+
 - `scp` - use `-o BatchMode=yes` for non-interactive
 - `ssh` - use `-o BatchMode=yes` to fail instead of prompting
 - `apt-get` - use `-y` flag
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:970c3bf2 -->
+
 ## Beads Issue Tracker
 
 This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
@@ -119,12 +125,15 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 5. **Hand off** - Summarize changes, validation, issue status, and any blocked sync/commit/push step
 
 **Critical rules:**
+
 - Explicit user or orchestrator instructions override this Beads block.
 - Do not commit or push without clear authority from the active profile or the current user request.
 - If a required sync or push is blocked, stop and report the exact command and error.
+
 <!-- END BEADS INTEGRATION -->
 
 <!-- BEGIN BEADS CODEX SETUP: generated by bd setup codex -->
+
 ## Beads Issue Tracker
 
 Use Beads (`bd`) for durable task tracking in repositories that include it. Use the `beads` skill at `.agents/skills/beads/SKILL.md` (project install) or `~/.agents/skills/beads/SKILL.md` (global install) for Beads workflow guidance, then use the `bd` CLI for issue operations.
