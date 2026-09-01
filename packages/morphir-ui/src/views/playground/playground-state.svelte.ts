@@ -7,7 +7,8 @@ import type {
 } from '@morphir/workspace'
 
 /** Where a Playground exchange currently stands. Set by whatever invokes the
- * pipeline service; this class only initializes and clears it. */
+ * pipeline service; this class only initializes it to 'idle' and does not
+ * itself transition or clear it. */
 export type PlaygroundStatus = 'idle' | 'compiling' | 'generating' | 'error'
 
 /** An in-memory document edited in the Playground. Mirrors the shape MEP's
@@ -72,6 +73,13 @@ export const compatibleTargets = (
  * it asked and got an incompatible answer. Collapsing them into one message
  * would hide that difference from the person picking a target. */
 export const targetRefusalReason = (frontend: FrontendEntry, target: TargetEntry): string | null => {
+  // Defensive only: the daemon's ExtensionRegistry rejects registering a
+  // provider that advertises zero IR versions (registry.rs's
+  // normalize_advertised_releases, for both builtin and installed origins),
+  // so a real catalog should never contain a frontend with an empty
+  // irVersions array. The wire schema still allows an empty array, though,
+  // so this branch stays as graceful degradation rather than an assumption
+  // that the server enforces it forever.
   if (frontend.irVersions.length === 0) {
     return `The ${frontend.displayName} extension does not declare its languages or IR versions`
   }

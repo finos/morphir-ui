@@ -57,7 +57,12 @@ describe('playground selection', () => {
     expect(targetRefusalReason(frontend('elm', ['3']), target('scala', ['3']))).toBeNull()
   })
 
-  test('a frontend declaring no IR versions refuses every target with a distinct reason', () => {
+  // Defensive branch: the daemon rejects registering a provider that
+  // advertises zero IR versions, so a real catalog should never contain a
+  // frontend shaped like this. The wire schema still permits an empty
+  // array, so this covers that graceful-degradation path, not a case
+  // expected to occur against a real server.
+  test('a frontend with no declared IR versions (defensive: the server does not register these) gets a distinct reason', () => {
     const mystery = frontend('morphir-mystery', [])
 
     expect(targetRefusalReason(mystery, target('scala', ['3']))).toContain('does not declare')
@@ -87,5 +92,16 @@ describe('playground selection', () => {
 
     expect(state.compileResult).toBeNull()
     expect(state.generateResult).toBeNull()
+  })
+
+  test('the active document version increments on every edit, not just the first', () => {
+    const state = new PlaygroundState()
+    expect(state.activeDocument?.version).toBe(1)
+
+    state.updateActiveDocument('module Main exposing (..)')
+    expect(state.activeDocument?.version).toBe(2)
+
+    state.updateActiveDocument('module Main exposing (..)\n\nx = 1')
+    expect(state.activeDocument?.version).toBe(3)
   })
 })
