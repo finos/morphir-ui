@@ -1252,6 +1252,72 @@ describe('browserCore', () => {
     expect(unknownError).toMatchObject({ code: 'not-found' })
   })
 
+  test('reports revoked directory permission as a typed project-model failure', async () => {
+    const ir = '{"formatVersion":3,"distribution":["Library",[],[],{"modules":[]}]}'
+    let permission: PermissionState = 'granted'
+    const handle: DirectoryPermissionHandle = {
+      ...nestedDirectoryHandle('workspace', [
+        fileHandle('morphir.toml', '[project]\nname = "orders"'),
+        fileHandle('morphir-ir.json', ir),
+      ]),
+      queryPermission: vi.fn(async () => permission),
+      requestPermission: vi.fn(async () => permission),
+    }
+    const handles = new Map<string, FileSystemDirectoryHandle>()
+    const core = browserCoreWith('1.0.0', {
+      engine: {
+        discover: async () => ({
+          status: 'success',
+          snapshot: {
+            protocolVersion: 1,
+            configAnchor: 'morphir.toml',
+            name: 'Workspace',
+            state: 'open',
+            projects: [
+              {
+                name: 'orders',
+                version: null,
+                relativePath: '.',
+                configAnchor: 'morphir.toml',
+                sourceDirectory: 'src',
+                state: 'unloaded',
+                diagnostics: [],
+              },
+            ],
+            diagnostics: [],
+          },
+        }),
+      },
+      handles: {
+        has: async (key) => handles.has(key),
+        put: async (key, selected) => void handles.set(key, selected),
+        get: async (key) => handles.get(key) ?? null,
+        delete: async (key) => void handles.delete(key),
+      },
+      home: {
+        read: async () => ({ entries: { '.': { kind: 'directory' } } }),
+        writeConfig: async () => undefined,
+      },
+      pickDirectory: async () => ({ kind: 'handle', handle }),
+    })
+    const services = await makeAppServices({ core })
+    const source = (await services.pickWorkbenchSource('folder'))!
+    const descriptor = await services.inspectWorkbench(source)
+    if (descriptor.kind !== 'development') throw new Error('Expected Development Workbench')
+    const loaded = await services.loadDevelopmentWorkbench(descriptor)
+    permission = 'denied'
+
+    const error = await Effect.runPromise(
+      Effect.flip(
+        Effect.flatMap(DevelopmentWorkbenchService, (service) =>
+          service.loadProjectModel(descriptor, loaded.snapshot.projects[0]!.id),
+        ).pipe(Effect.provide(core)),
+      ),
+    )
+
+    expect(error).toMatchObject({ code: 'permission-denied' })
+  })
+
   test.each([
     ['missing', null, 'not-found'],
     ['malformed', '{', 'invalid-distribution'],

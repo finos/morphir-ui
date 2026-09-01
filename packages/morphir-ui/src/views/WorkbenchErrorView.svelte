@@ -1,11 +1,16 @@
 <script lang="ts">
-  let { name, message, onRetry }: { name: string; message: string; onRetry: () => void } = $props()
+  let {
+    name,
+    message,
+    actionLabel = 'Retry',
+    onRetry,
+  }: { name: string; message: string; actionLabel?: string; onRetry: () => void } = $props()
 </script>
 
 <section class="error-card" role="alert">
   <h2>Could not load {name}</h2>
   <p>{message}</p>
-  <button type="button" onclick={onRetry}>Retry</button>
+  <button type="button" onclick={onRetry}>{actionLabel}</button>
 </section>
 
 <style>

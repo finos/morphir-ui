@@ -8,6 +8,7 @@ import {
   projectKey,
   sourceKey,
   type ProjectSnapshot,
+  type WorkspaceDiagnostic,
   type WorkspaceSnapshot,
 } from '@morphir/workspace'
 import DevelopmentWorkbenchView from '../src/views/DevelopmentWorkbenchView.svelte'
@@ -16,6 +17,7 @@ import {
   makeAppServices,
   type DevelopmentNavigationState,
   type DevelopmentWorkbenchData,
+  type WorkbenchRecoveryReason,
 } from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
 
@@ -51,7 +53,11 @@ const orders: ProjectSnapshot = {
   diagnostics: [],
 }
 
-const workbench = (projects: ReadonlyArray<ProjectSnapshot>): DevelopmentWorkbenchData => ({
+const workbench = (
+  projects: ReadonlyArray<ProjectSnapshot>,
+  state: WorkspaceSnapshot['state'] = 'open',
+  diagnostics: ReadonlyArray<WorkspaceDiagnostic> = [],
+): DevelopmentWorkbenchData => ({
   kind: 'development',
   descriptor,
   snapshot: {
@@ -59,11 +65,11 @@ const workbench = (projects: ReadonlyArray<ProjectSnapshot>): DevelopmentWorkben
     root: source,
     name: 'Development',
     configAnchor: 'morphir.toml',
-    state: 'open',
+    state,
     projects,
     modelSources: [],
     knowledgeBaseSources: [],
-    diagnostics: [],
+    diagnostics,
   } satisfies WorkspaceSnapshot,
 })
 
@@ -74,15 +80,23 @@ const renderView = (
     onSelectProject?: (projectId: string) => void
     onRetryProject?: (projectId: string) => void
     onSelectDefinition?: (projectId: string, definitionId: string | null) => void
+    onRecoverWorkbench?: () => void
+  } = {},
+  options: {
+    workspaceState?: WorkspaceSnapshot['state']
+    workspaceDiagnostics?: ReadonlyArray<WorkspaceDiagnostic>
+    unavailableReason?: WorkbenchRecoveryReason
   } = {},
 ) =>
   render(DevelopmentWorkbenchView, {
     props: {
-      workbench: workbench(projects),
+      workbench: workbench(projects, options.workspaceState, options.workspaceDiagnostics),
       navigation,
       onSelectProject: callbacks.onSelectProject ?? vi.fn(),
       onRetryProject: callbacks.onRetryProject ?? vi.fn(),
       onSelectDefinition: callbacks.onSelectDefinition ?? vi.fn(),
+      onRecoverWorkbench: callbacks.onRecoverWorkbench ?? vi.fn(),
+      unavailableReason: options.unavailableReason,
     },
   })
 
@@ -91,15 +105,17 @@ describe('DevelopmentWorkbenchView', () => {
     renderView([], { activeProjectId: null, projects: [] })
 
     expect(screen.getByText('No projects discovered')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Projects' }).getAttribute('aria-expanded')).toBe(
-      'true',
-    )
+    expect(
+      screen
+        .getByRole('button', { name: 'Projects, workspace open, 0 projects' })
+        .getAttribute('aria-expanded'),
+    ).toBe('true')
   })
 
   test('renders loading and error states with project-local retry', async () => {
     const loading = renderView([orders], {
       activeProjectId: orders.id,
-      projects: [{ projectId: orders.id, status: 'loading', selectedDefinitionId: null }],
+      projects: [{ projectId: orders.id, modelState: { tag: 'loading', lastUsable: null } }],
     })
     expect(screen.getByRole('status').textContent).toContain('Loading Orders')
     loading.unmount()
@@ -112,9 +128,11 @@ describe('DevelopmentWorkbenchView', () => {
         projects: [
           {
             projectId: orders.id,
-            status: 'error',
-            message: 'morphir-ir.json was not found',
-            selectedDefinitionId: null,
+            modelState: {
+              tag: 'failed',
+              failure: { tag: 'load-failed', message: 'morphir-ir.json was not found' },
+              lastUsable: null,
+            },
           },
         ],
       },
@@ -133,10 +151,14 @@ describe('DevelopmentWorkbenchView', () => {
     await userEvent.click(screen.getByRole('button', { name: /Orders/ }))
     expect(onSelectProject).toHaveBeenCalledWith(orders.id)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Projects' }))
-    expect(screen.getByRole('button', { name: 'Projects' }).getAttribute('aria-expanded')).toBe(
-      'false',
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Projects, workspace open, 1 project' }),
     )
+    expect(
+      screen
+        .getByRole('button', { name: 'Projects, workspace open, 1 project' })
+        .getAttribute('aria-expanded'),
+    ).toBe('false')
     expect(screen.queryByRole('button', { name: /Orders/ })).toBeNull()
   })
 
@@ -152,9 +174,10 @@ describe('DevelopmentWorkbenchView', () => {
         projects: [
           {
             projectId: orders.id,
-            status: 'ready',
-            model,
-            selectedDefinitionId: null,
+            modelState: {
+              tag: 'ready',
+              current: { model, selectedDefinitionId: null },
+            },
           },
         ],
       },
@@ -169,5 +192,205 @@ describe('DevelopmentWorkbenchView', () => {
       orders.id,
       'definition:value:Morphir.Example.App:Forecast:listExample',
     )
+  })
+
+  test('renders every provider-owned lifecycle state without dropping its diagnostics', () => {
+    for (const state of ['closed', 'initializing', 'open', 'error'] as const) {
+      const message = `Workspace ${state} diagnostic`
+      const view = renderView(
+        [],
+        { activeProjectId: null, projects: [] },
+        {},
+        {
+          workspaceState: state,
+          workspaceDiagnostics: [
+            {
+              severity: 'warning',
+              code: `workspace.${state}`,
+              message,
+              path: 'morphir.toml',
+              projectId: null,
+            },
+          ],
+        },
+      )
+      expect(
+        screen.getByRole('button', { name: `Projects, workspace ${state}, 0 projects` }),
+      ).toBeTruthy()
+      expect(screen.getByText(message)).toBeTruthy()
+      view.unmount()
+    }
+
+    const projects = (['unloaded', 'loading', 'ready', 'stale', 'error'] as const).map(
+      (state, index) => ({
+        ...orders,
+        id: `${orders.id}:${state}`,
+        name: `Project ${index}`,
+        relativePath: `packages/${state}`,
+        state,
+      }),
+    )
+    const projectList = renderView(projects, { activeProjectId: null, projects: [] })
+    for (const project of projects) {
+      expect(
+        screen.getByLabelText(`Project ${project.name}, ${project.relativePath}, ${project.state}`),
+      ).toBeTruthy()
+    }
+    projectList.unmount()
+
+    for (const project of projects) {
+      const message = `Project ${project.state} diagnostic`
+      const view = renderView(
+        [
+          {
+            ...project,
+            diagnostics: [
+              {
+                severity: 'warning',
+                code: `project.${project.state}`,
+                message,
+                path: project.relativePath,
+                projectId: project.id,
+              },
+            ],
+          },
+        ],
+        {
+          activeProjectId: project.id,
+          projects: [{ projectId: project.id, modelState: { tag: 'unloaded' } }],
+        },
+      )
+      expect(screen.getByText(message)).toBeTruthy()
+      view.unmount()
+    }
+  })
+
+  test('shows every diagnostic for a ready project without requiring a loaded model', () => {
+    renderView(
+      [
+        {
+          ...orders,
+          state: 'ready',
+          diagnostics: [
+            {
+              severity: 'warning',
+              code: 'project.source',
+              message: 'A source directory is outside the project root',
+              path: '../shared',
+              projectId: orders.id,
+            },
+            {
+              severity: 'info',
+              code: 'project.version',
+              message: 'No project version was declared',
+              path: 'morphir.toml',
+              projectId: orders.id,
+            },
+          ],
+        },
+      ],
+      {
+        activeProjectId: orders.id,
+        projects: [{ projectId: orders.id, modelState: { tag: 'unloaded' } }],
+      },
+    )
+
+    expect(screen.getByText('A source directory is outside the project root')).toBeTruthy()
+    expect(screen.getByText('No project version was declared')).toBeTruthy()
+  })
+
+  test('keeps the last model visible while stale, refreshing, or failed', async () => {
+    const { core } = makeFakeCore({ workspaceContent: irFixture })
+    const services = await makeAppServices({ core })
+    const model = await services.loadDevelopmentProjectModel(descriptor, orders.id)
+    const usable = { model, selectedDefinitionId: null }
+
+    const staleView = renderView([{ ...orders, state: 'stale' }], {
+      activeProjectId: orders.id,
+      projects: [{ projectId: orders.id, modelState: { tag: 'ready', current: usable } }],
+    })
+    expect(screen.getByRole('tree', { name: 'Model hierarchy' })).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toContain('Orders is stale')
+    staleView.unmount()
+
+    const loadingView = renderView([orders], {
+      activeProjectId: orders.id,
+      projects: [{ projectId: orders.id, modelState: { tag: 'loading', lastUsable: usable } }],
+    })
+    expect(screen.getByRole('tree', { name: 'Model hierarchy' })).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toContain('Refreshing Orders')
+    loadingView.unmount()
+
+    const onRetryProject = vi.fn()
+    renderView(
+      [orders],
+      {
+        activeProjectId: orders.id,
+        projects: [
+          {
+            projectId: orders.id,
+            modelState: {
+              tag: 'failed',
+              failure: { tag: 'load-failed', message: 'Compilation failed' },
+              lastUsable: usable,
+            },
+          },
+        ],
+      },
+      { onRetryProject },
+    )
+    expect(screen.getByRole('tree', { name: 'Model hierarchy' })).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toContain('Compilation failed')
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(onRetryProject).toHaveBeenCalledWith(orders.id)
+  })
+
+  test('offers permission and provider-specific recovery without hiding the model', async () => {
+    const { core } = makeFakeCore({ workspaceContent: irFixture })
+    const services = await makeAppServices({ core })
+    const model = await services.loadDevelopmentProjectModel(descriptor, orders.id)
+    const usable = { model, selectedDefinitionId: null }
+    const onRetryProject = vi.fn()
+
+    const permissionView = renderView(
+      [orders],
+      {
+        activeProjectId: orders.id,
+        projects: [
+          {
+            projectId: orders.id,
+            modelState: {
+              tag: 'failed',
+              failure: { tag: 'permission-required', message: 'Directory access was revoked' },
+              lastUsable: usable,
+            },
+          },
+        ],
+      },
+      { onRetryProject },
+    )
+    expect(screen.getByRole('tree', { name: 'Model hierarchy' })).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Grant access' }))
+    expect(onRetryProject).toHaveBeenCalledWith(orders.id)
+    permissionView.unmount()
+
+    const onRecoverWorkbench = vi.fn()
+    renderView(
+      [orders],
+      {
+        activeProjectId: orders.id,
+        projects: [{ projectId: orders.id, modelState: { tag: 'ready', current: usable } }],
+      },
+      { onRecoverWorkbench },
+      {
+        unavailableReason: {
+          tag: 'provider-disconnected',
+          message: 'CLI connection closed',
+        },
+      },
+    )
+    expect(screen.getByRole('tree', { name: 'Model hierarchy' })).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
+    expect(onRecoverWorkbench).toHaveBeenCalledOnce()
   })
 })

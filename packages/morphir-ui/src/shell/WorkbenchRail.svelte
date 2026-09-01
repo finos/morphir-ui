@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { WorkbenchStore } from '../workbench/workbench-store.svelte.ts'
+  import { recoveryActionLabel } from '../workbench/project-model-state.ts'
 
   let { store, onOpenSettings }: { store: WorkbenchStore; onOpenSettings: () => void } = $props()
 </script>
@@ -39,8 +40,14 @@
             <span class="source"
               >{entry.descriptor.source.displayName} ({entry.descriptor.source.providerId})</span
             >
-            <span class="status" class:error={entry.status === 'error'}>
-              {entry.status === 'loading' ? 'loading' : entry.status}
+            <span
+              class="status"
+              class:error={entry.status === 'error'}
+              class:unavailable={entry.status === 'unavailable'}
+            >
+              {entry.status === 'error' || entry.status === 'unavailable'
+                ? entry.reason.tag
+                : entry.status}
             </span>
           </span>
           <span class="name">{entry.descriptor.name}</span>
@@ -57,11 +64,11 @@
           </span>
         </button>
         <div class="row-actions">
-          {#if entry.status === 'error'}
+          {#if entry.status === 'error' || entry.status === 'unavailable'}
             <button
               type="button"
-              aria-label={`Retry ${entry.descriptor.name}`}
-              title="Retry"
+              aria-label={`${recoveryActionLabel(entry.reason)} ${entry.descriptor.name}`}
+              title={recoveryActionLabel(entry.reason)}
               onclick={() => void store.retry(entry.descriptor.id)}>↻</button
             >
           {/if}
@@ -255,7 +262,10 @@
     margin-left: auto;
   }
   .status.error {
-    color: var(--accent);
+    color: var(--status-error);
+  }
+  .status.unavailable {
+    color: var(--status-disconnected);
   }
   .name {
     display: block;

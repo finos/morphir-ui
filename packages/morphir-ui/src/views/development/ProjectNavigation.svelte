@@ -18,12 +18,15 @@
   <button
     class="projects-toggle"
     type="button"
-    aria-label="Projects"
+    aria-label={`Projects, workspace ${snapshot.state}, ${snapshot.projects.length} ${snapshot.projects.length === 1 ? 'project' : 'projects'}`}
     aria-expanded={expanded}
     onclick={() => (expanded = !expanded)}
   >
     <span class="disclosure" aria-hidden="true">{expanded ? '⌄' : '›'}</span>
     <span>Projects</span>
+    <span class={`workspace-state state-${snapshot.state}`} aria-hidden="true"
+      >{snapshot.state}</span
+    >
     <span class="count">{snapshot.projects.length}</span>
   </button>
   {#if expanded}
@@ -33,7 +36,7 @@
           class="project"
           class:active={project.id === activeProjectId}
           type="button"
-          aria-label={`${project.name}, ${project.relativePath}, ${project.state}`}
+          aria-label={`Project ${project.name}, ${project.relativePath}, ${project.state}`}
           aria-current={project.id === activeProjectId ? 'page' : undefined}
           onclick={() => onSelect?.(project.id)}
         >
@@ -61,7 +64,7 @@
     width: 100%;
     min-height: 36px;
     display: grid;
-    grid-template-columns: 14px 1fr auto;
+    grid-template-columns: 14px 1fr auto auto;
     align-items: center;
     gap: 6px;
     padding: 6px 12px;
@@ -85,6 +88,10 @@
   }
   .count {
     font-size: 10px;
+    letter-spacing: normal;
+  }
+  .workspace-state {
+    font-size: 9px;
     letter-spacing: normal;
   }
   .project-list {
@@ -149,14 +156,26 @@
     grid-column: 2;
   }
   .state-error {
-    color: var(--accent);
+    color: var(--status-error);
   }
   .state-ready {
-    color: var(--accent-text);
+    color: var(--status-ready);
   }
-  .state-loading,
+  .state-loading {
+    color: var(--status-loading);
+  }
   .state-stale {
-    color: var(--accent2);
+    color: var(--status-stale);
+  }
+  .state-unloaded,
+  .state-closed {
+    color: var(--status-unloaded);
+  }
+  .state-initializing {
+    color: var(--status-loading);
+  }
+  .state-open {
+    color: var(--status-ready);
   }
   .empty {
     margin: 4px 8px 8px;

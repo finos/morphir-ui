@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { Effect, Layer, Stream } from 'effect'
-import { sourceKey, type WorkspaceSnapshot } from '@morphir/workspace'
+import { projectKey, sourceKey, type WorkspaceSnapshot } from '@morphir/workspace'
 import {
   ConfigService,
   decodeUiConfig,
@@ -106,9 +106,9 @@ describe('makeAppServices', () => {
     })
     const services = await makeAppServices({ core })
 
-    await expect(
-      services.loadDevelopmentProjectModel(descriptor, 'orders'),
-    ).rejects.toThrow('descriptor identity does not match its source')
+    await expect(services.loadDevelopmentProjectModel(descriptor, 'orders')).rejects.toThrow(
+      'descriptor identity does not match its source',
+    )
   })
 
   test('rejects malformed requested model and development descriptors', async () => {
@@ -180,9 +180,9 @@ describe('makeAppServices', () => {
     })
     const services = await makeAppServices({ core })
 
-    await expect(
-      services.loadDevelopmentProjectModel(descriptor, 'orders'),
-    ).rejects.toThrow('descriptor identity does not match its source')
+    await expect(services.loadDevelopmentProjectModel(descriptor, 'orders')).rejects.toThrow(
+      'descriptor identity does not match its source',
+    )
     expect(providerCalls).toBe(0)
   })
 
@@ -221,7 +221,6 @@ describe('makeAppServices', () => {
     expect(providerCalls).toBe(0)
   })
 
-
   test('rejects a model result that switches same-provider workbench identity', async () => {
     const source = legacySourceRef('/fake/model-a.json', 'browser-local')
     const switched = legacySourceRef('/fake/model-b.json', 'browser-local')
@@ -249,9 +248,7 @@ describe('makeAppServices', () => {
     })
     const services = await makeAppServices({ core })
 
-    await expect(services.loadModelWorkbench(descriptor)).rejects.toThrow(
-      'workbench identity',
-    )
+    await expect(services.loadModelWorkbench(descriptor)).rejects.toThrow('workbench identity')
   })
 
   test('rejects a development result that switches same-provider workbench identity', async () => {
@@ -622,6 +619,67 @@ describe('makeAppServices', () => {
     await expect(
       Effect.runPromise(Stream.runCollect(services.workspaceEvents(descriptor))),
     ).rejects.toThrow('expected provider browser-local')
+  })
+
+  test('keeps project errors distinct from provider disconnection events', async () => {
+    const source = legacySourceRef('/fake/workspace', 'browser-local')
+    const descriptor: DevelopmentWorkbenchDescriptor = {
+      id: sourceKey(source),
+      source,
+      name: 'workspace',
+      kind: 'development',
+      route: 'overview',
+      openedAt: '2026-08-29T12:00:00.000Z',
+      lastUsedAt: '2026-08-29T12:00:00.000Z',
+    }
+    const snapshot: WorkspaceSnapshot = {
+      id: sourceKey(source),
+      root: source,
+      name: 'workspace',
+      configAnchor: 'morphir.toml',
+      state: 'open',
+      projects: [
+        {
+          id: projectKey(source, '.'),
+          name: 'orders',
+          version: null,
+          relativePath: '.',
+          configAnchor: 'morphir.toml',
+          sourceDirectory: 'src',
+          state: 'error',
+          modelSources: [],
+          knowledgeBaseSources: [],
+          diagnostics: [],
+        },
+      ],
+      modelSources: [],
+      knowledgeBaseSources: [],
+      diagnostics: [],
+    }
+    const disconnected = {
+      tag: 'provider-disconnected' as const,
+      providerId: 'browser-local',
+      message: 'provider unavailable',
+    }
+    const { core } = makeFakeCore({
+      providers: [
+        {
+          id: 'browser-local',
+          name: 'This browser',
+          kind: 'local',
+          status: 'available',
+          capabilities: [],
+        },
+      ],
+      development: {
+        events: Stream.make({ tag: 'snapshot' as const, snapshot }, disconnected),
+      },
+    })
+    const services = await makeAppServices({ core })
+
+    const events = await Effect.runPromise(Stream.runCollect(services.workspaceEvents(descriptor)))
+
+    expect(Array.from(events)).toEqual([{ tag: 'snapshot', snapshot }, disconnected])
   })
 
   test('dispose releases scoped services exactly once', async () => {

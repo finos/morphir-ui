@@ -1,5 +1,6 @@
 import type { MorphirLibrary, WorkspaceIr } from '@morphir/ir'
 import { sourceKey, type WorkbenchSourceRef, type WorkspaceSnapshot } from '@morphir/workspace'
+import type { ProjectModelState, WorkbenchRecoveryReason } from './project-model-state.ts'
 
 export type WorkbenchId = string
 export type ModelRoute = 'overview' | 'explorer'
@@ -40,24 +41,10 @@ export interface DevelopmentWorkbenchData {
   readonly snapshot: WorkspaceSnapshot
 }
 
-export type DevelopmentProjectModelEntry =
-  | {
-      readonly projectId: string
-      readonly status: 'loading'
-      readonly selectedDefinitionId: string | null
-    }
-  | {
-      readonly projectId: string
-      readonly status: 'ready'
-      readonly model: ModelWorkbenchData
-      readonly selectedDefinitionId: string | null
-    }
-  | {
-      readonly projectId: string
-      readonly status: 'error'
-      readonly message: string
-      readonly selectedDefinitionId: string | null
-    }
+export interface DevelopmentProjectModelEntry {
+  readonly projectId: string
+  readonly modelState: ProjectModelState
+}
 
 export interface DevelopmentNavigationState {
   readonly activeProjectId: string | null
@@ -69,14 +56,25 @@ export type WorkbenchData = ModelWorkbenchData | DevelopmentWorkbenchData
 export type WorkbenchEntry =
   | { readonly descriptor: WorkbenchDescriptor; readonly status: 'loading' }
   | {
-      readonly descriptor: WorkbenchDescriptor
+      readonly descriptor: ModelWorkbenchDescriptor
       readonly status: 'ready'
-      readonly data: WorkbenchData
+      readonly data: ModelWorkbenchData
+    }
+  | {
+      readonly descriptor: DevelopmentWorkbenchDescriptor
+      readonly status: 'ready'
+      readonly data: DevelopmentWorkbenchData
+    }
+  | {
+      readonly descriptor: DevelopmentWorkbenchDescriptor
+      readonly status: 'unavailable'
+      readonly data: DevelopmentWorkbenchData
+      readonly reason: WorkbenchRecoveryReason
     }
   | {
       readonly descriptor: WorkbenchDescriptor
       readonly status: 'error'
-      readonly message: string
+      readonly reason: WorkbenchRecoveryReason
     }
 
 export const sourceName = (source: WorkbenchSourceRef): string => source.displayName

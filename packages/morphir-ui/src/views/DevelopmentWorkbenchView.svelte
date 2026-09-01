@@ -1,8 +1,16 @@
 <script lang="ts">
+  import {
+    projectModelForDisplay,
+    projectModelSelection,
+    recoveryActionLabel,
+    type WorkbenchRecoveryReason,
+  } from '../workbench/project-model-state.ts'
+  import type { WorkspaceDiagnostic } from '@morphir/workspace'
   import type { DevelopmentNavigationState, DevelopmentWorkbenchData } from '../workbench/types.ts'
   import type { InspectMeta } from './insight/insight-context.ts'
   import IrExplorerView from './IrExplorerView.svelte'
   import ProjectNavigation from './development/ProjectNavigation.svelte'
+  import LifecycleNotice from './development/LifecycleNotice.svelte'
 
   let {
     workbench,
@@ -11,6 +19,8 @@
     onRetryProject,
     onSelectDefinition,
     onInspect,
+    unavailableReason,
+    onRecoverWorkbench,
   }: {
     workbench: DevelopmentWorkbenchData
     navigation: DevelopmentNavigationState
@@ -18,6 +28,8 @@
     onRetryProject?: (projectId: string) => void
     onSelectDefinition?: (projectId: string, definitionId: string | null) => void
     onInspect?: (meta: InspectMeta) => void
+    unavailableReason?: WorkbenchRecoveryReason
+    onRecoverWorkbench?: () => void
   } = $props()
 
   const activeProject = $derived(
@@ -27,6 +39,76 @@
   const activeModel = $derived(
     navigation.projects.find((project) => project.projectId === navigation.activeProjectId) ?? null,
   )
+  const displayModel = $derived(activeModel ? projectModelForDisplay(activeModel.modelState) : null)
+  const selectedDefinitionId = $derived(
+    activeModel ? projectModelSelection(activeModel.modelState) : null,
+  )
+  const diagnostics = $derived<ReadonlyArray<WorkspaceDiagnostic>>([
+    ...workbench.snapshot.diagnostics,
+    ...(activeProject?.diagnostics ?? []),
+  ])
+  const notice = $derived.by(() => {
+    if (displayModel && unavailableReason) {
+      return {
+        tag: 'recovery' as const,
+        title: `${workbench.descriptor.name} is unavailable`,
+        reason: unavailableReason,
+      }
+    }
+    if (displayModel && activeModel?.modelState.tag === 'failed' && activeProject) {
+      return {
+        tag: 'recovery' as const,
+        title: `Unable to refresh ${activeProject.name}`,
+        reason: activeModel.modelState.failure,
+      }
+    }
+    if (displayModel && activeModel?.modelState.tag === 'loading' && activeProject) {
+      return { tag: 'model-refresh' as const, title: `Refreshing ${activeProject.name}` }
+    }
+    if (activeProject?.state === 'stale') {
+      return {
+        tag: 'provider-state' as const,
+        state: activeProject.state,
+        title: `${activeProject.name} is stale`,
+      }
+    }
+    if (activeProject?.state === 'error') {
+      return {
+        tag: 'provider-state' as const,
+        state: activeProject.state,
+        title: `${activeProject.name} has errors`,
+      }
+    }
+    if (activeProject?.state === 'loading') {
+      return {
+        tag: 'provider-state' as const,
+        state: activeProject.state,
+        title: `${activeProject.name} is loading`,
+      }
+    }
+    if (workbench.snapshot.state !== 'open') {
+      return {
+        tag: 'provider-state' as const,
+        state: workbench.snapshot.state,
+        title: `${workbench.descriptor.name} is ${workbench.snapshot.state}`,
+      }
+    }
+    if (diagnostics.length > 0) {
+      return {
+        tag: 'diagnostics' as const,
+        title: activeProject ? `${activeProject.name} diagnostics` : 'Workspace diagnostics',
+      }
+    }
+    return null
+  })
+
+  const recover = () => {
+    if (unavailableReason) {
+      onRecoverWorkbench?.()
+    } else if (activeProject) {
+      onRetryProject?.(activeProject.id)
+    }
+  }
 </script>
 
 {#snippet projects()}
@@ -35,13 +117,14 @@
     activeProjectId={navigation.activeProjectId}
     onSelect={onSelectProject}
   />
+  {#if notice}<LifecycleNotice {notice} {diagnostics} onRecover={recover} />{/if}
 {/snippet}
 
-{#if activeProject && activeModel?.status === 'ready'}
+{#if activeProject && displayModel}
   <IrExplorerView
-    model={activeModel.model}
+    model={displayModel}
     treeLeading={projects}
-    selectedDefinitionId={activeModel.selectedDefinitionId}
+    {selectedDefinitionId}
     onSelectedDefinition={(definitionId) => onSelectDefinition?.(activeProject.id, definitionId)}
     {onInspect}
   />
@@ -68,19 +151,30 @@
           <h1>Select a project</h1>
           <p>Choose a project to explore its model.</p>
         </div>
-      {:else if activeModel?.status === 'loading'}
+      {:else if unavailableReason}
+        <div class="state-card error" role="alert">
+          <h1>{workbench.descriptor.name} is unavailable</h1>
+          <p>{unavailableReason.message}</p>
+          <button type="button" onclick={() => onRecoverWorkbench?.()}
+            >{recoveryActionLabel(unavailableReason)}</button
+          >
+        </div>
+      {:else if activeModel?.modelState.tag === 'loading'}
         <div class="state-card" role="status">
           <h1>Loading {activeProject.name}…</h1>
           <p>Opening the project model through {workbench.descriptor.source.providerId}.</p>
         </div>
-      {:else if activeModel?.status === 'error'}
+      {:else if activeModel?.modelState.tag === 'failed'}
         <div class="state-card error" role="alert">
           <h1>Unable to open {activeProject.name}</h1>
-          <p>{activeModel.message}</p>
+          <p>{activeModel.modelState.failure.message}</p>
           <button
             type="button"
-            aria-label={`Retry ${activeProject.name}`}
-            onclick={() => onRetryProject?.(activeProject.id)}>Retry</button
+            aria-label={recoveryActionLabel(activeModel.modelState.failure) === 'Retry'
+              ? `Retry ${activeProject.name}`
+              : recoveryActionLabel(activeModel.modelState.failure)}
+            onclick={() => onRetryProject?.(activeProject.id)}
+            >{recoveryActionLabel(activeModel.modelState.failure)}</button
           >
         </div>
       {:else}
