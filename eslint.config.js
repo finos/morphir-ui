@@ -16,4 +16,22 @@ export default tseslint.config(
     },
   },
   { rules: { '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }] } },
+  {
+    files: ['**/*.ts', '**/*.svelte'],
+    ignores: ['packages/morphir-ui/src/components/editor/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['codemirror', '@codemirror/*', 'monaco-editor', 'monaco-editor/*'],
+              message:
+                'Import editor libraries only in packages/morphir-ui/src/components/editor. Use the CodeEditor component instead.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 )
