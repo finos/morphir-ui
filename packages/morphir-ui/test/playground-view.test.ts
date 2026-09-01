@@ -5,7 +5,14 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import PlaygroundView from '../src/views/playground/PlaygroundView.svelte'
-import { defaultUiConfig, makeAppServices, type CapabilityCatalog } from '../src/index.ts'
+import { Effect, Layer } from 'effect'
+import {
+  ConfigService,
+  defaultUiConfig,
+  makeAppServices,
+  type CapabilityCatalog,
+  type UiConfig,
+} from '../src/index.ts'
 import { makeFakeCore, makeFakePipeline } from './support/fake-services.ts'
 import type { JsonValue } from '@morphir/workspace'
 
@@ -353,4 +360,36 @@ describe('PlaygroundView', () => {
     await waitFor(() => expect(fake.calls.compile.length).toBe(1))
     expect(fake.calls.compile[0]!.documents[0]!.text).toBe('restoredFromConfig = 1')
   })
+
+  // A pending debounced write must survive unmount. The reachable path is one click:
+  // type without pausing 200ms, so the debounce keeps resetting, then press Back to
+  // workspace in the same header. Cancelling the timer there loses the whole session.
+  test('flushes a pending save when the view unmounts', async () => {
+    const store = { config: defaultUiConfig as UiConfig }
+    let saves = 0
+    const configLayer = Layer.succeed(ConfigService, {
+      load: Effect.sync(() => store.config),
+      save: (config: UiConfig) =>
+        Effect.sync(() => {
+          saves += 1
+          store.config = config
+        }),
+    })
+    const { core } = makeFakeCore({ configLayer })
+    const fake = makeFakePipeline({ catalog: catalog() })
+    const services = await makeAppServices({ core, pipeline: fake.pipeline })
+    const { unmount } = render(PlaygroundView, { props: { services } })
+    await userEvent.selectOptions(await catalogLoaded(), 'scala')
+    // Establishes that the write really is still pending, so the assertion below cannot
+    // pass because the debounce happened to fire before the unmount.
+    expect(store.config.playground.target).toBeNull()
+
+    unmount()
+
+    await waitFor(() => expect(store.config.playground.target).toBe('scala'))
+    const savesAfterFlush = saves
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(saves).toBe(savesAfterFlush)
+  })
+
 })

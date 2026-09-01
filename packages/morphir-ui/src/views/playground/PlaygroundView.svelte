@@ -28,6 +28,7 @@
   import type { AppServices } from '../../services/services.ts'
   import {
     PlaygroundState,
+    type PlaygroundSnapshot,
     capabilityDetail,
     capabilityLabel,
     editorDiagnosticsFor,
@@ -198,14 +199,44 @@
   })
 
   let saveTimer: ReturnType<typeof setTimeout> | undefined
+  let pendingSave: PlaygroundSnapshot | null = null
+
+  /** Writes whatever the debounce is still holding, and cancels it. Safe to call any
+   * number of times: the pending snapshot is taken, not copied. */
+  function flushSave(): void {
+    const snap = pendingSave
+    clearTimeout(saveTimer)
+    saveTimer = undefined
+    pendingSave = null
+    if (snap === null) return
+    void services.updateConfig((config) => ({ ...config, playground: snap }))
+  }
+
   $effect(() => {
     if (!hydrated) return
     const snap = playground.snapshot()
+    pendingSave = snap
     clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => {
-      void services.updateConfig((config) => ({ ...config, playground: snap }))
-    }, SAVE_DEBOUNCE_MS)
+    saveTimer = setTimeout(flushSave, SAVE_DEBOUNCE_MS)
+    // Only cancels the timer. The flush belongs in the unmount path below, because this
+    // teardown also runs before every re-run, and flushing here would write on every
+    // keystroke and defeat the debounce entirely.
     return () => clearTimeout(saveTimer)
+  })
+
+  // The teardown onMount returns runs on destroy only, never between effect re-runs, so
+  // this is the one place a flush is correct. Without it a user who types without
+  // pausing — the debounce resetting on every keystroke — and then clicks Back to
+  // workspace loses the whole session, and reopening shows the sample source again.
+  onMount(() => flushSave)
+
+  // Best effort for a closing window or tab. updateConfig is asynchronous and the host
+  // may not get to finish it, but a write that might land beats one that certainly
+  // cannot.
+  $effect(() => {
+    const onBeforeUnload = () => flushSave()
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
   })
 
   function chooseFrontend(languageId: string): void {
