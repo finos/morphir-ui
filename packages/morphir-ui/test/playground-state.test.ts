@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'vitest'
 import {
+  capabilityDetail,
+  capabilityLabel,
   compatibleTargets,
+  editorDiagnosticsFor,
+  playgroundPackage,
+  preferredIrVersion,
   targetRefusalReason,
   PlaygroundState,
 } from '../src/views/playground/playground-state.svelte.ts'
@@ -43,7 +48,9 @@ describe('playground selection', () => {
       targets: [target('scala', ['3']), target('future', ['4'])],
     }
 
-    expect(compatibleTargets(catalog, catalog.frontends[0]!).map((t) => t.target)).toEqual(['scala'])
+    expect(compatibleTargets(catalog, catalog.frontends[0]!).map((t) => t.target)).toEqual([
+      'scala',
+    ])
   })
 
   test('an incompatible target explains itself', () => {
@@ -161,7 +168,13 @@ describe('playground selection', () => {
 
     state.hydrate({
       documents: [
-        { id: 'main', uri: 'morphir-playground:/Main.elm', languageId: 'elm', version: 1, text: 'a' },
+        {
+          id: 'main',
+          uri: 'morphir-playground:/Main.elm',
+          languageId: 'elm',
+          version: 1,
+          text: 'a',
+        },
       ],
       activeDocumentId: 'missing',
       languageId: null,
@@ -170,5 +183,87 @@ describe('playground selection', () => {
 
     expect(state.activeDocumentId).toBe('main')
     expect(state.activeDocument?.text).toBe('a')
+  })
+})
+
+// Requirement: an installed provider's capability record carries only languages, IR
+// versions and the compile flag, so `incremental`/`fragments` arrive as null when the
+// session could not tell. Null must never collapse into false.
+describe('capability reporting', () => {
+  test('unknown is a third answer, not a refusal', () => {
+    expect(capabilityLabel(true)).toBe('Supported')
+    expect(capabilityLabel(false)).toBe('Not supported')
+    expect(capabilityLabel(null)).toBe('Unknown')
+    expect(capabilityLabel(null)).not.toBe(capabilityLabel(false))
+  })
+
+  test('each answer explains itself differently', () => {
+    const detail = [capabilityDetail(true), capabilityDetail(false), capabilityDetail(null)]
+    expect(new Set(detail).size).toBe(3)
+    expect(capabilityDetail(null)).toMatch(/could not determine/i)
+    expect(capabilityDetail(false)).toMatch(/does not support/i)
+  })
+})
+
+describe('editorDiagnosticsFor', () => {
+  const located = (uri: string, message: string) => ({
+    severity: 'error' as const,
+    code: null,
+    message,
+    location: {
+      uri,
+      range: { start: { line: 1, character: 0 }, end: { line: 1, character: 4 } },
+    },
+  })
+
+  test('keeps only the diagnostics anchored in the given document', () => {
+    const result = editorDiagnosticsFor(
+      [located('a.elm', 'mine'), located('b.elm', 'theirs')],
+      'a.elm',
+    )
+
+    expect(result.map((diagnostic) => diagnostic.message)).toEqual(['mine'])
+    expect(result[0]?.range).toEqual({
+      start: { line: 1, character: 0 },
+      end: { line: 1, character: 4 },
+    })
+  })
+
+  test('a diagnostic with no location belongs to no document', () => {
+    const unlocated = {
+      severity: 'error' as const,
+      code: null,
+      message: 'whole run',
+      location: null,
+    }
+
+    expect(editorDiagnosticsFor([unlocated], 'a.elm')).toEqual([])
+  })
+})
+
+describe('playgroundPackage', () => {
+  test('takes the module name from the source, mirroring the CLI', () => {
+    expect(playgroundPackage('module Pricing.Rules exposing (..)\n')).toEqual({
+      name: 'local/pricing-rules',
+      exposedModules: ['Pricing.Rules'],
+    })
+  })
+
+  test('falls back to Main when no module header is present', () => {
+    expect(playgroundPackage('x = 1')).toEqual({ name: 'local/main', exposedModules: ['Main'] })
+  })
+})
+
+describe('preferredIrVersion', () => {
+  test('prefers a version the chosen target also emits', () => {
+    expect(preferredIrVersion(frontend('elm', ['2', '3']), target('scala', ['3']))).toBe('3')
+  })
+
+  test('falls back to the first version the frontend emits when no target is chosen', () => {
+    expect(preferredIrVersion(frontend('elm', ['2', '3']), null)).toBe('2')
+  })
+
+  test('an empty frontend yields an empty version rather than throwing', () => {
+    expect(preferredIrVersion(frontend('elm', []), null)).toBe('')
   })
 })

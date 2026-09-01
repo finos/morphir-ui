@@ -2,9 +2,11 @@ import type {
   CapabilityCatalog,
   FrontendEntry,
   PlaygroundCompileResult,
+  PlaygroundDiagnostic,
   PlaygroundGenerateResult,
   TargetEntry,
 } from '@morphir/workspace'
+import type { EditorDiagnostic } from '../../components/editor/types.ts'
 
 /** Where a Playground exchange currently stands. Set by whatever invokes the
  * pipeline service; this class only initializes it to 'idle' and does not
@@ -82,7 +84,10 @@ export const compatibleTargets = (
  * session could not determine what the extension supports, the latter means
  * it asked and got an incompatible answer. Collapsing them into one message
  * would hide that difference from the person picking a target. */
-export const targetRefusalReason = (frontend: FrontendEntry, target: TargetEntry): string | null => {
+export const targetRefusalReason = (
+  frontend: FrontendEntry,
+  target: TargetEntry,
+): string | null => {
   // Defensive only: the daemon's ExtensionRegistry rejects registering a
   // provider that advertises zero IR versions (registry.rs's
   // normalize_advertised_releases, for both builtin and installed origins),
@@ -96,6 +101,69 @@ export const targetRefusalReason = (frontend: FrontendEntry, target: TargetEntry
   const intersects = target.irVersions.some((version) => frontend.irVersions.includes(version))
   if (intersects) return null
   return `${target.displayName} requires Morphir IR ${target.irVersions.join(', ')}; ${frontend.displayName} emits ${frontend.irVersions.join(', ')}`
+}
+
+/** How a tri-state capability flag reads to the user.
+ *
+ * `null` is NOT `false`. An installed provider's capability metadata is rebuilt from what
+ * its install persisted, and that record carries only languages, IR versions and the
+ * compile flag — so `incremental` and `fragments` arrive as null whenever the session
+ * could not tell. Rendering that as "not supported" would invent a refusal the extension
+ * never made. The server preserved the distinction; so does this. */
+export const capabilityLabel = (
+  value: boolean | null,
+): 'Supported' | 'Not supported' | 'Unknown' =>
+  value === null ? 'Unknown' : value ? 'Supported' : 'Not supported'
+
+/** The long form of {@link capabilityLabel}, for a title/tooltip. Three answers, three
+ * explanations — "unknown" says why it is unknown rather than sounding like a refusal. */
+export const capabilityDetail = (value: boolean | null): string => {
+  if (value === null) {
+    return 'This session could not determine whether the extension supports this: its install record carries only languages, IR versions and the compile flag'
+  }
+  return value
+    ? 'The extension advertises support for this'
+    : 'The extension reports that it does not support this'
+}
+
+/** The subset of `diagnostics` that the editor for `uri` can place, translated to the
+ * editor's LSP-shaped contract. A diagnostic with no location belongs to the run rather
+ * than to any document, so it is dropped here and shown only in the diagnostics list. */
+export const editorDiagnosticsFor = (
+  diagnostics: ReadonlyArray<PlaygroundDiagnostic>,
+  uri: string,
+): EditorDiagnostic[] =>
+  diagnostics
+    .filter((diagnostic) => diagnostic.location !== null && diagnostic.location.uri === uri)
+    .map((diagnostic) => ({
+      severity: diagnostic.severity,
+      message: diagnostic.message,
+      range: diagnostic.location!.range,
+    }))
+
+const MODULE_HEADER =
+  /^[^\S\r\n]*module[^\S\r\n]+([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)/m
+
+/** The package the Playground compiles source as. Mirrors the CLI's single-file compile
+ * (crates/morphir/src/commands/compile.rs): the module name comes from the source's own
+ * `module` header when it has one, and the package name is `local/` plus that module
+ * lowercased with dots turned into dashes. Source with no header compiles as Main, which
+ * is what the extension would assume anyway. */
+export const playgroundPackage = (text: string): { name: string; exposedModules: string[] } => {
+  const moduleName = MODULE_HEADER.exec(text)?.[1] ?? 'Main'
+  return {
+    name: `local/${moduleName.toLowerCase().replace(/\./g, '-')}`,
+    exposedModules: [moduleName],
+  }
+}
+
+/** The IR version to ask the frontend for. When a target is already chosen, prefer a
+ * version both sides emit so the compile output can actually be generated from; otherwise
+ * take the frontend's first. Returns '' for a frontend that declares no versions at all,
+ * which `targetRefusalReason` already reports as an undeclared extension.  */
+export const preferredIrVersion = (frontend: FrontendEntry, target: TargetEntry | null): string => {
+  const agreed = target?.irVersions.find((version) => frontend.irVersions.includes(version))
+  return agreed ?? frontend.irVersions[0] ?? ''
 }
 
 /** Documents being edited, the frontend/target pairing, and the last
@@ -125,7 +193,9 @@ export class PlaygroundState {
     const frontend = this.catalog.frontends.find((entry) => entry.languageId === languageId)
     const stillCompatible =
       frontend !== undefined &&
-      compatibleTargets(this.catalog, frontend).some((entry) => entry.target === this.selectedTarget)
+      compatibleTargets(this.catalog, frontend).some(
+        (entry) => entry.target === this.selectedTarget,
+      )
     if (!stillCompatible) this.selectedTarget = null
   }
 
