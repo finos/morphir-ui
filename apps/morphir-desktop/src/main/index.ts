@@ -17,6 +17,7 @@ import {
 } from './logging.ts'
 import {
   DESKTOP_ERROR_CODES,
+  DesktopExitSignal,
   DesktopLaunchObservability,
   DesktopReadySignal,
 } from './launch-observability.ts'
@@ -41,13 +42,12 @@ let mainWindow: BrowserWindow | null = null
 const logSession = createDesktopLogSession()
 const logger = logSession.logger
 const launchObservability = new DesktopLaunchObservability(logger)
+const exitSignal = new DesktopExitSignal(launchObservability, logSession.close)
 const readySignal = new DesktopReadySignal((correlation) => {
   if (correlation) new DesktopLaunchObservability(logger.forManagedLaunch(correlation)).ready()
   else launchObservability.ready()
 })
 const crashDirectory = desktopCrashDirectory()
-let requestedExitCode = 0
-let exitRecorded = false
 let crashRetention: DesktopRetentionResult = {
   removedFiles: 0,
   removedBytes: 0,
@@ -55,8 +55,7 @@ let crashRetention: DesktopRetentionResult = {
 }
 
 const exitApplication = (code: number): void => {
-  requestedExitCode = code
-  app.exit(code)
+  exitSignal.immediately(code, (exitCode) => app.exit(exitCode))
 }
 
 try {
@@ -305,11 +304,7 @@ app.on('child-process-gone', (_event, details) => {
 })
 
 app.on('before-quit', () => {
-  if (!exitRecorded) {
-    exitRecorded = true
-    launchObservability.exit(requestedExitCode)
-  }
-  logSession.close()
+  exitSignal.record(0)
 })
 
 app.on('window-all-closed', () => {

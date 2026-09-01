@@ -65,6 +65,30 @@ export class DesktopLaunchObservability {
   }
 }
 
+export class DesktopExitSignal {
+  #recorded = false
+
+  constructor(
+    private readonly launch: DesktopLaunchObservability,
+    private readonly closeLog: () => void,
+  ) {}
+
+  record(exitCode: number): void {
+    if (this.#recorded) return
+    this.#recorded = true
+    this.launch.exit(exitCode)
+    this.closeLog()
+  }
+
+  immediately(exitCode: number, terminate: (exitCode: number) => void): void {
+    try {
+      this.record(exitCode)
+    } finally {
+      terminate(exitCode)
+    }
+  }
+}
+
 export class DesktopReadySignal {
   #rendererReady = false
   readonly #pending = new Map<string, ManagedCorrelation>()

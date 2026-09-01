@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   DESKTOP_ERROR_CODES,
+  DesktopExitSignal,
   DesktopLaunchObservability,
   DesktopReadySignal,
 } from '../src/main/launch-observability.ts'
@@ -125,5 +126,21 @@ describe('DesktopReadySignal', () => {
     ready.forwarded(forwarded)
 
     expect(emitted).toEqual(['primary', forwarded.launchId])
+  })
+})
+
+describe('DesktopExitSignal', () => {
+  test('records and closes before immediate termination and only once', () => {
+    const effects: string[] = []
+    const launch = new DesktopLaunchObservability({
+      info: (eventName) => effects.push(eventName),
+      error: (eventName) => effects.push(eventName),
+    })
+    const exit = new DesktopExitSignal(launch, () => effects.push('close'))
+
+    exit.immediately(1, (exitCode) => effects.push(`app.exit:${exitCode}`))
+    exit.record(0)
+
+    expect(effects).toEqual(['desktop.exit', 'close', 'app.exit:1'])
   })
 })
