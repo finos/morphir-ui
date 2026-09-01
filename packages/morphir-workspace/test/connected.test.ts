@@ -41,6 +41,22 @@ const manifest = {
   ],
 } as const
 
+// A Playground-style provider: it serves compile/generate over an in-memory
+// scratch buffer, owns no workspace sources, and has no business
+// implementing workspace operations. Unlike the CLI provider above, it
+// deliberately does not carry any of the four core workbench capabilities.
+const playgroundProvider = {
+  id: 'playground:session-1',
+  name: 'Morphir Playground',
+  kind: 'connected',
+  status: 'available',
+  capabilities: [
+    { name: 'morphir/playground/catalog', version: '1' },
+    { name: 'morphir/playground/compile', version: '1' },
+    { name: 'morphir/playground/generate', version: '1' },
+  ],
+} as const
+
 describe('connected host protocol', () => {
   test('decodes the protocol-v1 connected session manifest', () => {
     expect(CONNECTED_PROTOCOL_VERSION).toBe(1)
@@ -88,6 +104,39 @@ describe('connected host protocol', () => {
             ),
           },
         ],
+      }),
+    ).toThrow()
+  })
+
+  test('decodes a manifest whose only provider owns no initial sources and lacks the core capabilities', () => {
+    const playgroundOnlyManifest = {
+      protocolVersion: 1,
+      webSocketPath: '/rpc',
+      sessionId: 'session-1',
+      providers: [playgroundProvider],
+      initialSources: [],
+    } as const
+
+    expect(Schema.decodeUnknownSync(ConnectedSessionManifestSchema)(playgroundOnlyManifest)).toEqual(
+      playgroundOnlyManifest,
+    )
+  })
+
+  test('decodes a manifest mixing a source-owning workspace provider with a source-less playground provider', () => {
+    const mixedManifest = {
+      ...manifest,
+      providers: [...manifest.providers, playgroundProvider],
+    } as const
+
+    expect(Schema.decodeUnknownSync(ConnectedSessionManifestSchema)(mixedManifest)).toEqual(mixedManifest)
+  })
+
+  test('rejects an initial source owned by a provider missing a core capability', () => {
+    expect(() =>
+      Schema.decodeUnknownSync(ConnectedSessionManifestSchema)({
+        ...manifest,
+        providers: [...manifest.providers, playgroundProvider],
+        initialSources: [{ ...manifest.initialSources[0], providerId: playgroundProvider.id }],
       }),
     ).toThrow()
   })

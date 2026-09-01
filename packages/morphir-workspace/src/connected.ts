@@ -72,20 +72,38 @@ export const ConnectedSessionManifestSchema = ConnectedSessionManifestBaseSchema
         WORKBENCH_CAPABILITIES.workspaceOpen,
         WORKBENCH_CAPABILITIES.workspaceWatch,
       ])
+      // Only providers named by initialSources are judged as workbench
+      // hosts. What the capability check protects is that a source the
+      // workbench has been handed can actually be opened - that concerns
+      // the provider that owns the source, not every provider in the
+      // session. A provider owning no initial sources (e.g. the CLI's
+      // Playground provider, which serves morphir/playground/{catalog,
+      // compile,generate} and no workspace sources) is not a workbench
+      // host and may legitimately advertise a different capability set
+      // entirely. Do not widen this back to "every provider" - that
+      // blanket rule is what broke `morphir ui` by rejecting any session
+      // manifest that included the Playground provider. Whether some
+      // provider can serve an operation invoked later is a runtime
+      // capability check, not a manifest-decode concern.
+      const sourceOwningProviderIds = new Set(
+        manifest.initialSources.map(({ providerId }) => providerId),
+      )
       return (
         knownProviderIds.size === providerIds.length &&
-        manifest.providers.every((provider) => {
-          const compatible = new Set(
-            provider.capabilities.filter(({ version }) => version === '1').map(({ name }) => name),
-          )
-          return [...requiredCapabilities].every((name) => compatible.has(name))
-        }) &&
+        manifest.providers
+          .filter((provider) => sourceOwningProviderIds.has(provider.id))
+          .every((provider) => {
+            const compatible = new Set(
+              provider.capabilities.filter(({ version }) => version === '1').map(({ name }) => name),
+            )
+            return [...requiredCapabilities].every((name) => compatible.has(name))
+          }) &&
         manifest.initialSources.every(({ providerId }) => knownProviderIds.has(providerId))
       )
     },
     {
       message: () =>
-        'Expected compatible connected providers with unique IDs and provider-owned initial sources',
+        'Expected unique provider IDs, known initial-source providers, and source-owning providers with compatible core capabilities',
     },
   ),
 )
