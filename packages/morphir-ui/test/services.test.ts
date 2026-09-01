@@ -26,6 +26,26 @@ describe('UiConfig', () => {
     expect(decodeUiConfig({ appearance: { colorScheme: 'sepia' } })).toEqual(defaultUiConfig)
     expect(decodeUiConfig('garbage')).toEqual(defaultUiConfig)
   })
+  test('the playground section defaults to nothing persisted', () => {
+    expect(defaultUiConfig.playground).toEqual({
+      documents: [],
+      activeDocumentId: null,
+      languageId: null,
+      target: null,
+    })
+    expect(decodeUiConfig({}).playground).toEqual(defaultUiConfig.playground)
+  })
+  test('a persisted playground survives a decode', () => {
+    const stored = {
+      documents: [
+        { id: 'main', uri: 'morphir-playground:/Main.elm', languageId: 'elm', version: 7, text: 'x = 1' },
+      ],
+      activeDocumentId: 'main',
+      languageId: 'elm',
+      target: 'scala',
+    }
+    expect(decodeUiConfig({ playground: stored }).playground).toEqual(stored)
+  })
   test('snapshot round-trip', () => {
     const snap = configToSnapshot(defaultUiConfig)
     expect(snap.shell.leftWidth).toBe(320)

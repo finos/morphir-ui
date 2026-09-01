@@ -38,6 +38,30 @@ const WorkbenchConfigSchema = Schema.Struct({
   reopenOnLaunch: Schema.Boolean,
 })
 
+/** One Playground document as persisted. Mirrors `PlaygroundDocument` in
+ * views/playground/playground-state.svelte.ts, restated here rather than imported: this
+ * module is loaded by the desktop main process, which has no Svelte compiler and so
+ * cannot load a `.svelte.ts` module. */
+const PlaygroundDocumentSchema = Schema.Struct({
+  id: Schema.String,
+  uri: Schema.String,
+  languageId: Schema.String,
+  version: Schema.Number,
+  text: Schema.String,
+})
+
+/** Playground work in progress. Every selection is nullable and `documents` starts
+ * empty, so "this config has never held a Playground" is expressible without this
+ * module having to know the Playground's default language or sample source. */
+const PlaygroundConfigSchema = Schema.Struct({
+  documents: Schema.Array(PlaygroundDocumentSchema),
+  activeDocumentId: Schema.NullOr(Schema.String),
+  languageId: Schema.NullOr(Schema.String),
+  target: Schema.NullOr(Schema.String),
+})
+
+export type PlaygroundConfig = Schema.Schema.Type<typeof PlaygroundConfigSchema>
+
 const UiConfigSchema = Schema.Struct({
   workbenches: WorkbenchConfigSchema,
   appearance: Schema.Struct({
@@ -53,6 +77,7 @@ const UiConfigSchema = Schema.Struct({
     bottomVisible: Schema.Boolean,
   }),
   github: Schema.Struct({ source: Schema.Literal('none', 'gh-cli', 'pat') }),
+  playground: PlaygroundConfigSchema,
 })
 
 export type UiConfig = Schema.Schema.Type<typeof UiConfigSchema>
@@ -69,6 +94,7 @@ export const defaultUiConfig: UiConfig = {
     bottomVisible: true,
   },
   github: { source: 'none' },
+  playground: { documents: [], activeDocumentId: null, languageId: null, target: null },
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -218,6 +244,7 @@ export const decodeUiConfig = (
         },
         shell: { ...defaultUiConfig.shell, ...(record['shell'] as object) },
         github: { ...defaultUiConfig.github, ...(record['github'] as object) },
+        playground: { ...defaultUiConfig.playground, ...(record['playground'] as object) },
       }
     : input
   return Either.getOrElse(Schema.decodeUnknownEither(UiConfigSchema)(merged), () => defaultUiConfig)

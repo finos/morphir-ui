@@ -104,4 +104,71 @@ describe('playground selection', () => {
     state.updateActiveDocument('module Main exposing (..)\n\nx = 1')
     expect(state.activeDocument?.version).toBe(3)
   })
+
+  test('a snapshot carries the documents and both selections', () => {
+    const state = new PlaygroundState()
+    state.catalog = { frontends: [frontend('elm', ['3'])], targets: [target('scala', ['3'])] }
+    state.updateActiveDocument('x = 1')
+    state.selectTarget('scala')
+
+    const snap = state.snapshot()
+
+    expect(snap.languageId).toBe('elm')
+    expect(snap.target).toBe('scala')
+    expect(snap.activeDocumentId).toBe('main')
+    expect(snap.documents.map((doc) => doc.text)).toEqual(['x = 1'])
+  })
+
+  test('hydrating restores the documents and selections', () => {
+    const state = new PlaygroundState()
+
+    state.hydrate({
+      documents: [
+        {
+          id: 'main',
+          uri: 'morphir-playground:/Main.elm',
+          languageId: 'elm',
+          version: 9,
+          text: 'restored = 1',
+        },
+      ],
+      activeDocumentId: 'main',
+      languageId: 'elm',
+      target: 'scala',
+    })
+
+    expect(state.activeDocument?.text).toBe('restored = 1')
+    expect(state.activeDocument?.version).toBe(9)
+    expect(state.selectedLanguageId).toBe('elm')
+    expect(state.selectedTarget).toBe('scala')
+  })
+
+  // A config that has never held a playground decodes to nulls and an empty document
+  // list. Treating that as "restore nothing" is what keeps the sample source on screen
+  // for a first-time user instead of an empty editor.
+  test('hydrating from an untouched config leaves the sample document alone', () => {
+    const state = new PlaygroundState()
+    const before = state.activeDocument?.text
+
+    state.hydrate({ documents: [], activeDocumentId: null, languageId: null, target: null })
+
+    expect(state.activeDocument?.text).toBe(before)
+    expect(state.selectedTarget).toBeNull()
+  })
+
+  test('hydrating an active id that no document matches falls back to the first document', () => {
+    const state = new PlaygroundState()
+
+    state.hydrate({
+      documents: [
+        { id: 'main', uri: 'morphir-playground:/Main.elm', languageId: 'elm', version: 1, text: 'a' },
+      ],
+      activeDocumentId: 'missing',
+      languageId: null,
+      target: null,
+    })
+
+    expect(state.activeDocumentId).toBe('main')
+    expect(state.activeDocument?.text).toBe('a')
+  })
 })

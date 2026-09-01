@@ -22,6 +22,16 @@ export interface PlaygroundDocument {
   readonly text: string
 }
 
+/** What survives a reload, matching `UiConfig['playground']`. A null selection and an
+ * empty document list mean "nothing was ever persisted", which is why hydrate leaves
+ * the sample document in place rather than emptying the editor. */
+export interface PlaygroundSnapshot {
+  readonly documents: ReadonlyArray<PlaygroundDocument>
+  readonly activeDocumentId: string | null
+  readonly languageId: string | null
+  readonly target: string | null
+}
+
 const EMPTY_CATALOG: CapabilityCatalog = { frontends: [], targets: [] }
 
 const DEFAULT_LANGUAGE_ID = 'elm'
@@ -135,5 +145,33 @@ export class PlaygroundState {
     )
     this.compileResult = null
     this.generateResult = null
+  }
+
+  /** The persistable part of this state. Deliberately excludes the catalog (re-fetched
+   * from the live session) and both results (meaningless without the session that
+   * produced them). */
+  snapshot(): PlaygroundSnapshot {
+    return {
+      documents: this.documents.map((doc) => ({ ...doc })),
+      activeDocumentId: this.activeDocumentId,
+      languageId: this.selectedLanguageId,
+      target: this.selectedTarget,
+    }
+  }
+
+  /** Restores a previous session's work. Each field is restored only when the snapshot
+   * actually carries one, so a config written before the Playground existed does not
+   * blank the editor or clear the default language. */
+  hydrate(snap: PlaygroundSnapshot): void {
+    if (snap.documents.length > 0) {
+      this.documents = snap.documents.map((doc) => ({ ...doc }))
+      const active = snap.activeDocumentId
+      this.activeDocumentId =
+        active !== null && this.documents.some((doc) => doc.id === active)
+          ? active
+          : this.documents[0]!.id
+    }
+    if (snap.languageId !== null) this.selectedLanguageId = snap.languageId
+    if (snap.target !== null) this.selectedTarget = snap.target
   }
 }
