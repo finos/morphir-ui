@@ -1,5 +1,7 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
+import type { FQName, TypeExpr, ValueDef, ValueExpr } from '@morphir/ir'
 import type { XRaySearchScope, XRayTreeNode } from '../src/views/insight/xray-tree.ts'
+import { projectXRayDefinition } from '../src/views/insight/xray-tree.ts'
 import { filterXRayTree } from '../src/views/insight/xray-filter.ts'
 
 const node = (
@@ -28,6 +30,20 @@ const valueBody = () => {
   const arg = node('/body/arg', 'arg', { values: ['Basics.subtract'] })
   return node('/body', 'body', {}, [fn, arg])
 }
+
+const name = (...parts: string[]) => parts
+const fqn = (local: string): FQName => ({
+  pkg: [name('morphir'), name('s', 'd', 'k')],
+  module: [name('basics')],
+  local: name(local),
+})
+const intType: TypeExpr = { kind: 'type-reference', fqn: fqn('int'), args: [] }
+const intTypeRaw = [
+  'Reference',
+  {},
+  [[name('morphir')], [name('sdk'), name('basics')], name('int')],
+  [],
+]
 
 describe('filterXRayTree', () => {
   test('finds a value case-insensitively and retains only its ancestor context', () => {
@@ -140,5 +156,64 @@ describe('filterXRayTree', () => {
     filterXRayTree(roots, 'basics.add', scoped('values'))
 
     expect(roots).toEqual(before)
+  })
+
+  test('uses locale-independent normalization for technical identifiers', () => {
+    const localeLowerCase = vi.spyOn(String.prototype, 'toLocaleLowerCase')
+    const roots = [node('/identifier', 'identifier', { values: ['ISTANBUL'] })]
+
+    try {
+      const result = filterXRayTree(roots, 'istanbul', scoped('values'))
+
+      expect(result.matchPaths).toEqual(['/identifier'])
+      expect(localeLowerCase).not.toHaveBeenCalled()
+    } finally {
+      localeLowerCase.mockRestore()
+    }
+  })
+
+  test('filters a deeply nested tree without overflowing the call stack', () => {
+    const depth = 3_000
+    let current = node(`/deep/${depth}`, 'leaf', { values: ['needle'] })
+    for (let index = depth - 1; index >= 0; index -= 1) {
+      current = node(`/deep/${index}`, `level-${index}`, {}, [current])
+    }
+
+    let result: ReturnType<typeof filterXRayTree> | undefined
+    expect(() => {
+      result = filterXRayTree([current], 'needle', scoped('values'))
+    }).not.toThrow()
+
+    expect(result?.matchCount).toBe(1)
+    expect(result?.matchPaths).toEqual([`/deep/${depth}`])
+    expect(result?.expandedPaths.has('/deep/0')).toBe(true)
+    expect(result?.expandedPaths.has(`/deep/${depth}`)).toBe(true)
+  })
+
+  test('searches projected definition kinds, fields, full names, and decoded types', () => {
+    const body: ValueExpr = {
+      kind: 'value-reference',
+      attr: intTypeRaw,
+      fqn: fqn('add'),
+    }
+    const definition: ValueDef = {
+      inputs: [{ name: name('input'), attr: {}, tpe: intType }],
+      output: intType,
+      body,
+    }
+    const roots = projectXRayDefinition(definition)
+
+    // matchPaths are direct matches in deterministic depth-first pre-order.
+    expect(filterXRayTree(roots, 'VALUE-REFERENCE', scoped('kinds')).matchPaths).toEqual(['/body'])
+    expect(filterXRayTree(roots, 'OUTPUT', scoped('fields')).matchPaths).toEqual(['/output'])
+    expect(filterXRayTree(roots, 'Morphir.SDK.Basics.add', scoped('values')).matchPaths).toEqual([
+      '/body',
+    ])
+    expect(filterXRayTree(roots, 'int', scoped('types')).matchPaths).toEqual(['/body'])
+
+    // expandedPaths are exactly the retained paths, including direct matches.
+    expect(filterXRayTree(roots, 'Morphir.SDK.Basics.add', scoped('values')).expandedPaths).toEqual(
+      new Set(['/body']),
+    )
   })
 })

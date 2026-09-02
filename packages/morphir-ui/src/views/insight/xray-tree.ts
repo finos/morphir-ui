@@ -1,7 +1,9 @@
 import { decodeTypeExpr, nameToCamel, nameToTitle, type ValueDef } from '@morphir/ir'
 import { typeText as formatTypeText } from '@morphir/insight'
 
-export type XRaySearchScope = 'kinds' | 'fields' | 'values' | 'types'
+export const XRAY_SEARCH_SCOPES = ['kinds', 'fields', 'values', 'types'] as const
+
+export type XRaySearchScope = (typeof XRAY_SEARCH_SCOPES)[number]
 
 export interface XRaySearchTokens {
   readonly kinds: readonly string[]
