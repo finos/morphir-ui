@@ -8,11 +8,15 @@ match `apps/morphir-desktop/package.json`; a mismatch stops the workflow before 
 
 The release workflow produces these CLI-managed portable targets:
 
-| Platform       | Portable target | Launch entry point                                   |
-| -------------- | --------------- | ---------------------------------------------------- |
-| Windows x86_64 | ZIP             | `morphir-desktop.exe`                                |
-| macOS arm64    | ZIP             | `Morphir Desktop.app/Contents/MacOS/morphir-desktop` |
-| Linux x86_64   | tar.gz          | `morphir-desktop`                                    |
+| Platform       | Portable target | Launch entry point                                    |
+| -------------- | --------------- | ----------------------------------------------------- |
+| Windows x86_64 | ZIP             | `morphir-desktop.exe`                                 |
+| macOS arm64    | ZIP             | `Morphir Desktop.app/Contents/MacOS/morphir-desktop`  |
+| Linux x86_64   | tar.gz          | `morphir-desktop-<VERSION>-linux-x64/morphir-desktop` |
+
+Linux tar entries retain electron-builder's versioned directory when the archive is renamed
+for publication. The release descriptor includes that directory in both the archive entry point
+and launch path. Local ARM64 packages use `linux-arm64` in the directory name.
 
 It also publishes the NSIS, DMG, AppImage, and deb system packages produced by electron-builder.
 GitHub Releases are the durable public source; the one-day workflow artifacts only transfer bytes

@@ -181,11 +181,17 @@ export const prepareDesktopRelease = async (
 
   const artifacts = artifactContracts.map<ReleaseArtifact>((contract) => {
     const targetPath = `artifacts/desktop/${options.version}/${contract.targetName}`
+    // Linux tar entries retain electron-builder's original artifact directory,
+    // even after the archive is renamed for publication in the tool repository.
+    const entryPoint =
+      contract.key === 'linuxX86_64'
+        ? `morphir-desktop-${options.version}-linux-x64/${contract.entryPoint}`
+        : contract.entryPoint
     return {
       targetPath,
       platform: contract.platform,
-      archive: { format: contract.format, entryPoint: contract.entryPoint },
-      launch: { kind: 'executable', path: contract.entryPoint, args: [] },
+      archive: { format: contract.format, entryPoint },
+      launch: { kind: 'executable', path: entryPoint, args: [] },
     }
   })
   const descriptor: DesktopReleaseDescriptor = {

@@ -99,8 +99,15 @@ describe('Desktop release contract', () => {
         {
           targetPath: 'artifacts/desktop/1.2.3/linux-x86_64.tar.gz',
           platform: { os: 'linux', arch: 'x86_64' },
-          archive: { format: 'tar-gzip', entryPoint: 'morphir-desktop' },
-          launch: { kind: 'executable', path: 'morphir-desktop', args: [] },
+          archive: {
+            format: 'tar-gzip',
+            entryPoint: 'morphir-desktop-1.2.3-linux-x64/morphir-desktop',
+          },
+          launch: {
+            kind: 'executable',
+            path: 'morphir-desktop-1.2.3-linux-x64/morphir-desktop',
+            args: [],
+          },
         },
         {
           targetPath: 'artifacts/desktop/1.2.3/macos-aarch64.zip',
@@ -148,6 +155,22 @@ describe('Desktop release contract', () => {
         },
       },
     })
+  })
+
+  test('preserves the original Linux archive root for preview releases and renamed inputs', async () => {
+    const root = temporaryDirectory()
+    const release = await prepareDesktopRelease({
+      version: '1.3.0-preview.4',
+      morphirCli: '>=0.4.0-alpha.5, <0.5.0',
+      sources: sourceArtifacts(root),
+      output: join(root, 'repository'),
+    })
+    const linux = release.descriptor.artifacts.find((artifact) => artifact.platform.os === 'linux')
+    expect(linux?.archive.entryPoint).toBe(
+      'morphir-desktop-1.3.0-preview.4-linux-x64/morphir-desktop',
+    )
+    expect(linux?.launch.path).toBe(linux?.archive.entryPoint)
+    expect(release.descriptor.channels).toEqual(['preview'])
   })
 
   test('refuses to publish when a required portable artifact is missing', async () => {
