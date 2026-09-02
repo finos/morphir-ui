@@ -13,6 +13,7 @@ import {
   GitHubError,
   GitHubService,
   ModelWorkbenchService,
+  PipelineService,
   WorkbenchError,
   WorkbenchProviderService,
   WorkbenchSourceService,
@@ -21,7 +22,12 @@ import {
   defaultUiConfig,
   legacySourceRef,
   redactToken,
+  type CapabilityCatalog,
   type GitHubSource,
+  type PlaygroundCompileInput,
+  type PlaygroundCompileResult,
+  type PlaygroundGenerateInput,
+  type PlaygroundGenerateResult,
   type UiConfig,
 } from '../../src/index.ts'
 import { decodeMorphirIr, toWorkspaceIr } from '@morphir/ir'
@@ -300,4 +306,42 @@ export const makeFakeGitHub = (init?: {
       : Effect.fail(new GitHubError({ message: 'no token configured' })),
   })
   return { github, state }
+}
+
+export const makeFakePipeline = (init?: {
+  catalog?: CapabilityCatalog
+  compileResult?: PlaygroundCompileResult
+  generateResult?: PlaygroundGenerateResult
+}) => {
+  const calls = {
+    compile: [] as Array<PlaygroundCompileInput>,
+    generate: [] as Array<PlaygroundGenerateInput>,
+  }
+  const catalog = init?.catalog ?? { frontends: [], targets: [] }
+  const compileResult = init?.compileResult ?? {
+    success: true,
+    irVersion: '3',
+    ir: {},
+    diagnostics: [],
+    modules: ['Main'],
+  }
+  const generateResult = init?.generateResult ?? {
+    success: true,
+    artifacts: [],
+    diagnostics: [],
+  }
+  const pipeline = Layer.succeed(PipelineService, {
+    catalog: Effect.sync(() => catalog),
+    compile: (input) =>
+      Effect.sync(() => {
+        calls.compile.push(input)
+        return compileResult
+      }),
+    generate: (input) =>
+      Effect.sync(() => {
+        calls.generate.push(input)
+        return generateResult
+      }),
+  })
+  return { pipeline, calls }
 }

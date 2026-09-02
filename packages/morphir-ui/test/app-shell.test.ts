@@ -63,6 +63,7 @@ const renderShell = async (shell = new ShellState()) => {
       crumbTitle: 'Overview',
       store,
       onOpenSettings: () => {},
+      onOpenPlayground: () => {},
     },
   })
 }

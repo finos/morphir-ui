@@ -22,6 +22,17 @@ import type {
   ModelWorkbenchDescriptor,
   WorkbenchDescriptor,
 } from '../workbench/types.ts'
+import {
+  PipelineService,
+  type PipelineServiceApi,
+  type PlaygroundCompileInput,
+  type PlaygroundGenerateInput,
+} from './pipeline.ts'
+import type {
+  CapabilityCatalog,
+  PlaygroundCompileResult,
+  PlaygroundGenerateResult,
+} from '@morphir/workspace'
 
 export interface WorkspaceRef {
   readonly path: string
@@ -85,6 +96,7 @@ export type CoreServices =
 export interface Capabilities {
   readonly github: boolean
   readonly reopenWorkspaces: boolean
+  readonly pipeline: boolean
 }
 
 export interface AppServices {
@@ -125,11 +137,17 @@ export interface AppServices {
     clearPat(): Promise<void>
     verify(): Promise<{ login: string }>
   } | null
+  readonly pipeline: {
+    catalog(): Promise<CapabilityCatalog>
+    compile(input: PlaygroundCompileInput): Promise<PlaygroundCompileResult>
+    generate(input: PlaygroundGenerateInput): Promise<PlaygroundGenerateResult>
+  } | null
 }
 
 const buildFacade = async (
   runtime: ManagedRuntime.ManagedRuntime<CoreServices, never>,
   github: GitHubServiceApi | null,
+  pipeline: PipelineServiceApi | null,
 ): Promise<AppServices> => {
   const config = await runtime.runPromise(ConfigService)
   const workspace = await runtime.runPromise(WorkspaceService)
@@ -151,7 +169,11 @@ const buildFacade = async (
     return result
   }
   return {
-    capabilities: { github: github !== null, reopenWorkspaces: read !== null },
+    capabilities: {
+      github: github !== null,
+      reopenWorkspaces: read !== null,
+      pipeline: pipeline !== null,
+    },
     dispose: () => {
       if (disposal) return disposal
       disposing = true
@@ -221,20 +243,55 @@ const buildFacade = async (
           verify: () => runtime.runPromise(github.verify),
         }
       : null,
+    pipeline: pipeline
+      ? {
+          catalog: () => runtime.runPromise(pipeline.catalog),
+          compile: (input) => runtime.runPromise(pipeline.compile(input)),
+          generate: (input) => runtime.runPromise(pipeline.generate(input)),
+        }
+      : null,
   }
 }
 
 export const makeAppServices = async (opts: {
   core: Layer.Layer<CoreServices>
   github?: Layer.Layer<GitHubService>
+  pipeline?: Layer.Layer<PipelineService>
 }): Promise<AppServices> => {
+  // Each branch merges exactly the optional layers supplied, so the runtime's inferred
+  // requirement type stays precise; widening `core` into a pre-declared union type instead
+  // (Layer is invariant in its ROut parameter) makes the compiler collapse the union back down
+  // to CoreServices, silently losing GitHubService/PipelineService from the runtime's type.
+  if (opts.github && opts.pipeline) {
+    const layer = Layer.merge(Layer.merge(opts.core, opts.github), opts.pipeline)
+    const runtime = ManagedRuntime.make(layer)
+    const github = await runtime.runPromise(GitHubService)
+    const pipeline = await runtime.runPromise(PipelineService)
+    // Sound narrowing: the merged runtime provides CoreServices | GitHubService | PipelineService;
+    // buildFacade only needs CoreServices, but Layer/Runtime contravariance keeps the compiler
+    // from expressing this widening-as-subset directly.
+    return buildFacade(
+      runtime as ManagedRuntime.ManagedRuntime<CoreServices, never>,
+      github,
+      pipeline,
+    )
+  }
   if (opts.github) {
     const layer = Layer.merge(opts.core, opts.github)
     const runtime = ManagedRuntime.make(layer)
     const github = await runtime.runPromise(GitHubService)
-    // Sound narrowing: the merged runtime provides CoreServices | GitHubService; buildFacade only needs CoreServices, but Layer/Runtime contravariance keeps the compiler from expressing this widening-as-subset directly.
-    return buildFacade(runtime as ManagedRuntime.ManagedRuntime<CoreServices, never>, github)
+    return buildFacade(runtime as ManagedRuntime.ManagedRuntime<CoreServices, never>, github, null)
+  }
+  if (opts.pipeline) {
+    const layer = Layer.merge(opts.core, opts.pipeline)
+    const runtime = ManagedRuntime.make(layer)
+    const pipeline = await runtime.runPromise(PipelineService)
+    return buildFacade(
+      runtime as ManagedRuntime.ManagedRuntime<CoreServices, never>,
+      null,
+      pipeline,
+    )
   }
   const runtime = ManagedRuntime.make(opts.core)
-  return buildFacade(runtime, null)
+  return buildFacade(runtime, null, null)
 }

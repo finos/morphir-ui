@@ -5,6 +5,7 @@ import { MorphirApp, makeAppServices } from '@morphir/ui'
 import { browserCore } from './layers/browser-layers.ts'
 import { makeWebAppDisposer, shouldDisposeOnPageHide } from './lifecycle.ts'
 import { makeConnectedWorkbenchAdapters } from './connected/connected-provider.ts'
+import { makeConnectedPipeline } from './connected/pipeline.ts'
 import { makeConnectedRpcClient } from './connected/rpc-client.ts'
 import { discoverConnectedSession } from './connected/session.ts'
 
@@ -22,6 +23,7 @@ const services = await makeAppServices({
     __MORPHIR_WEB_VERSION__,
     connectedClient ? makeConnectedWorkbenchAdapters(connectedClient) : [],
   ),
+  pipeline: connectedClient ? makeConnectedPipeline(connectedClient) : undefined,
 })
 const initialConfig = await services.loadConfig()
 

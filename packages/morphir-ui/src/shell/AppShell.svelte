@@ -15,6 +15,7 @@
     crumbTitle,
     store,
     onOpenSettings,
+    onOpenPlayground,
     macChrome = false,
     center,
     inspector,
@@ -26,6 +27,7 @@
     crumbTitle: string
     store: WorkbenchStore
     onOpenSettings: () => void
+    onOpenPlayground: () => void
     macChrome?: boolean
     center?: Snippet
     inspector?: Snippet
@@ -37,7 +39,7 @@
   <Titlebar {shell} {badge} {version} {crumbTitle} {macChrome} />
   <div class="shell-body">
     <RegionPanel region="left" extent={shell.leftExtent}>
-      <WorkbenchRail {store} {onOpenSettings} />
+      <WorkbenchRail {store} {onOpenSettings} {onOpenPlayground} />
     </RegionPanel>
     {#if shell.leftVisible}
       <ResizeHandle
@@ -51,7 +53,11 @@
     {/if}
     <div class="shell-center">
       <div class="shell-main">
-        <main class="content" class:content-settings={shell.isSettings}>
+        <main
+          class="content"
+          class:content-settings={shell.isSettings}
+          class:content-playground={shell.isPlayground}
+        >
           {#if center}{@render center()}{/if}
         </main>
         {#if shell.rightVisible}
@@ -126,6 +132,15 @@
   .content.content-settings {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;
+  }
+  /* The Playground owns its own panelling, so it needs the whole content box rather than
+     the workbench card grid. */
+  .content.content-playground {
+    display: flex;
+    grid-template-columns: none;
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
   }
   .panel-body {
     padding: 14px;

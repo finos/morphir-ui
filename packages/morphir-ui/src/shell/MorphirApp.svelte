@@ -4,7 +4,9 @@
   import WorkbenchTabs from './WorkbenchTabs.svelte'
   import WorkbenchView from '../views/WorkbenchView.svelte'
   import SettingsView from '../views/settings/SettingsView.svelte'
+  import PlaygroundView from '../views/playground/PlaygroundView.svelte'
   import { ShellState, type SettingsSection } from '../state/shell-state.svelte.ts'
+  import { bindRouteToLocation } from '../state/router.ts'
   import { WorkbenchStore } from '../workbench/workbench-store.svelte.ts'
   import { configToSnapshot, withSnapshot, type UiConfig } from '../services/config.ts'
   import type { AppServices } from '../services/services.ts'
@@ -47,11 +49,11 @@
   let inspected = $state<InspectMeta | null>(null)
   let inspectedWorkbenchId: string | null = null
 
-  const crumbTitle = $derived(
-    shell.route.kind === 'settings'
-      ? SECTION_LABELS[shell.route.section]
-      : (workbenches.active?.descriptor.name ?? 'Workbenches'),
-  )
+  const crumbTitle = $derived.by(() => {
+    if (shell.route.kind === 'settings') return SECTION_LABELS[shell.route.section]
+    if (shell.route.kind === 'playground') return 'Playground'
+    return workbenches.active?.descriptor.name ?? 'Workbenches'
+  })
   const explorerActive = $derived.by(() => {
     const active = workbenches.active
     return (
@@ -97,8 +99,10 @@
         else if (activeBefore) workbenches.activate(activeBefore)
       })()
     })
+    const unbindRoute = bindRouteToLocation(shell)
     return () => {
       unsubscribe?.()
+      unbindRoute()
       workbenches.dispose()
     }
   })
@@ -111,11 +115,18 @@
   {crumbTitle}
   store={workbenches}
   onOpenSettings={() => shell.openSettings()}
+  onOpenPlayground={() => shell.openPlayground()}
   {macChrome}
 >
   {#snippet center()}
     {#if shell.isSettings}
       <SettingsView {services} {shell} store={workbenches} {version} />
+    {:else if shell.isPlayground}
+      <PlaygroundView
+        {services}
+        onClose={() => shell.closeOverlay()}
+        onInspect={(meta) => (inspected = meta)}
+      />
     {:else if workbenches.active}
       <div class="workbench-content">
         <WorkbenchTabs entry={workbenches.active} store={workbenches} />

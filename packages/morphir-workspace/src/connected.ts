@@ -17,6 +17,9 @@ export const CONNECTED_METHODS = {
   workspaceWatch: 'morphir.workspace.watch',
   workspaceUnwatch: 'morphir.workspace.unwatch',
   workspaceEvent: 'morphir.workspace.event',
+  playgroundCatalog: 'morphir.playground.catalog',
+  playgroundCompile: 'morphir.playground.compile',
+  playgroundGenerate: 'morphir.playground.generate',
 } as const
 
 const NonEmptyStringSchema = Schema.String.pipe(
@@ -69,20 +72,38 @@ export const ConnectedSessionManifestSchema = ConnectedSessionManifestBaseSchema
         WORKBENCH_CAPABILITIES.workspaceOpen,
         WORKBENCH_CAPABILITIES.workspaceWatch,
       ])
+      // Only providers named by initialSources are judged as workbench
+      // hosts. What the capability check protects is that a source the
+      // workbench has been handed can actually be opened - that concerns
+      // the provider that owns the source, not every provider in the
+      // session. A provider owning no initial sources (e.g. the CLI's
+      // Playground provider, which serves morphir/playground/{catalog,
+      // compile,generate} and no workspace sources) is not a workbench
+      // host and may legitimately advertise a different capability set
+      // entirely. Do not widen this back to "every provider" - that
+      // blanket rule is what broke `morphir ui` by rejecting any session
+      // manifest that included the Playground provider. Whether some
+      // provider can serve an operation invoked later is a runtime
+      // capability check, not a manifest-decode concern.
+      const sourceOwningProviderIds = new Set(
+        manifest.initialSources.map(({ providerId }) => providerId),
+      )
       return (
         knownProviderIds.size === providerIds.length &&
-        manifest.providers.every((provider) => {
-          const compatible = new Set(
-            provider.capabilities.filter(({ version }) => version === '1').map(({ name }) => name),
-          )
-          return [...requiredCapabilities].every((name) => compatible.has(name))
-        }) &&
+        manifest.providers
+          .filter((provider) => sourceOwningProviderIds.has(provider.id))
+          .every((provider) => {
+            const compatible = new Set(
+              provider.capabilities.filter(({ version }) => version === '1').map(({ name }) => name),
+            )
+            return [...requiredCapabilities].every((name) => compatible.has(name))
+          }) &&
         manifest.initialSources.every(({ providerId }) => knownProviderIds.has(providerId))
       )
     },
     {
       message: () =>
-        'Expected compatible connected providers with unique IDs and provider-owned initial sources',
+        'Expected unique provider IDs, known initial-source providers, and source-owning providers with compatible core capabilities',
     },
   ),
 )
@@ -205,6 +226,99 @@ export const WorkspaceEventNotificationParamsSchema = Schema.Struct({
 export type WorkspaceEventNotificationParams = Schema.Schema.Type<
   typeof WorkspaceEventNotificationParamsSchema
 >
+
+export const ProviderRefSchema = Schema.Struct({
+  extensionId: Schema.String,
+  extensionName: Schema.String,
+  version: Schema.String,
+  origin: Schema.Literal('builtin', 'installed'),
+  // How the host would invoke this provider (e.g. "native-direct",
+  // "process-mep"), reported so a bug report can say which transport ran.
+  invocationMode: Schema.String,
+})
+export type ProviderRef = Schema.Schema.Type<typeof ProviderRefSchema>
+
+export const FrontendEntrySchema = Schema.Struct({
+  languageId: Schema.String,
+  // The extension's display name, not a per-language one: a frontend that
+  // declares two languages yields two entries sharing this same value.
+  // Prefer languageId for labelling.
+  displayName: Schema.String,
+  fileExtensions: Schema.Array(Schema.String),
+  irVersions: Schema.Array(Schema.String),
+  compile: Schema.Boolean,
+  // Whether the provider supports incremental compilation / compiling source
+  // fragments, or null when the session cannot tell. An installed provider's
+  // capability metadata is rebuilt from what its install persisted, and the
+  // persisted record holds only languages, IR versions and the compile flag
+  // — so `false` here would wrongly claim a refusal the extension may not
+  // mean. The key is always present; only its value may be null.
+  incremental: Schema.NullOr(Schema.Boolean),
+  fragments: Schema.NullOr(Schema.Boolean),
+  provider: ProviderRefSchema,
+})
+export type FrontendEntry = Schema.Schema.Type<typeof FrontendEntrySchema>
+
+export const TargetEntrySchema = Schema.Struct({
+  target: Schema.String,
+  displayName: Schema.String,
+  irVersions: Schema.Array(Schema.String),
+  generate: Schema.Boolean,
+  provider: ProviderRefSchema,
+})
+export type TargetEntry = Schema.Schema.Type<typeof TargetEntrySchema>
+
+export const CapabilityCatalogSchema = Schema.Struct({
+  frontends: Schema.Array(FrontendEntrySchema),
+  targets: Schema.Array(TargetEntrySchema),
+})
+export type CapabilityCatalog = Schema.Schema.Type<typeof CapabilityCatalogSchema>
+
+export const PlaygroundPositionSchema = Schema.Struct({
+  line: Schema.Number,
+  character: Schema.Number,
+})
+export type PlaygroundPosition = Schema.Schema.Type<typeof PlaygroundPositionSchema>
+
+export const PlaygroundLocationSchema = Schema.Struct({
+  uri: Schema.String,
+  range: Schema.Struct({
+    start: PlaygroundPositionSchema,
+    end: PlaygroundPositionSchema,
+  }),
+})
+export type PlaygroundLocation = Schema.Schema.Type<typeof PlaygroundLocationSchema>
+
+export const PlaygroundDiagnosticSchema = Schema.Struct({
+  severity: Schema.Literal('error', 'warning', 'info', 'hint'),
+  code: Schema.optionalWith(Schema.NullOr(Schema.String), { default: () => null }),
+  message: Schema.String,
+  location: Schema.optionalWith(Schema.NullOr(PlaygroundLocationSchema), { default: () => null }),
+})
+export type PlaygroundDiagnostic = Schema.Schema.Type<typeof PlaygroundDiagnosticSchema>
+
+export const PlaygroundCompileResultSchema = Schema.Struct({
+  success: Schema.Boolean,
+  irVersion: Schema.NullOr(Schema.String),
+  ir: Schema.NullOr(JsonValueSchema),
+  diagnostics: Schema.Array(PlaygroundDiagnosticSchema),
+  modules: Schema.Array(Schema.String),
+})
+export type PlaygroundCompileResult = Schema.Schema.Type<typeof PlaygroundCompileResultSchema>
+
+export const PlaygroundArtifactSchema = Schema.Struct({
+  path: Schema.String,
+  content: Schema.String,
+  binary: Schema.Boolean,
+})
+export type PlaygroundArtifact = Schema.Schema.Type<typeof PlaygroundArtifactSchema>
+
+export const PlaygroundGenerateResultSchema = Schema.Struct({
+  success: Schema.Boolean,
+  artifacts: Schema.Array(PlaygroundArtifactSchema),
+  diagnostics: Schema.Array(PlaygroundDiagnosticSchema),
+})
+export type PlaygroundGenerateResult = Schema.Schema.Type<typeof PlaygroundGenerateResultSchema>
 
 export type ConnectedNotification =
   | {

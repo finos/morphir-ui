@@ -212,7 +212,11 @@ describe('browserCore', () => {
   test('web capabilities include local model and Development Workbench operations', async () => {
     const core = browserCore('1.0.0')
     const services = await makeAppServices({ core })
-    expect(services.capabilities).toEqual({ github: false, reopenWorkspaces: false })
+    expect(services.capabilities).toEqual({
+      github: false,
+      reopenWorkspaces: false,
+      pipeline: false,
+    })
     expect(services.github).toBeNull()
     expect(services.readWorkspace).toBeNull()
     expect(await services.listWorkbenchProviders()).toEqual([

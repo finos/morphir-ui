@@ -14,12 +14,21 @@ import { makeFakeCore } from './support/fake-services.ts'
 
 afterEach(() => cleanup())
 
-const renderRail = async () => {
+const renderRail = async (handlers?: {
+  onOpenSettings?: () => void
+  onOpenPlayground?: () => void
+}) => {
   const { core } = makeFakeCore()
   const store = new WorkbenchStore(await makeAppServices({ core }), defaultUiConfig.workbenches)
   await store.open('/models/acme.json')
   await store.open('/knowledge')
-  render(WorkbenchRail, { props: { store, onOpenSettings: () => undefined } })
+  render(WorkbenchRail, {
+    props: {
+      store,
+      onOpenSettings: handlers?.onOpenSettings ?? (() => undefined),
+      onOpenPlayground: handlers?.onOpenPlayground ?? (() => undefined),
+    },
+  })
   return store
 }
 
@@ -71,7 +80,9 @@ describe('WorkbenchRail', () => {
     const { core } = makeFakeCore({ failingLoads: ['/bad.json'] })
     const store = new WorkbenchStore(await makeAppServices({ core }), defaultUiConfig.workbenches)
     await store.open('/bad.json')
-    render(WorkbenchRail, { props: { store, onOpenSettings: () => undefined } })
+    render(WorkbenchRail, {
+      props: { store, onOpenSettings: () => undefined, onOpenPlayground: () => undefined },
+    })
 
     expect(screen.getByText('load-failed')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Retry bad.json' })).toBeTruthy()
@@ -96,8 +107,23 @@ describe('WorkbenchRail', () => {
       defaultUiConfig.workbenches,
     )
     await store.open(source)
-    render(WorkbenchRail, { props: { store, onOpenSettings: () => undefined } })
+    render(WorkbenchRail, {
+      props: { store, onOpenSettings: () => undefined, onOpenPlayground: () => undefined },
+    })
 
     expect(screen.getByRole('button', { name: 'Grant access dev' })).toBeTruthy()
+  })
+
+  test('the footer hosts both session-wide actions', async () => {
+    const opened: string[] = []
+    await renderRail({
+      onOpenSettings: () => opened.push('settings'),
+      onOpenPlayground: () => opened.push('playground'),
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Playground' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
+
+    expect(opened).toEqual(['playground', 'settings'])
   })
 })

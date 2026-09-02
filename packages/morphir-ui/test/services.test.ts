@@ -13,7 +13,7 @@ import {
   type ModelWorkbenchDescriptor,
   type UiConfig,
 } from '../src/index.ts'
-import { makeFakeCore, makeFakeGitHub } from './support/fake-services.ts'
+import { makeFakeCore, makeFakeGitHub, makeFakePipeline } from './support/fake-services.ts'
 
 describe('UiConfig', () => {
   test('empty input decodes to defaults', () => {
@@ -25,6 +25,26 @@ describe('UiConfig', () => {
   test('invalid input falls back to defaults', () => {
     expect(decodeUiConfig({ appearance: { colorScheme: 'sepia' } })).toEqual(defaultUiConfig)
     expect(decodeUiConfig('garbage')).toEqual(defaultUiConfig)
+  })
+  test('the playground section defaults to nothing persisted', () => {
+    expect(defaultUiConfig.playground).toEqual({
+      documents: [],
+      activeDocumentId: null,
+      languageId: null,
+      target: null,
+    })
+    expect(decodeUiConfig({}).playground).toEqual(defaultUiConfig.playground)
+  })
+  test('a persisted playground survives a decode', () => {
+    const stored = {
+      documents: [
+        { id: 'main', uri: 'morphir-playground:/Main.elm', languageId: 'elm', version: 7, text: 'x = 1' },
+      ],
+      activeDocumentId: 'main',
+      languageId: 'elm',
+      target: 'scala',
+    }
+    expect(decodeUiConfig({ playground: stored }).playground).toEqual(stored)
   })
   test('snapshot round-trip', () => {
     const snap = configToSnapshot(defaultUiConfig)
@@ -845,6 +865,8 @@ describe('makeAppServices', () => {
     expect(await services.version()).toBe('9.9.9')
     expect(services.capabilities.github).toBe(false)
     expect(services.github).toBeNull()
+    expect(services.capabilities.pipeline).toBe(false)
+    expect(services.pipeline).toBeNull()
     const cfg = await services.loadConfig()
     expect(cfg).toEqual(defaultUiConfig)
   })
@@ -902,5 +924,68 @@ describe('makeAppServices', () => {
     expect(await services.github!.verify()).toEqual({ login: 'octocat' })
     await services.github!.clearPat()
     expect((await services.github!.status()).tokenDisplay).toBeNull()
+  })
+  test('pipeline facade appears when only the pipeline layer is provided', async () => {
+    const { core } = makeFakeCore()
+    const { pipeline, calls } = makeFakePipeline({
+      catalog: {
+        frontends: [
+          {
+            languageId: 'morphir-elm',
+            displayName: 'Elm',
+            fileExtensions: ['.elm'],
+            irVersions: ['3'],
+            compile: true,
+            incremental: null,
+            fragments: null,
+            provider: {
+              extensionId: 'morphir-elm',
+              extensionName: 'Elm',
+              version: '1.0.0',
+              origin: 'builtin',
+              invocationMode: 'native-direct',
+            },
+          },
+        ],
+        targets: [],
+      },
+    })
+    const services = await makeAppServices({ core, pipeline })
+    expect(services.capabilities.pipeline).toBe(true)
+    expect(services.capabilities.github).toBe(false)
+    expect(services.github).toBeNull()
+    const catalog = await services.pipeline!.catalog()
+    expect(catalog.frontends.map((f) => f.languageId)).toEqual(['morphir-elm'])
+    const compileInput = {
+      languageId: 'morphir-elm',
+      documents: [
+        { uri: 'file:///Main.elm', languageId: 'morphir-elm', version: 1, text: 'x = 1' },
+      ],
+      package: { name: 'Test', exposedModules: ['Main'] },
+      irVersion: '3',
+      options: {},
+    }
+    const compileResult = await services.pipeline!.compile(compileInput)
+    expect(compileResult.modules).toEqual(['Main'])
+    expect(calls.compile).toEqual([compileInput])
+    const generateInput = { ir: {}, irVersion: '3', target: 'scala', options: {} }
+    await services.pipeline!.generate(generateInput)
+    expect(calls.generate).toEqual([generateInput])
+  })
+  test('github and pipeline facades both appear when both layers are provided', async () => {
+    const { core } = makeFakeCore()
+    const { github } = makeFakeGitHub({
+      source: 'pat',
+      pat: 'ghp_' + 'z'.repeat(36) + 'TAIL',
+      login: 'octocat',
+    })
+    const { pipeline } = makeFakePipeline()
+    const services = await makeAppServices({ core, github, pipeline })
+    expect(services.capabilities.github).toBe(true)
+    expect(services.capabilities.pipeline).toBe(true)
+    expect(services.github).not.toBeNull()
+    expect(services.pipeline).not.toBeNull()
+    expect(await services.github!.verify()).toEqual({ login: 'octocat' })
+    expect((await services.pipeline!.catalog()).frontends).toEqual([])
   })
 })

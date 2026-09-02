@@ -37,6 +37,9 @@ export class ShellState {
   get isSettings() {
     return this.route.kind === 'settings'
   }
+  get isPlayground() {
+    return this.route.kind === 'playground'
+  }
 
   toggleLeft() {
     this.leftVisible = !this.leftVisible
@@ -59,11 +62,29 @@ export class ShellState {
   openSettings(section: SettingsSection = 'general') {
     this.route = { kind: 'settings', section }
   }
-  closeSettings() {
+  openPlayground() {
+    this.route = { kind: 'playground' }
+  }
+  /** Returns to the workspace from whichever full-screen route is open. Settings and the
+   * Playground both cover the workbench, and both need the same way back. */
+  closeOverlay() {
     this.route = { kind: 'workspace' }
+  }
+  closeSettings() {
+    this.closeOverlay()
   }
   selectSettingsSection(section: SettingsSection) {
     this.route = { kind: 'settings', section }
+  }
+  // Runes only compile in .svelte/.svelte.ts files, so router.ts (a plain .ts module,
+  // required for its test to import it without a Svelte-aware loader) cannot watch
+  // `route` with $effect itself. It subscribes through this method instead.
+  onRouteChange(listener: (route: Route) => void): () => void {
+    return $effect.root(() => {
+      $effect(() => {
+        listener(this.route)
+      })
+    })
   }
   selectColorScheme(scheme: ColorScheme) {
     this.colorScheme = scheme
