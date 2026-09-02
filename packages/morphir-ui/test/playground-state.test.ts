@@ -252,6 +252,19 @@ describe('playgroundPackage', () => {
   test('falls back to Main when no module header is present', () => {
     expect(playgroundPackage('x = 1')).toEqual({ name: 'local/main', exposedModules: ['Main'] })
   })
+
+  // Gleam has no `module X` header at all, so the Elm-shaped regex would never match
+  // regardless of the source text. Its module name comes from the document's own URI
+  // instead, mirroring module_name_from_document_uri in morphir-gleam-binding.
+  test('derives the module name from the URI for Gleam, not from the source text', () => {
+    expect(
+      playgroundPackage(
+        'pub fn hello() { "world" }',
+        'gleam',
+        'morphir-playground:/main.gleam',
+      ),
+    ).toEqual({ name: 'local/main', exposedModules: ['main'] })
+  })
 })
 
 describe('preferredIrVersion', () => {
@@ -288,8 +301,24 @@ describe('switching frontend', () => {
     state.selectFrontend('gleam')
 
     expect(state.activeDocument?.languageId).toBe('gleam')
-    expect(state.activeDocument?.uri).toBe('morphir-playground:/Main.gleam')
+    expect(state.activeDocument?.uri).toBe('morphir-playground:/main.gleam')
     expect(state.documents.every((doc) => doc.languageId === 'gleam')).toBe(true)
+  })
+
+  // Gleam derives a module's name straight from its document's file path (unlike Elm,
+  // which reads a `module X` header instead) and rejects any path segment that is not
+  // lowercase, so retargeting to Gleam has to rewrite the stem, not just the extension.
+  test('retargets the stem, not just the extension, for a language with different naming rules', () => {
+    const state = new PlaygroundState()
+    state.catalog = twoFrontends
+
+    state.selectFrontend('gleam')
+
+    expect(state.activeDocument?.uri).toBe('morphir-playground:/main.gleam')
+
+    state.selectFrontend('elm')
+
+    expect(state.activeDocument?.uri).toBe('morphir-playground:/Main.elm')
   })
 
   // The same argument that clears results on edit: IR derived from Elm source, shown
@@ -324,7 +353,7 @@ describe('switching frontend', () => {
     state.selectFrontend('gleam')
 
     expect(state.activeDocument?.text).not.toBe(elmSample)
-    expect(state.activeDocument?.text).toContain('gleam')
+    expect(state.activeDocument?.text).toContain('pub fn')
   })
 
   test('re-selecting the current frontend changes nothing', () => {
@@ -346,6 +375,6 @@ describe('switching frontend', () => {
 
     state.selectFrontend('gleam')
 
-    expect(state.activeDocument?.uri).toBe('morphir-playground:/Main.gleam')
+    expect(state.activeDocument?.uri).toBe('morphir-playground:/main.gleam')
   })
 })

@@ -51,10 +51,42 @@ const SAMPLE_TEXT_BY_LANGUAGE: Record<string, string> = {
     '    "Hello, " ++ name',
     '',
   ].join('\n'),
+  // Drawn (not invented) from morphir-gleam-binding's own acceptance fixture at
+  // tests/fixtures/real_world/rentals.gleam: a function with a real type signature
+  // (Result(Int, String)) and pattern matching, so Insight/XRay have something to
+  // show beyond a bare declaration. Gleam has no `module X` header — its module name
+  // comes from the document's own file path, not from anything in this text.
+  gleam: [
+    '// Adapted from morphir-examples/tutorial/step_1_first_logic/src/Morphir/Example/App/Rentals.elm',
+    '',
+    'pub fn request(availability: Int, requested_quantity: Int) -> Result(Int, String) {',
+    '  case requested_quantity <= availability {',
+    '    True -> Ok(requested_quantity)',
+    '    False -> Error("Insufficient availability")',
+    '  }',
+    '}',
+    '',
+  ].join('\n'),
 }
 
 const sampleTextFor = (languageId: string): string =>
   SAMPLE_TEXT_BY_LANGUAGE[languageId] ?? `-- Morphir Playground sample for ${languageId}\n`
+
+const DEFAULT_STEM = 'Main'
+
+/** The document stem seeded for a frontend, and what retargeting swaps it to. Elm/Haskell
+ * accept (and Elm's own compiler convention favors) a capitalized free-form module stem,
+ * which is why that stays the default for any language this map does not know about. Gleam
+ * is different in a way that actually matters here: morphir-gleam-binding derives a module's
+ * name from its own document URI (module_name_from_document_uri in that crate's src/lib.rs),
+ * not from a header in the source, and rejects any path segment that is not lowercase
+ * ASCII/digits/underscore. A capitalized stem is not a style mismatch for Gleam, it is a
+ * compile error before the source is even parsed. */
+const STEM_BY_LANGUAGE: Record<string, string> = {
+  gleam: 'main',
+}
+
+const stemFor = (languageId: string): string => STEM_BY_LANGUAGE[languageId] ?? DEFAULT_STEM
 
 /** The file extension a frontend's documents should carry. Catalog entries declare
  * these with a leading dot (the daemon's protocol emits ".elm", ".gleam"), but the wire
@@ -67,18 +99,19 @@ const extensionFor = (frontend: FrontendEntry | undefined, languageId: string): 
   return declared.startsWith('.') ? declared : `.${declared}`
 }
 
-/** Swaps a document URI's extension, leaving its directory and stem alone. */
-const retargetUri = (uri: string, extension: string): string => {
+/** Swaps a document URI's stem and extension, leaving its directory alone. Both change
+ * together, not just the extension: retargeting to a language whose file-naming rules
+ * differ from the previous one (Gleam's lowercase module-name-from-path vs. Elm's
+ * free-form capitalized stem) needs the stem rewritten too, or the URI stays syntactically
+ * valid while still being wrong for the frontend it now claims to belong to. */
+const retargetUri = (uri: string, stem: string, extension: string): string => {
   const lastSlash = uri.lastIndexOf('/')
-  const name = uri.slice(lastSlash + 1)
-  const dot = name.lastIndexOf('.')
-  const stem = dot > 0 ? name.slice(0, dot) : name
   return `${uri.slice(0, lastSlash + 1)}${stem}${extension}`
 }
 
 const makeMainDocument = (languageId: string): PlaygroundDocument => ({
   id: 'main',
-  uri: `morphir-playground:/Main.${languageId}`,
+  uri: `morphir-playground:/${stemFor(languageId)}.${languageId}`,
   languageId,
   version: 1,
   text: sampleTextFor(languageId),
@@ -164,12 +197,38 @@ export const editorDiagnosticsFor = (
 const MODULE_HEADER =
   /^[^\S\r\n]*module[^\S\r\n]+([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)/m
 
+/** The module name morphir-gleam-binding derives for a document when it has no explicit
+ * source root: the last path segment of the document's own URI, minus its `.gleam`
+ * extension (module_name_from_document_uri in that crate's src/lib.rs, falling through to
+ * `path.segments.last()` for a bare filename). Gleam has no `module X` header for a package
+ * to read the name from, so deriving it from the text the way Elm's does would be wrong
+ * for this language rather than merely inapplicable. */
+const gleamModuleNameFromUri = (uri: string): string => {
+  const lastSlash = uri.lastIndexOf('/')
+  const name = uri.slice(lastSlash + 1)
+  return name.replace(/\.gleam$/, '')
+}
+
 /** The package the Playground compiles source as. Mirrors the CLI's single-file compile
- * (crates/morphir/src/commands/compile.rs): the module name comes from the source's own
- * `module` header when it has one, and the package name is `local/` plus that module
- * lowercased with dots turned into dashes. Source with no header compiles as Main, which
- * is what the extension would assume anyway. */
-export const playgroundPackage = (text: string): { name: string; exposedModules: string[] } => {
+ * (crates/morphir/src/commands/compile.rs) for languages shaped like Elm: the module name
+ * comes from the source's own `module` header when it has one, and the package name is
+ * `local/` plus that module lowercased with dots turned into dashes. Source with no header
+ * compiles as Main, which is what the extension would assume anyway.
+ *
+ * That derivation assumes a header only Elm/Haskell-shaped frontends actually declare, so
+ * it stays the default for a language this function does not otherwise know, and is
+ * special-cased for Gleam, whose module name is never in the text at all. `languageId` and
+ * `uri` default to Elm's shape so existing text-only callers keep behaving exactly as
+ * before. */
+export const playgroundPackage = (
+  text: string,
+  languageId: string = DEFAULT_LANGUAGE_ID,
+  uri = '',
+): { name: string; exposedModules: string[] } => {
+  if (languageId === 'gleam') {
+    const moduleName = gleamModuleNameFromUri(uri)
+    return { name: `local/${moduleName}`, exposedModules: [moduleName] }
+  }
   const moduleName = MODULE_HEADER.exec(text)?.[1] ?? 'Main'
   return {
     name: `local/${moduleName.toLowerCase().replace(/\./g, '-')}`,
@@ -212,6 +271,13 @@ export class PlaygroundState {
    * code compiles while errors are shown below it is the exact misinformation this view
    * exists to avoid.
    *
+   * The URI's stem is retargeted alongside its extension, not just alongside a language
+   * whose naming rules happen to differ: a stem valid for the previous frontend is not
+   * guaranteed valid for the new one (Gleam derives a module name straight from it and
+   * rejects anything that is not lowercase), so keeping the old stem could turn a
+   * successful retarget into a compile-time naming error the person driving the UI never
+   * asked for.
+   *
    * Both results are cleared for the same reason `updateActiveDocument` clears them:
    * IR derived from the previous language, displayed under the new frontend's label, is
    * worse than an empty pane.
@@ -229,11 +295,12 @@ export class PlaygroundState {
     this.selectedLanguageId = languageId
     const frontend = this.catalog.frontends.find((entry) => entry.languageId === languageId)
     const extension = extensionFor(frontend, languageId)
+    const stem = stemFor(languageId)
     const previousSample = sampleTextFor(previous)
     this.documents = this.documents.map((doc) => ({
       ...doc,
       languageId,
-      uri: retargetUri(doc.uri, extension),
+      uri: retargetUri(doc.uri, stem, extension),
       text: doc.text === previousSample ? sampleTextFor(languageId) : doc.text,
     }))
     this.compileResult = null

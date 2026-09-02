@@ -286,7 +286,11 @@
           version: doc.version,
           text: doc.text,
         })),
-        package: playgroundPackage(playground.activeDocument?.text ?? ''),
+        package: playgroundPackage(
+          playground.activeDocument?.text ?? '',
+          frontend.languageId,
+          playground.activeDocument?.uri ?? '',
+        ),
         irVersion: preferredIrVersion(frontend, selectedTargetEntry),
         options: {},
       })
