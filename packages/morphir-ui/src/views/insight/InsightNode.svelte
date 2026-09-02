@@ -42,6 +42,7 @@
     role: 'button' as const,
     tabindex: 0,
     'aria-label': kindLabel,
+    'data-insight-selectable': 'true',
     onclick: select(kindLabel, fqn, doc),
     onkeydown: (e: KeyboardEvent) => {
       if (e.key === 'Enter') select(kindLabel, fqn, doc)(e)
@@ -98,10 +99,10 @@
   >
 {:else if node.kind === 'v-member-of'}
   <span class="inline" {...selectProps(node.kind)}
-    ><InsightNode node={node.item} /> is one of [<!--
+    ><InsightNode node={node.item} /> is one of <span class="punctuation grouping">[</span><!--
   -->{#each node.options as o, i (i)}{#if i > 0}<span class="punctuation">,</span>
       {/if}<InsightNode node={o} />{/each}<!--
-  -->]</span
+  --><span class="punctuation grouping">]</span></span
   >
 {:else if node.kind === 'v-record' || node.kind === 'v-update-record'}
   <span class="record-wrap" {...selectProps(node.kind)}>
@@ -243,7 +244,7 @@
   .let-body {
     margin-top: 2px;
   }
-  :global([role='button']:focus-visible) {
+  :global([data-insight-selectable]:focus-visible) {
     outline: 2px solid var(--accent2);
     outline-offset: 3px;
     border-radius: 4px;

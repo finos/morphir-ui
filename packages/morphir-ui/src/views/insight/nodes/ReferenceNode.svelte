@@ -24,10 +24,10 @@
   {/if}
   {#if node.args.length > 0}
     <span class="call"
-      >(<!--
-    -->{#each node.args as arg, i (i)}{#if i > 0},
+      ><span class="punctuation grouping">(</span><!--
+    -->{#each node.args as arg, i (i)}{#if i > 0}<span class="punctuation">,</span>
         {/if}{@render render(arg)}{/each}<!--
-    -->)</span
+    --><span class="punctuation grouping">)</span></span
     >
   {/if}
   {#if node.cycle}
@@ -61,6 +61,13 @@
   .call {
     font-family: var(--mono);
     color: var(--text);
+  }
+  .punctuation {
+    color: var(--muted2);
+    font-size: 0.9em;
+  }
+  .grouping {
+    font-weight: 700;
   }
   .cycle-chip {
     font-size: 0.82em;

@@ -59,6 +59,29 @@ describe('InsightView', () => {
     expect(screen.getByText('a')).toBeTruthy()
   })
 
+  test('marks grouped arithmetic parentheses as semantic punctuation', async () => {
+    await setup('mixedPrecedence')
+    expect(document.querySelector('.grouped .punctuation.grouping')).toBeTruthy()
+  })
+
+  test('marks reference call punctuation as secondary syntax', async () => {
+    await setup('usesHelper')
+    expect(document.querySelector('.ref .call')?.querySelectorAll('.punctuation')).toHaveLength(2)
+  })
+
+  test('marks membership list brackets as grouping punctuation', async () => {
+    await setup('memberOf')
+    const membership = screen.getByRole('button', { name: 'v-member-of' })
+    expect(membership.querySelectorAll('.punctuation.grouping')).toHaveLength(2)
+  })
+
+  test('marks keyboard-selectable Insight nodes for scoped focus styling', async () => {
+    await setup('chainedArithmetic')
+    expect(screen.getByRole('button', { name: 'v-arith-chain' }).getAttribute('data-insight-selectable')).toBe(
+      'true',
+    )
+  })
+
   test('renders a decision table with wildcard cells as anything else', async () => {
     await setup('tupleCase')
     expect(screen.getAllByText('anything else').length).toBeGreaterThan(0)
