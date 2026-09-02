@@ -80,7 +80,9 @@ export class RpcClient {
       const id = this.#nextId++
       this.#pending.set(id, { resolve, reject })
       try {
-        this.#ipc.postMessage({ id, method, params })
+        // JSON-RPC carries JSON data. Materialize reactive proxies before crossing
+        // Electron's context bridge, whose structured clone rejects proxy objects.
+        this.#ipc.postMessage(JSON.parse(JSON.stringify({ id, method, params })))
       } catch (error) {
         this.#pending.delete(id)
         reject(error instanceof Error ? error : new Error(String(error)))
