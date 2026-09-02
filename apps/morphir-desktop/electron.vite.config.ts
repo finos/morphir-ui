@@ -5,6 +5,10 @@ import { createRequire } from 'node:module'
 import type { Plugin } from 'vite'
 
 const require = createRequire(import.meta.url)
+const desktopPackage = require('./package.json') as { dependencies: Record<string, string> }
+const workspaceDependencies = Object.entries(desktopPackage.dependencies)
+  .filter(([, version]) => version.startsWith('workspace:'))
+  .map(([name]) => name)
 
 const workspaceWasmAsset = (): Plugin => ({
   name: 'morphir-workspace-wasm-asset',
@@ -25,7 +29,12 @@ const workspaceWasmAsset = (): Plugin => ({
 })
 
 export default defineConfig({
-  main: { plugins: [workspaceWasmAsset()] },
+  main: {
+    // Workspace packages export TypeScript source. Electron cannot strip types
+    // from node_modules in app.asar, so compile those imports into the main bundle.
+    build: { externalizeDeps: { exclude: workspaceDependencies } },
+    plugins: [workspaceWasmAsset()],
+  },
   // Sandboxed preload scripts must be CommonJS (Electron cannot load ESM preload
   // under webPreferences.sandbox: true). Force cjs output + .cjs extension so the
   // file is treated as CommonJS despite this package's "type": "module".

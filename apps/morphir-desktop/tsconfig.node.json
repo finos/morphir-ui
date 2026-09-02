@@ -1,5 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "types": ["@types/node", "bun-types"], "noEmit": true },
-  "include": ["src/main/**/*.ts", "src/preload/**/*.ts", "test/**/*.ts", "electron.vite.config.ts"]
+  "compilerOptions": { "types": ["@types/node", "bun-types"], "noEmit": true, "allowJs": true },
+  "include": [
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts",
+    "test/**/*.ts",
+    "electron.vite.config.ts",
+    "scripts/windows-manifest.mjs"
+  ]
 }

@@ -11,7 +11,7 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
-    "lint": "eslint src test",
+    "lint": "eslint src test scripts/windows-manifest.mjs",
     "typecheck:main": "bun ./node_modules/typescript7/bin/tsc -p tsconfig.node.json --noEmit",
     "typecheck": "bun run typecheck:main && svelte-check --tsconfig ./tsconfig.json",
     "test": "bun test",
@@ -33,6 +33,8 @@
     "svelte": "^5.56.10"
   },
   "devDependencies": {
+    "@xmldom/xmldom": "0.9.12",
+    "resedit": "1.7.2",
     "electron": "^44.0.0",
     "electron-vite": "^5.0.0",
     "electron-builder": "^26.15.3",

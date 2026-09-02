@@ -2,6 +2,7 @@ appId: org.finos.morphir.desktop
 productName: Morphir Desktop
 copyright: Copyright © FINOS
 executableName: morphir-desktop
+afterPack: ./scripts/windows-manifest.mjs
 artifactName: morphir-desktop-${version}-${os}-${arch}.${ext}
 directories:
   output: release
