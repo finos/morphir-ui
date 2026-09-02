@@ -95,8 +95,15 @@ export const decodeMorphirIr = (input: string): Effect.Effect<MorphirLibrary, Ir
           if (typeof root !== 'object' || root === null) throw fail('IR root must be an object')
           const env = root as Record<string, unknown>
           if (!('formatVersion' in env)) throw MissingFormatVersion.make()
-          if (!DECODABLE_FORMAT_VERSIONS.includes(Number(env['formatVersion'])))
-            throw UnsupportedFormatVersion.make(Number(env['formatVersion']))
+          // The type check is load-bearing, not decoration: Number() coerces '3', [3]
+          // and ['3'] to a supported 3, so testing membership on a coerced value would
+          // accept an envelope whose shape is already wrong.
+          const formatVersion = env['formatVersion']
+          if (
+            typeof formatVersion !== 'number' ||
+            !DECODABLE_FORMAT_VERSIONS.includes(formatVersion)
+          )
+            throw UnsupportedFormatVersion.make(Number(formatVersion))
           const dist = env['distribution']
           if (!Array.isArray(dist) || dist[0] !== 'Library')
             throw fail('expected a Library distribution')

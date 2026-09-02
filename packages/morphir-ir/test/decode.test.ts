@@ -44,6 +44,20 @@ describe('decodeMorphirIr', () => {
     expect(message).toContain('latest format version is 3')
   })
 
+  // The envelope's formatVersion is a JSON number, and only a number. Every value here
+  // coerces to a supported 3 through Number(), so a membership test that coerces would
+  // wave through an envelope whose shape is already wrong.
+  test('rejects a formatVersion that is not a number, however coercible', async () => {
+    for (const found of ['3', [3], ['3'], { valueOf: () => 3 }]) {
+      const ir = JSON.stringify({
+        formatVersion: found,
+        distribution: ['Library', [], [], { modules: [] }],
+      })
+      const exit = await Effect.runPromiseExit(decodeMorphirIr(ir))
+      expect(Exit.isFailure(exit)).toBe(true)
+    }
+  })
+
   test('rejects formatVersion 1 as legacy', async () => {
     const v1 = JSON.stringify({ formatVersion: 1, distribution: [] })
     const exit = await Effect.runPromiseExit(decodeMorphirIr(v1))
