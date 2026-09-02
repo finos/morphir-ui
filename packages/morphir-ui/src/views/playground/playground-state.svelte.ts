@@ -135,10 +135,7 @@ const onePerKey = <Entry extends { readonly provider: ProviderRef }>(
     if (at === undefined) {
       indexOfKey[key] = kept.length
       kept.push(entry)
-    } else if (
-      kept[at]!.provider.origin === 'builtin' &&
-      entry.provider.origin === 'installed'
-    ) {
+    } else if (kept[at]!.provider.origin === 'builtin' && entry.provider.origin === 'installed') {
       // Replaced in place, so a later duplicate that outranks the first keeps the
       // first occurrence's position in the catalog's order.
       kept[at] = entry
@@ -297,8 +294,7 @@ export const playgroundPackage = (
  * it costs nothing.
  *
  * When nothing decodable is on offer the first candidate still wins: compile and
- * generate keep working and only the inspect panes degrade, which is the situation
- * tracked separately as making v4 renderable at all.
+ * generate keep working and only the inspect panes degrade.
  *
  * Returns '' for a frontend that declares no versions, which `targetRefusalReason`
  * already reports as an undeclared extension. */
@@ -307,8 +303,7 @@ export const preferredIrVersion = (frontend: FrontendEntry, target: TargetEntry 
   // already refused, and compiling is still allowed in that state (hydrate can restore
   // a selection the current frontend has since become incompatible with), so the
   // frontend's own versions are what remain to choose from.
-  const agreed =
-    target?.irVersions.filter((version) => frontend.irVersions.includes(version)) ?? []
+  const agreed = target?.irVersions.filter((version) => frontend.irVersions.includes(version)) ?? []
   const candidates = agreed.length > 0 ? agreed : frontend.irVersions
   return candidates.find(canDecodeIrVersion) ?? candidates[0] ?? ''
 }

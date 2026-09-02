@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { Effect } from 'effect'
 import {
-  decodeMorphirIr, decodeEntryValueDef, decodeValueExpr, uncurryApply,
-  nameToCamel, type RawDefEntry
+  decodeMorphirIr,
+  decodeEntryValueDef,
+  decodeValueExpr,
+  uncurryApply,
+  nameToCamel,
+  type RawDefEntry,
 } from '../src/index.ts'
 
 const loadFixture = async () => {
@@ -32,7 +36,11 @@ const collectUnknownTags = (node: unknown, found: string[] = []): string[] => {
 
 describe('decodeValueExpr against unit snippets', () => {
   test('literal with full type attribute', () => {
-    const raw = ['Literal', ['Reference', {}, [[['morphir'], ['s', 'd', 'k']], [['basics']], ['int']], []], ['WholeNumberLiteral', 0]]
+    const raw = [
+      'Literal',
+      ['Reference', {}, [[['morphir'], ['s', 'd', 'k']], [['basics']], ['int']], []],
+      ['WholeNumberLiteral', 0],
+    ]
     const d = decodeValueExpr(raw)
     expect(d.kind).toBe('literal')
     if (d.kind === 'literal') expect(d.literal).toEqual({ kind: 'whole-number', value: 0 })
@@ -48,6 +56,51 @@ describe('decodeValueExpr against unit snippets', () => {
   })
   test('unknown tag degrades without throwing', () => {
     expect(decodeValueExpr(['Mystery', {}, 1]).kind).toBe('unknown')
+  })
+
+  test('v4 expression bodies decode through literals, constructors, and apply', () => {
+    const answer = decodeEntryValueDef({
+      rawDefinition: {
+        ExpressionBody: {
+          inputTypes: {},
+          outputType: { Reference: { fqname: 'morphir/ui-smoke:main#int', attrs: {} } },
+          body: { Literal: { literal: { IntegerLiteral: { value: 42 } }, attrs: {} } },
+        },
+      },
+    })
+    expect(answer?.output.kind).toBe('type-reference')
+    expect(answer?.body).toEqual({
+      kind: 'literal',
+      attr: {},
+      literal: { kind: 'whole-number', value: 42 },
+    })
+
+    const hello = decodeEntryValueDef({
+      rawDefinition: {
+        ExpressionBody: {
+          inputTypes: {},
+          outputType: { Reference: { fqname: 'morphir/ui-smoke:main#greeting', attrs: {} } },
+          body: {
+            Apply: {
+              function: { Constructor: { fqname: 'morphir/ui-smoke:main#greeting', attrs: {} } },
+              argument: {
+                Literal: { literal: { StringLiteral: { value: 'Hello, Morphir!' } }, attrs: {} },
+              },
+              attrs: {},
+            },
+          },
+        },
+      },
+    })
+    expect(hello?.body.kind).toBe('apply')
+    if (hello?.body.kind === 'apply') {
+      expect(hello.body.fn.kind).toBe('constructor')
+      expect(hello.body.arg).toEqual({
+        kind: 'literal',
+        attr: {},
+        literal: { kind: 'string', value: 'Hello, Morphir!' },
+      })
+    }
   })
 })
 
@@ -106,10 +159,47 @@ describe('decoding the insight fixture', () => {
 
   test('the unknown-walker traverses pair wrappers and nested definitions', () => {
     const planted = { kind: 'unknown', tag: 'Planted', raw: null }
-    expect(collectUnknownTags({ kind: 'value-record', attr: {}, fields: [{ name: ['f'], value: planted }] })).toEqual(['Planted'])
-    expect(collectUnknownTags({ kind: 'pattern-match', attr: {}, subject: { kind: 'value-unit', attr: {} }, cases: [{ pattern: { kind: 'wildcard' }, body: planted }] })).toEqual(['Planted'])
-    expect(collectUnknownTags({ kind: 'let-definition', attr: {}, name: ['x'], definition: { inputs: [], output: { kind: 'type-unit' }, body: planted }, inValue: { kind: 'value-unit', attr: {} } })).toEqual(['Planted'])
-    expect(collectUnknownTags({ kind: 'let-recursion', attr: {}, definitions: [{ name: ['f'], definition: { inputs: [], output: { kind: 'type-unit' }, body: planted } }], inValue: { kind: 'value-unit', attr: {} } })).toEqual(['Planted'])
-    expect(collectUnknownTags({ kind: 'update-record', attr: {}, subject: { kind: 'value-unit', attr: {} }, fields: [{ name: ['f'], value: planted }] })).toEqual(['Planted'])
+    expect(
+      collectUnknownTags({
+        kind: 'value-record',
+        attr: {},
+        fields: [{ name: ['f'], value: planted }],
+      }),
+    ).toEqual(['Planted'])
+    expect(
+      collectUnknownTags({
+        kind: 'pattern-match',
+        attr: {},
+        subject: { kind: 'value-unit', attr: {} },
+        cases: [{ pattern: { kind: 'wildcard' }, body: planted }],
+      }),
+    ).toEqual(['Planted'])
+    expect(
+      collectUnknownTags({
+        kind: 'let-definition',
+        attr: {},
+        name: ['x'],
+        definition: { inputs: [], output: { kind: 'type-unit' }, body: planted },
+        inValue: { kind: 'value-unit', attr: {} },
+      }),
+    ).toEqual(['Planted'])
+    expect(
+      collectUnknownTags({
+        kind: 'let-recursion',
+        attr: {},
+        definitions: [
+          { name: ['f'], definition: { inputs: [], output: { kind: 'type-unit' }, body: planted } },
+        ],
+        inValue: { kind: 'value-unit', attr: {} },
+      }),
+    ).toEqual(['Planted'])
+    expect(
+      collectUnknownTags({
+        kind: 'update-record',
+        attr: {},
+        subject: { kind: 'value-unit', attr: {} },
+        fields: [{ name: ['f'], value: planted }],
+      }),
+    ).toEqual(['Planted'])
   })
 })

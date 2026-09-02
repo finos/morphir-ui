@@ -391,11 +391,7 @@ describe('playgroundPackage', () => {
   // instead, mirroring module_name_from_document_uri in morphir-gleam-binding.
   test('derives the module name from the URI for Gleam, not from the source text', () => {
     expect(
-      playgroundPackage(
-        'pub fn hello() { "world" }',
-        'gleam',
-        'morphir-playground:/main.gleam',
-      ),
+      playgroundPackage('pub fn hello() { "world" }', 'gleam', 'morphir-playground:/main.gleam'),
     ).toEqual({ name: 'local/main', exposedModules: ['main'] })
   })
 })
@@ -410,11 +406,11 @@ describe('preferredIrVersion', () => {
   // looks like a broken view rather than a badly chosen request. When the frontend
   // offers a decodable version at all, ask for that one.
   test('prefers a decodable version over an earlier undecodable one', () => {
-    expect(preferredIrVersion(frontend('elm', ['4', '3']), null)).toBe('3')
+    expect(preferredIrVersion(frontend('elm', ['5', '4']), null)).toBe('4')
   })
 
   test('matches a decodable version spelled as a triplet', () => {
-    expect(preferredIrVersion(frontend('elm', ['4.0.0', '3.0.0']), null)).toBe('3.0.0')
+    expect(preferredIrVersion(frontend('elm', ['5.0.0', '4.0.0']), null)).toBe('4.0.0')
   })
 
   // Generation compatibility outranks decodability: an IR the target cannot consume
@@ -425,9 +421,7 @@ describe('preferredIrVersion', () => {
   })
 
   test('falls back to the first agreed version when none of them is decodable', () => {
-    expect(preferredIrVersion(frontend('gleam', ['4', '5']), target('gleam', ['5', '4']))).toBe(
-      '5',
-    )
+    expect(preferredIrVersion(frontend('gleam', ['5', '6']), target('gleam', ['6', '5']))).toBe('6')
   })
 
   // A target selected before the frontend changed can survive as an incompatible
@@ -435,11 +429,11 @@ describe('preferredIrVersion', () => {
   // still allowed in that state. With no agreement to honor, the frontend's own
   // versions are the candidates.
   test('ignores a target that agrees on nothing and picks from the frontend', () => {
-    expect(preferredIrVersion(frontend('elm', ['4', '3']), target('scala', ['9']))).toBe('3')
+    expect(preferredIrVersion(frontend('elm', ['5', '4']), target('scala', ['9']))).toBe('4')
   })
 
   test('falls back to the first version when the frontend offers nothing decodable', () => {
-    expect(preferredIrVersion(frontend('gleam', ['4', '5']), null)).toBe('4')
+    expect(preferredIrVersion(frontend('gleam', ['5', '6']), null)).toBe('5')
   })
 
   // A revision inside a decodable major is a different release, spelled on the wire as

@@ -32,6 +32,59 @@ describe('decodeMorphirIr', () => {
     expect(forecast.values).toHaveLength(0)
   })
 
+  test('decodes a v4 library into the explorer model', async () => {
+    const typeDefinition = { CustomTypeDefinition: { typeParams: [], constructors: {} } }
+    const valueDefinition = {
+      ExpressionBody: {
+        inputTypes: {},
+        outputType: 'morphir/sdk:basics#int',
+        body: { Literal: { literal: { IntegerLiteral: { value: 42 } }, attrs: {} } },
+      },
+    }
+    const v4 = JSON.stringify({
+      formatVersion: 4,
+      distribution: {
+        Library: {
+          packageName: 'morphir/ui-smoke',
+          dependencies: {},
+          def: {
+            modules: {
+              'main/domain': {
+                access: 'Private',
+                value: {
+                  types: {
+                    greeting: { access: 'Public', value: typeDefinition },
+                  },
+                  values: {
+                    answer: { access: 'Public', value: valueDefinition },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    const lib = await Effect.runPromise(decodeMorphirIr(v4))
+    expect(lib.packageName).toEqual([['morphir'], ['ui', 'smoke']])
+    expect(lib.modules).toHaveLength(1)
+    expect(lib.modules[0]?.path).toEqual([['main'], ['domain']])
+    expect(lib.modules[0]?.access).toBe('Private')
+    expect(lib.modules[0]?.types[0]).toEqual({
+      name: ['greeting'],
+      access: 'Public',
+      doc: null,
+      rawDefinition: typeDefinition,
+    })
+    expect(lib.modules[0]?.values[0]).toEqual({
+      name: ['answer'],
+      access: 'Public',
+      doc: null,
+      rawDefinition: valueDefinition,
+    })
+  })
+
   test('rejects formatVersion 2 with the regenerate message', async () => {
     const v2 = JSON.stringify({
       formatVersion: 2,
@@ -41,7 +94,7 @@ describe('decodeMorphirIr', () => {
     expect(Exit.isFailure(exit)).toBe(true)
     const message = Exit.isFailure(exit) ? String(exit.cause) : ''
     expect(message).toContain('format version 2')
-    expect(message).toContain('latest format version is 3')
+    expect(message).toContain('supports versions 3 and 4')
   })
 
   // The envelope's formatVersion is a JSON number, and only a number. Every value here
@@ -83,8 +136,8 @@ describe('canDecodeIrVersion', () => {
   test('reads a bare major and a baseline triplet as the same release', () => {
     expect(canDecodeIrVersion('3')).toBe(true)
     expect(canDecodeIrVersion('3.0.0')).toBe(true)
-    expect(canDecodeIrVersion('4')).toBe(false)
-    expect(canDecodeIrVersion('4.0.0')).toBe(false)
+    expect(canDecodeIrVersion('4')).toBe(true)
+    expect(canDecodeIrVersion('4.0.0')).toBe(true)
   })
 
   // Support is per exact release, not per major family: the contract's own outcomes
@@ -114,7 +167,16 @@ describe('canDecodeIrVersion', () => {
       expect(canDecodeIrVersion(String(version))).toBe(true)
       const ir = JSON.stringify({
         formatVersion: version,
-        distribution: ['Library', [], [], { modules: [] }],
+        distribution:
+          version === 3
+            ? ['Library', [], [], { modules: [] }]
+            : {
+                Library: {
+                  packageName: 'morphir/example/app',
+                  dependencies: {},
+                  def: { modules: {} },
+                },
+              },
       })
       const exit = await Effect.runPromiseExit(decodeMorphirIr(ir))
       expect(Exit.isFailure(exit)).toBe(false)

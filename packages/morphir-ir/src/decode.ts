@@ -6,6 +6,7 @@ import {
   UnsupportedFormatVersion,
   type IrError,
 } from './errors.ts'
+import { nameFromCanonical, pathFromCanonical } from './names.ts'
 
 export type Name = ReadonlyArray<string>
 export type Path = ReadonlyArray<Name>
@@ -30,6 +31,26 @@ export interface MorphirLibrary {
 const isName = (u: unknown): u is Name => Array.isArray(u) && u.every((p) => typeof p === 'string')
 const isPath = (u: unknown): u is Path => Array.isArray(u) && u.every(isName)
 const isAccess = (u: unknown): u is Access => u === 'Public' || u === 'Private'
+const isRecord = (u: unknown): u is Record<string, unknown> => typeof u === 'object' && u !== null
+
+const readCanonicalName = (value: unknown, label: string): Name => {
+  const name = nameFromCanonical(value)
+  if (name === null) throw fail(`malformed ${label}`)
+  return name
+}
+
+const readCanonicalPath = (value: unknown, label: string): Path => {
+  const path = pathFromCanonical(value)
+  if (path === null) throw fail(`malformed ${label}`)
+  return path
+}
+
+const readDocumentation = (value: unknown): string | null => {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value) && value.every((line) => typeof line === 'string'))
+    return value.join('\n')
+  return null
+}
 
 const fail = (message: string) => new InvalidIr({ message })
 
@@ -66,12 +87,70 @@ function readModule(entry: unknown): RawModule {
   return { path: entry[0], access: ac['access'], types, values }
 }
 
+function readV4DefEntry(name: string, entry: unknown, section: string): RawDefEntry {
+  if (!isRecord(entry) || !isAccess(entry['access'])) throw fail(`malformed ${section} access`)
+  const documented = entry['value']
+  if (!isRecord(documented)) throw fail(`malformed ${section} definition`)
+  const hasDocumentWrapper = 'doc' in documented && 'value' in documented
+  return {
+    name: readCanonicalName(name, `${section} name`),
+    access: entry['access'],
+    doc: readDocumentation(documented['doc']),
+    rawDefinition: hasDocumentWrapper ? documented['value'] : documented,
+  }
+}
+
+function readV4Module(name: string, entry: unknown): RawModule {
+  if (!isRecord(entry) || !isAccess(entry['access'])) throw fail('malformed module access')
+  const definition = entry['value']
+  if (!isRecord(definition)) throw fail('malformed module definition')
+  const types = definition['types']
+  const values = definition['values']
+  if (!isRecord(types)) throw fail('malformed type definitions')
+  if (!isRecord(values)) throw fail('malformed value definitions')
+  return {
+    path: readCanonicalPath(name, 'module name'),
+    access: entry['access'],
+    types: Object.entries(types).map(([localName, value]) =>
+      readV4DefEntry(localName, value, 'type'),
+    ),
+    values: Object.entries(values).map(([localName, value]) =>
+      readV4DefEntry(localName, value, 'value'),
+    ),
+  }
+}
+
+function readV3Library(env: Record<string, unknown>): MorphirLibrary {
+  const dist = env['distribution']
+  if (!Array.isArray(dist) || dist[0] !== 'Library') throw fail('expected a Library distribution')
+  if (!isPath(dist[1])) throw fail('malformed package name')
+  const pkgDef = dist[3] as Record<string, unknown>
+  if (typeof pkgDef !== 'object' || pkgDef === null || !Array.isArray(pkgDef['modules']))
+    throw fail('malformed package definition')
+  return { packageName: dist[1], modules: pkgDef['modules'].map(readModule) }
+}
+
+function readV4Library(env: Record<string, unknown>): MorphirLibrary {
+  const dist = env['distribution']
+  if (!isRecord(dist) || !isRecord(dist['Library'])) throw fail('expected a Library distribution')
+  const library = dist['Library']
+  const definition = library['def']
+  if (!isRecord(definition) || !isRecord(definition['modules']))
+    throw fail('malformed package definition')
+  return {
+    packageName: readCanonicalPath(library['packageName'], 'package name'),
+    modules: Object.entries(definition['modules']).map(([name, value]) =>
+      readV4Module(name, value),
+    ),
+  }
+}
+
 /** The IR format versions this decoder accepts, as they appear in an envelope.
  *
- * Single-valued today; when a v4 decoder lands (see the Insight v4 work) adding it here
- * is what tells every caller — including the Playground, which uses this to decide what
- * IR version to ask a frontend for — that v4 became renderable. */
-export const DECODABLE_FORMAT_VERSIONS: ReadonlyArray<number> = [3]
+ * This tells every caller — including the Playground, which uses it to decide what IR
+ * version to ask a frontend for — which envelopes can be normalized for the explorer.
+ * Individual unrecognized AST nodes retain the decoder's visible UnknownNode fallback. */
+export const DECODABLE_FORMAT_VERSIONS: ReadonlyArray<number> = [3, 4]
 
 /** The exact releases this decoder accepts.
  *
@@ -126,14 +205,7 @@ export const decodeMorphirIr = (input: string): Effect.Effect<MorphirLibrary, Ir
             !DECODABLE_FORMAT_VERSIONS.includes(formatVersion)
           )
             throw UnsupportedFormatVersion.make(Number(formatVersion))
-          const dist = env['distribution']
-          if (!Array.isArray(dist) || dist[0] !== 'Library')
-            throw fail('expected a Library distribution')
-          if (!isPath(dist[1])) throw fail('malformed package name')
-          const pkgDef = dist[3] as Record<string, unknown>
-          if (typeof pkgDef !== 'object' || pkgDef === null || !Array.isArray(pkgDef['modules']))
-            throw fail('malformed package definition')
-          return { packageName: dist[1], modules: pkgDef['modules'].map(readModule) }
+          return formatVersion === 3 ? readV3Library(env) : readV4Library(env)
         },
         catch: (e) =>
           e instanceof MissingFormatVersion ||

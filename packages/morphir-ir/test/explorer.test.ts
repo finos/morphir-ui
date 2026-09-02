@@ -2,8 +2,10 @@ import { describe, expect, test } from 'bun:test'
 import { Effect } from 'effect'
 import {
   decodeMorphirIr,
+  nameFromCanonical,
   nameToCamel,
   nameToTitle,
+  pathFromCanonical,
   pathToTitle,
   toWorkspaceIr,
 } from '../src/index.ts'
@@ -16,6 +18,12 @@ const load = async (name: string) =>
   )
 
 describe('name formatting', () => {
+  test('preserves canonical initialisms when adapting v4 names', () => {
+    expect(nameFromCanonical('value-in-USD')).toEqual(['value', 'in', 'u', 's', 'd'])
+    expect(pathFromCanonical('morphir/SDK')).toEqual([['morphir'], ['s', 'd', 'k']])
+    expect(pathToTitle(pathFromCanonical('morphir/SDK')!)).toBe('Morphir.SDK')
+  })
+
   test('title-cases word parts', () =>
     expect(nameToTitle(['custom', 'report'])).toBe('CustomReport'))
   test('uppercases single letters', () => expect(nameToTitle(['u', 's'])).toBe('US'))
