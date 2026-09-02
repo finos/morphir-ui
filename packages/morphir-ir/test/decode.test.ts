@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { Effect, Exit } from 'effect'
-import { decodeMorphirIr } from '../src/index.ts'
+import { DECODABLE_FORMAT_VERSIONS, canDecodeIrVersion, decodeMorphirIr } from '../src/index.ts'
 
 const fixture = (name: string) => Bun.file(new URL(`./fixtures/${name}`, import.meta.url)).text()
 
@@ -58,5 +58,40 @@ describe('decodeMorphirIr', () => {
   test('rejects invalid JSON', async () => {
     const exit = await Effect.runPromiseExit(decodeMorphirIr('not json'))
     expect(Exit.isFailure(exit)).toBe(true)
+  })
+})
+
+describe('canDecodeIrVersion', () => {
+  // The catalog spells advertised versions two ways at once: morphir-elm reports a bare
+  // major ('3') while morphir-gleam-binding reports a full triplet ('4.0.0'). Both name a
+  // format version, so both have to be answerable.
+  test('answers for a bare major and for a full triplet alike', () => {
+    expect(canDecodeIrVersion('3')).toBe(true)
+    expect(canDecodeIrVersion('3.0.0')).toBe(true)
+    expect(canDecodeIrVersion('4')).toBe(false)
+    expect(canDecodeIrVersion('4.0.0')).toBe(false)
+  })
+
+  // A version this decoder has never heard of is not decodable. Saying otherwise would
+  // send a caller off to request IR that fails at the format check instead.
+  test('an unparseable or empty version is not decodable', () => {
+    expect(canDecodeIrVersion('')).toBe(false)
+    expect(canDecodeIrVersion('draft')).toBe(false)
+    expect(canDecodeIrVersion('v3')).toBe(false)
+  })
+
+  // The predicate and the decoder must not be able to disagree: whatever
+  // canDecodeIrVersion admits, decodeMorphirIr has to accept, or callers are steered
+  // toward a version that then fails the format check.
+  test('every admitted version is one decodeMorphirIr actually accepts', async () => {
+    for (const version of DECODABLE_FORMAT_VERSIONS) {
+      expect(canDecodeIrVersion(String(version))).toBe(true)
+      const ir = JSON.stringify({
+        formatVersion: version,
+        distribution: ['Library', [], [], { modules: [] }],
+      })
+      const exit = await Effect.runPromiseExit(decodeMorphirIr(ir))
+      expect(Exit.isFailure(exit)).toBe(false)
+    }
   })
 })
