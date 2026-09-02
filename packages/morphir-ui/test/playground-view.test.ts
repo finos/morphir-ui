@@ -8,9 +8,13 @@ import PlaygroundView from '../src/views/playground/PlaygroundView.svelte'
 import { Effect, Layer } from 'effect'
 import {
   ConfigService,
+  PipelineService,
   defaultUiConfig,
   makeAppServices,
   type CapabilityCatalog,
+  type PlaygroundCompileInput,
+  type PlaygroundCompileResult,
+  type PlaygroundGenerateInput,
   type UiConfig,
 } from '../src/index.ts'
 import { makeFakeCore, makeFakePipeline } from './support/fake-services.ts'
@@ -163,6 +167,146 @@ describe('PlaygroundView', () => {
     const reasons = await screen.findByTestId('target-refusals')
     expect(reasons.textContent).toContain('Future requires Morphir IR 4')
     expect(reasons.textContent).toContain('Morphir Elm emits 3')
+  })
+
+  // Requirement: a real session can offer the same language from an installed extension
+  // and a builtin at once. The wire protocol addresses a compile by languageId alone and
+  // the daemon resolves that duplicate to the installed provider, so the UI must show
+  // exactly that one — two entries would crash the keyed list and promise a choice the
+  // protocol cannot deliver.
+  test('a language two providers offer is listed once, as the provider the session would run', async () => {
+    const gleamFrontend = (origin: 'builtin' | 'installed') => ({
+      languageId: 'gleam',
+      displayName: `${origin} Gleam`,
+      fileExtensions: ['.gleam'],
+      irVersions: ['4'],
+      compile: true,
+      incremental: null,
+      fragments: null,
+      provider: { ...provider(`gleam-${origin}`), origin },
+    })
+    const gleamTarget = (origin: 'builtin' | 'installed') => ({
+      target: 'gleam',
+      displayName: `${origin} Gleam`,
+      irVersions: ['4'],
+      generate: true,
+      provider: { ...provider(`gleam-${origin}`), origin },
+    })
+    // Builtin listed first, to prove preference is by origin rather than by position.
+    const fake = makeFakePipeline({
+      catalog: {
+        frontends: [gleamFrontend('builtin'), gleamFrontend('installed')],
+        targets: [gleamTarget('builtin'), gleamTarget('installed')],
+      },
+    })
+    await setup({ pipeline: fake })
+
+    const source = (await screen.findByLabelText('Source language')) as HTMLSelectElement
+    await waitFor(() => expect(source.options.length).toBe(1))
+    expect(source.options[0]!.textContent).toContain('installed Gleam')
+    const targets = await catalogLoaded(1)
+    expect(targets.options[1]!.textContent).toContain('installed Gleam')
+  })
+
+  // Requirement: an advertised refusal is honored, not merely displayed. A frontend
+  // with compile: false already reads "Not supported" in the capability list; enabling
+  // Compile anyway would send an operation the provider explicitly refused.
+  test('a frontend that refuses compilation disables Compile', async () => {
+    const fake = makeFakePipeline({
+      catalog: catalog({
+        frontends: [
+          {
+            languageId: 'elm',
+            displayName: 'Morphir Elm',
+            fileExtensions: ['.elm'],
+            irVersions: ['3'],
+            compile: false,
+            incremental: null,
+            fragments: null,
+            provider: provider('morphir-elm'),
+          },
+        ],
+      }),
+    })
+    await setup({ pipeline: fake })
+
+    const compile = await screen.findByTestId('capability-compile')
+    await waitFor(() => expect(compile.textContent).toContain('Not supported'))
+    expect(screen.getByRole('button', { name: 'Compile' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  test('a target that refuses generation is disabled with its reason on screen', async () => {
+    const fake = makeFakePipeline({
+      catalog: catalog({
+        targets: [
+          {
+            target: 'scala',
+            displayName: 'Scala',
+            irVersions: ['3'],
+            generate: false,
+            provider: provider('morphir-scala'),
+          },
+        ],
+      }),
+    })
+    await setup({ pipeline: fake })
+
+    const select = await catalogLoaded(1)
+    const scala = select.options[1]!
+    expect(scala.disabled).toBe(true)
+    const reasons = await screen.findByTestId('target-refusals')
+    expect(reasons.textContent).toMatch(/does not support/i)
+  })
+
+  // Requirement: a response answers the input it was asked about, and no other. A slow
+  // compile that lands after the frontend has changed must be dropped, or stale IR is
+  // displayed beside source it was never compiled from.
+  test('a compile answered after the frontend changed is discarded', async () => {
+    let resolveCompile!: (result: PlaygroundCompileResult) => void
+    const deferred = new Promise<PlaygroundCompileResult>((resolve) => {
+      resolveCompile = resolve
+    })
+    const calls = {
+      compile: [] as Array<PlaygroundCompileInput>,
+      generate: [] as Array<PlaygroundGenerateInput>,
+    }
+    const twoLanguages = catalog({
+      frontends: [
+        ...catalog().frontends,
+        {
+          languageId: 'gleam',
+          displayName: 'Gleam',
+          fileExtensions: ['.gleam'],
+          irVersions: ['4'],
+          compile: true,
+          incremental: null,
+          fragments: null,
+          provider: provider('morphir-gleam'),
+        },
+      ],
+    })
+    const pipeline = Layer.succeed(PipelineService, {
+      catalog: Effect.sync(() => twoLanguages),
+      compile: (input) => {
+        calls.compile.push(input)
+        return Effect.promise(() => deferred)
+      },
+      generate: () => Effect.sync(() => ({ success: true, artifacts: [], diagnostics: [] })),
+    })
+    await setup({ pipeline: { pipeline, calls } })
+
+    const source = (await screen.findByLabelText('Source language')) as HTMLSelectElement
+    await waitFor(() => expect(source.options.length).toBe(2))
+    const compileButton = screen.getByRole('button', { name: 'Compile' })
+    await waitFor(() => expect(compileButton.hasAttribute('disabled')).toBe(false))
+    await userEvent.click(compileButton)
+    await waitFor(() => expect(calls.compile.length).toBe(1))
+
+    await userEvent.selectOptions(source, 'gleam')
+    resolveCompile({ success: true, irVersion: '3', ir: {}, diagnostics: [], modules: ['Main'] })
+
+    await waitFor(() => expect(compileButton.hasAttribute('disabled')).toBe(false))
+    expect(screen.queryByText(/Compiled 1 module/)).toBeNull()
   })
 
   // Requirement: compiling is explicit. A compile may start an extension process, so no

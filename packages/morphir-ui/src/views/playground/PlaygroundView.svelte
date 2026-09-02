@@ -32,6 +32,7 @@
     capabilityDetail,
     capabilityLabel,
     editorDiagnosticsFor,
+    normalizeCatalog,
     playgroundPackage,
     preferredIrVersion,
     targetRefusalReason,
@@ -113,7 +114,12 @@
   const hasRefusals = $derived(refusals.length > 0 || retiredTargetReason !== null)
 
   const busy = $derived(playground.status === 'compiling' || playground.status === 'generating')
-  const canCompile = $derived(pipeline !== null && selectedFrontend !== null && !busy)
+  // `compile` is a hard boolean on the wire (unlike incremental/fragments it is always
+  // persisted, never null), so false is an actual refusal and gates the action, not
+  // just the capability badge.
+  const canCompile = $derived(
+    pipeline !== null && selectedFrontend !== null && selectedFrontend.compile && !busy,
+  )
   const compiledIr = $derived(playground.compileResult?.ir ?? null)
   const canGenerate = $derived(
     pipeline !== null &&
@@ -196,7 +202,10 @@
       hydrated = true
       if (!pipeline) return
       try {
-        const catalog = await pipeline.catalog()
+        // Normalized before anything reads it: languageId and target act as identities
+        // everywhere below (keyed lists, .find(), the wire requests themselves), and a
+        // session offering the same language from two providers would break all three.
+        const catalog = normalizeCatalog(await pipeline.catalog())
         if (cancelled) return
         playground.catalog = catalog
         // A persisted (or default) language the live session does not offer would leave
@@ -269,11 +278,25 @@
   // Explicit, never on a keystroke or a debounce: a compile here may start an extension
   // process, unlike try-morphir's in-process compile. Automatic compilation only becomes
   // reasonable once session reuse lands, which is a separate change.
+  /** True when the exchange begun at `revision` no longer answers the current input —
+   * the source was edited or the frontend switched while it was in flight. The editor
+   * and both selects stay enabled during a run precisely so the user can invalidate it;
+   * what lands afterwards must then be dropped, or it restores the very results the
+   * mutation just cleared, displayed beside input they were never produced from. The
+   * status returns to idle because nothing else is in flight: both actions are disabled
+   * while busy, so a stale response is always the only outstanding one. */
+  function discardIfStale(revision: number): boolean {
+    if (playground.revision === revision) return false
+    playground.status = 'idle'
+    return true
+  }
+
   async function compile(): Promise<void> {
     const frontend = selectedFrontend
     if (!pipeline || frontend === null) return
     failure = null
     playground.status = 'compiling'
+    const revision = playground.revision
     try {
       const result = await pipeline.compile({
         languageId: frontend.languageId,
@@ -294,10 +317,12 @@
         irVersion: preferredIrVersion(frontend, selectedTargetEntry),
         options: {},
       })
+      if (discardIfStale(revision)) return
       playground.compileResult = result
       playground.generateResult = null
       playground.status = result.success ? 'idle' : 'error'
     } catch (error) {
+      if (discardIfStale(revision)) return
       failure = messageOf(error)
       playground.status = 'error'
     }
@@ -308,6 +333,7 @@
     if (!pipeline || target === null || compiledIr === null) return
     failure = null
     playground.status = 'generating'
+    const revision = playground.revision
     try {
       const result = await pipeline.generate({
         ir: compiledIr,
@@ -315,9 +341,11 @@
         target: target.target,
         options: {},
       })
+      if (discardIfStale(revision)) return
       playground.generateResult = result
       playground.status = result.success ? 'idle' : 'error'
     } catch (error) {
+      if (discardIfStale(revision)) return
       failure = messageOf(error)
       playground.status = 'error'
     }

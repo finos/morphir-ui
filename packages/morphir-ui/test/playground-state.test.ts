@@ -4,6 +4,7 @@ import {
   capabilityLabel,
   compatibleTargets,
   editorDiagnosticsFor,
+  normalizeCatalog,
   playgroundPackage,
   preferredIrVersion,
   targetRefusalReason,
@@ -189,6 +190,138 @@ describe('playground selection', () => {
 // Requirement: an installed provider's capability record carries only languages, IR
 // versions and the compile flag, so `incremental`/`fragments` arrive as null when the
 // session could not tell. Null must never collapse into false.
+describe('normalizeCatalog', () => {
+  const withOrigin = <T extends { provider: { origin: 'builtin' | 'installed' } }>(
+    entry: T,
+    origin: 'builtin' | 'installed',
+    extensionId: string,
+  ): T => ({
+    ...entry,
+    displayName: `${origin} ${extensionId}`,
+    provider: { ...entry.provider, origin, extensionId },
+  })
+
+  // Requirement: a real session can advertise the same language from an installed
+  // extension and a builtin at once (the captured Rust catalog in
+  // morphir-workspace/test/connected-playground.test.ts does exactly this for Gleam).
+  // The wire protocol addresses a compile by languageId alone, so only one of them is
+  // ever reachable — and the daemon's registry resolves that duplicate to the
+  // installed provider. The catalog shown must be the catalog that would run.
+  test('keeps one frontend per language: the installed provider, regardless of order', () => {
+    const builtin = withOrigin(frontend('gleam', ['4']), 'builtin', 'gleam-builtin')
+    const installed = withOrigin(frontend('gleam', ['4']), 'installed', 'gleam-installed')
+
+    const fromInstalledFirst = normalizeCatalog({
+      frontends: [installed, builtin, frontend('elm', ['3'])],
+      targets: [],
+    })
+    const fromBuiltinFirst = normalizeCatalog({
+      frontends: [builtin, installed, frontend('elm', ['3'])],
+      targets: [],
+    })
+
+    for (const catalog of [fromInstalledFirst, fromBuiltinFirst]) {
+      expect(catalog.frontends.map((entry) => entry.languageId)).toEqual(['gleam', 'elm'])
+      expect(catalog.frontends[0]!.provider.extensionId).toBe('gleam-installed')
+    }
+  })
+
+  test('keeps one target per name the same way', () => {
+    const builtin = withOrigin(target('gleam', ['4']), 'builtin', 'gleam-builtin')
+    const installed = withOrigin(target('gleam', ['4']), 'installed', 'gleam-installed')
+
+    const catalog = normalizeCatalog({
+      frontends: [],
+      targets: [builtin, installed, target('scala', ['3'])],
+    })
+
+    expect(catalog.targets.map((entry) => entry.target)).toEqual(['gleam', 'scala'])
+    expect(catalog.targets[0]!.provider.extensionId).toBe('gleam-installed')
+  })
+
+  // The registry refuses to resolve two providers of the same origin as ambiguous, so
+  // for display there is no "right" one; the first keeps the catalog's own order.
+  test('keeps the first entry when duplicates share an origin', () => {
+    const first = withOrigin(frontend('gleam', ['4']), 'installed', 'gleam-first')
+    const second = withOrigin(frontend('gleam', ['4']), 'installed', 'gleam-second')
+
+    const catalog = normalizeCatalog({ frontends: [first, second], targets: [] })
+
+    expect(catalog.frontends.map((entry) => entry.provider.extensionId)).toEqual(['gleam-first'])
+  })
+
+  test('leaves a catalog without duplicates untouched', () => {
+    const catalog = {
+      frontends: [frontend('elm', ['3']), frontend('gleam', ['4'])],
+      targets: [target('scala', ['3']), target('gleam', ['4'])],
+    }
+
+    expect(normalizeCatalog(catalog)).toEqual(catalog)
+  })
+})
+
+describe('capability flags gate their operations', () => {
+  // Requirement: a target that advertises generate: false must be refused with a
+  // reason, not offered and then failed. IR agreement does not override the flag.
+  test('a target that refuses generation gets a refusal even when IR versions agree', () => {
+    const refusing = { ...target('scala', ['3']), generate: false }
+
+    const reason = targetRefusalReason(frontend('elm', ['3']), refusing)
+
+    expect(reason).toMatch(/does not support/i)
+    expect(reason).toContain('scala')
+  })
+
+  test('a target that generates and agrees on IR still has no refusal', () => {
+    expect(targetRefusalReason(frontend('elm', ['3']), target('scala', ['3']))).toBeNull()
+  })
+})
+
+describe('input revision', () => {
+  // Requirement: a compile or generate response must be attributable to the input it
+  // answered. Every mutation that clears the results advances the revision, so a
+  // response captured against an older revision can be recognized as stale and dropped.
+  test('editing the active document advances the revision', () => {
+    const state = new PlaygroundState()
+    const before = state.revision
+
+    state.updateActiveDocument('module Main exposing (..)')
+
+    expect(state.revision).toBeGreaterThan(before)
+  })
+
+  test('switching frontend advances the revision', () => {
+    const state = new PlaygroundState()
+    state.catalog = {
+      frontends: [frontend('elm', ['3']), frontend('gleam', ['4'])],
+      targets: [],
+    }
+    const before = state.revision
+
+    state.selectFrontend('gleam')
+
+    expect(state.revision).toBeGreaterThan(before)
+  })
+
+  test('re-selecting the current frontend changes neither results nor revision', () => {
+    const state = new PlaygroundState()
+    const before = state.revision
+
+    state.selectFrontend(state.selectedLanguageId)
+
+    expect(state.revision).toBe(before)
+  })
+
+  test('selecting a target leaves the revision alone: it invalidates no compile', () => {
+    const state = new PlaygroundState()
+    const before = state.revision
+
+    state.selectTarget('scala')
+
+    expect(state.revision).toBe(before)
+  })
+})
+
 describe('capability reporting', () => {
   test('unknown is a third answer, not a refusal', () => {
     expect(capabilityLabel(true)).toBe('Supported')

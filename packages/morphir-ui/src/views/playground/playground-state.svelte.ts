@@ -4,6 +4,7 @@ import type {
   PlaygroundCompileResult,
   PlaygroundDiagnostic,
   PlaygroundGenerateResult,
+  ProviderRef,
   TargetEntry,
 } from '@morphir/workspace'
 import type { EditorDiagnostic } from '../../components/editor/types.ts'
@@ -117,6 +118,48 @@ const makeMainDocument = (languageId: string): PlaygroundDocument => ({
   text: sampleTextFor(languageId),
 })
 
+/** One entry per key: the one whose provider the session's registry would actually
+ * resolve. Installed beats builtin, matching `select_provider` in the daemon's
+ * registry.rs; among duplicates of the same origin — which that registry refuses to
+ * resolve at all as ambiguous — the first keeps the catalog's own order. */
+const onePerKey = <Entry extends { readonly provider: ProviderRef }>(
+  entries: ReadonlyArray<Entry>,
+  keyOf: (entry: Entry) => string,
+): Entry[] => {
+  const kept: Entry[] = []
+  const indexOfKey: Record<string, number> = Object.create(null)
+  for (const entry of entries) {
+    const key = keyOf(entry)
+    const at = indexOfKey[key]
+    if (at === undefined) {
+      indexOfKey[key] = kept.length
+      kept.push(entry)
+    } else if (
+      kept[at]!.provider.origin === 'builtin' &&
+      entry.provider.origin === 'installed'
+    ) {
+      // Replaced in place, so a later duplicate that outranks the first keeps the
+      // first occurrence's position in the catalog's order.
+      kept[at] = entry
+    }
+  }
+  return kept
+}
+
+/** Collapses a session catalog to one provider per language and per target.
+ *
+ * A real session can offer the same language from an installed extension and a builtin
+ * at once. That duplication cannot be surfaced: the wire protocol addresses a compile
+ * by `languageId` and a generate by `target` — neither request names a provider — so at
+ * most one of the duplicates is ever reachable, and a UI listing both would promise a
+ * choice the protocol cannot deliver (besides crashing every keyed list and `.find()`
+ * that treats these values as identities). The entry kept is the one the daemon would
+ * resolve, so the provider badge shown is the provider that runs. */
+export const normalizeCatalog = (catalog: CapabilityCatalog): CapabilityCatalog => ({
+  frontends: onePerKey(catalog.frontends, (entry) => entry.languageId),
+  targets: onePerKey(catalog.targets, (entry) => entry.target),
+})
+
 /** Client-side mirror of the Rust `compatible_targets`: the targets whose
  * `irVersions` share at least one value with the frontend's. An empty list
  * on either side yields no matches, and catalog order is preserved. */
@@ -141,6 +184,11 @@ export const targetRefusalReason = (
   frontend: FrontendEntry,
   target: TargetEntry,
 ): string | null => {
+  // An advertised refusal is checked before any version arithmetic: a target that says
+  // generate: false has refused regardless of what the frontend emits.
+  if (!target.generate) {
+    return `${target.displayName} reports that it does not support code generation`
+  }
   // Defensive only: the daemon's ExtensionRegistry rejects registering a
   // provider that advertises zero IR versions (registry.rs's
   // normalize_advertised_releases, for both builtin and installed origins),
@@ -256,6 +304,11 @@ export class PlaygroundState {
   compileResult = $state<PlaygroundCompileResult | null>(null)
   generateResult = $state<PlaygroundGenerateResult | null>(null)
   status = $state<PlaygroundStatus>('idle')
+  /** Advances whenever a mutation clears the results — an edit, a frontend switch.
+   * A compile or generate captures this before sending and compares on return: a
+   * response whose revision is stale answered input that no longer exists, and
+   * assigning it would restore exactly what the mutation just cleared. */
+  revision = $state(0)
 
   get activeDocument(): PlaygroundDocument | null {
     return this.documents.find((doc) => doc.id === this.activeDocumentId) ?? null
@@ -305,6 +358,7 @@ export class PlaygroundState {
     }))
     this.compileResult = null
     this.generateResult = null
+    this.revision += 1
 
     if (this.selectedTarget === null) return
     const stillCompatible =
@@ -331,6 +385,7 @@ export class PlaygroundState {
     )
     this.compileResult = null
     this.generateResult = null
+    this.revision += 1
   }
 
   /** The persistable part of this state. Deliberately excludes the catalog (re-fetched
