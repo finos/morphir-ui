@@ -31,7 +31,6 @@
 
 <style>
   .chain {
-    font-size: 12.5px;
     display: inline-flex;
     align-items: center;
     gap: 5px;

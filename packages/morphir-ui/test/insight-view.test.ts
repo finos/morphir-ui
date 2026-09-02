@@ -29,14 +29,28 @@ const setup = async (
 }
 
 describe('InsightView', () => {
-  test('renders the selected definition name before its body', async () => {
+  test('renders the named definition within the semantic expression canvas', async () => {
     await setup('chainedArithmetic', undefined, 'chainedArithmetic')
-    expect(screen.getByTestId('insight-definition').textContent).toMatch(/^chainedArithmetic =/)
+    const definition = screen.getByTestId('insight-definition')
+    expect(document.querySelector('.insight-canvas')).toBeTruthy()
+    expect(document.querySelector('.signature')).toBeTruthy()
+    expect(screen.getByTestId('insight-definition-name').classList.contains('definition-name')).toBe(
+      true,
+    )
+    expect(definition.textContent).toMatch(/^chainedArithmetic =/)
+    expect(definition.querySelector('.op')).toBeTruthy()
+    expect(definition.querySelector('.equals')?.getAttribute('aria-hidden')).toBe('true')
   })
 
   test('does not render a definition name when none is supplied', async () => {
     await setup('chainedArithmetic')
     expect(screen.queryByTestId('insight-definition-name')).toBeNull()
+    expect(document.querySelector('.equals')).toBeNull()
+  })
+
+  test('contains structurally wide decision tables within a scroll boundary', async () => {
+    await setup('tupleCase')
+    expect(document.querySelector('.insight-canvas.scroll-boundary')).toBeTruthy()
   })
 
   test('renders an arithmetic chain with operator separators', async () => {

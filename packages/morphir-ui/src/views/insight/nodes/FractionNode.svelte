@@ -19,7 +19,6 @@
     flex-direction: column;
     align-items: center;
     vertical-align: middle;
-    font-size: 12.5px;
   }
   .num {
     padding: 0 4px 2px 4px;

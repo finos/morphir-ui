@@ -58,7 +58,6 @@
 <style>
   .decision-table {
     border-collapse: collapse;
-    font-size: 12.5px;
   }
   th,
   td {

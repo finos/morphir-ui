@@ -75,15 +75,17 @@
   <span class="unknown-chip" {...selectProps(node.kind)}>⚠ {node.tag}</span>
 {:else if node.kind === 'v-field-access'}
   <span class="inline" {...selectProps(node.kind)}
-    ><InsightNode node={node.subject} />.<span class="field">{node.field}</span></span
+    ><InsightNode node={node.subject} /><span class="punctuation">.</span><span class="field"
+      >{node.field}</span
+    ></span
   >
 {:else if node.kind === 'v-prefix-call'}
   <span class="inline" {...selectProps(node.kind)}
     ><span class="label">{node.label}</span
-    >{#if node.args.length}(<!--
-  -->{#each node.args as a, i (i)}{#if i > 0},
+    >{#if node.args.length}<span class="punctuation grouping">(</span><!--
+  -->{#each node.args as a, i (i)}{#if i > 0}<span class="punctuation">,</span>
         {/if}<InsightNode node={a} />{/each}<!--
-  -->){/if}</span
+  --><span class="punctuation grouping">)</span>{/if}</span
   >
 {:else if node.kind === 'v-binary-op'}
   <span class="inline" {...selectProps(node.kind)}
@@ -97,7 +99,7 @@
 {:else if node.kind === 'v-member-of'}
   <span class="inline" {...selectProps(node.kind)}
     ><InsightNode node={node.item} /> is one of [<!--
-  -->{#each node.options as o, i (i)}{#if i > 0},
+  -->{#each node.options as o, i (i)}{#if i > 0}<span class="punctuation">,</span>
       {/if}<InsightNode node={o} />{/each}<!--
   -->]</span
   >
@@ -114,10 +116,10 @@
 {:else if node.kind === 'v-list' || node.kind === 'v-tuple'}
   {@const items = node.kind === 'v-list' ? node.items : node.elements}
   <span class="inline" {...selectProps(node.kind)}
-    >{node.kind === 'v-list' ? '[' : '('}<!--
-  -->{#each items as item, i (i)}{#if i > 0},
+    ><span class="punctuation grouping">{node.kind === 'v-list' ? '[' : '('}</span><!--
+  -->{#each items as item, i (i)}{#if i > 0}<span class="punctuation">,</span>
       {/if}<InsightNode node={item} />{/each}<!--
-  -->{node.kind === 'v-list' ? ']' : ')'}</span
+  --><span class="punctuation grouping">{node.kind === 'v-list' ? ']' : ')'}</span></span
   >
 {:else if node.kind === 'v-lambda'}
   <span class="inline" {...selectProps(node.kind)}
@@ -137,10 +139,10 @@
 {:else if node.kind === 'v-constructor'}
   <span class="inline" {...selectProps(node.kind)}
     ><span class="ctor">{node.name}</span
-    >{#if node.args.length}(<!--
-  -->{#each node.args as a, i (i)}{#if i > 0},
+    >{#if node.args.length}<span class="punctuation grouping">(</span><!--
+  -->{#each node.args as a, i (i)}{#if i > 0}<span class="punctuation">,</span>
         {/if}<InsightNode node={a} />{/each}<!--
-  -->){/if}</span
+  --><span class="punctuation grouping">)</span>{/if}</span
   >
 {:else if node.kind === 'v-pipeline'}
   <span class="inline" {...selectProps(node.kind)}
@@ -169,51 +171,68 @@
 <style>
   .lit {
     font-family: var(--mono);
-    font-size: 12.5px;
+    font-weight: 560;
   }
   .lit.accent {
     color: var(--accent-text);
+    border-bottom: 1px dotted var(--accent-text);
   }
   .var {
     font-style: italic;
-    font-size: 12.5px;
+    font-weight: 600;
   }
   .unit {
     font-family: var(--mono);
-    font-size: 12.5px;
     color: var(--muted);
+    letter-spacing: 0.04em;
   }
   .unknown-chip {
-    font-size: 11px;
+    font-size: 0.82em;
     color: var(--accent-text);
-    background: rgba(214, 64, 159, 0.14);
+    background: var(--panel);
+    border: 1px solid var(--accent);
     border-radius: 6px;
     padding: 1px 6px;
+    font-weight: 650;
   }
-  .inline {
-    font-size: 12.5px;
+  .field,
+  .ctor {
+    font-family: var(--mono);
+    font-weight: 650;
   }
   .field,
   .label,
   .ctor {
     color: var(--accent2);
   }
+  .label {
+    font-family: var(--mono);
+    font-weight: 600;
+  }
   .op {
     font-family: var(--mono);
     color: var(--muted);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .punctuation {
+    font-family: var(--mono);
+    color: var(--muted2);
+    font-size: 0.9em;
+  }
+  .grouping {
+    font-weight: 700;
   }
   .record {
     display: grid;
     grid-template-columns: auto 1fr;
     gap: 2px 8px;
     margin: 2px 0 2px 10px;
-    font-size: 12.5px;
   }
   .record dt {
+    font-family: var(--mono);
     color: var(--muted2);
-  }
-  .let-group {
-    font-size: 12.5px;
+    font-size: 0.85em;
   }
   .binding {
     padding: 1px 0 1px 10px;
@@ -223,5 +242,10 @@
   }
   .let-body {
     margin-top: 2px;
+  }
+  :global([role='button']:focus-visible) {
+    outline: 2px solid var(--accent2);
+    outline-offset: 3px;
+    border-radius: 4px;
   }
 </style>

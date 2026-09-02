@@ -48,7 +48,6 @@
   }
   .ref-name {
     font-family: var(--mono);
-    font-size: 12.5px;
     color: var(--accent2);
     background: none;
     border: none;
@@ -61,13 +60,13 @@
   }
   .call {
     font-family: var(--mono);
-    font-size: 12.5px;
     color: var(--text);
   }
   .cycle-chip {
-    font-size: 11px;
+    font-size: 0.82em;
     color: var(--accent-text);
-    background: rgba(214, 64, 159, 0.14);
+    background: var(--panel);
+    border: 1px solid var(--accent);
     border-radius: 6px;
     padding: 1px 6px;
   }
@@ -76,5 +75,10 @@
     border-radius: 8px;
     padding: 8px 10px;
     background: var(--code-bg);
+  }
+  .ref-name:focus-visible {
+    outline: 2px solid var(--accent2);
+    outline-offset: 3px;
+    border-radius: 3px;
   }
 </style>

@@ -30,7 +30,6 @@
 
 <style>
   .if-tree {
-    font-size: 12.5px;
     display: flex;
     flex-direction: column;
     gap: 3px;

@@ -36,7 +36,7 @@
 </script>
 
 {#if def && tree}
-  <div class="insight-canvas">
+  <div class="insight-canvas scroll-boundary">
     <div class="signature" data-testid="insight-signature">({signature}) → {typeText(def.output)}</div>
     <div class="definition" data-testid="insight-definition">
       {#if definitionName}
@@ -53,9 +53,20 @@
 {/if}
 
 <style>
+  .insight-canvas {
+    min-width: 0;
+    max-width: 100%;
+    padding: clamp(14px, 2vw, 24px);
+    overflow-x: auto;
+    border: 1px solid var(--row-edge);
+    border-radius: 9px;
+    background: var(--code-bg);
+    color: var(--text);
+  }
   .signature {
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: 0.78em;
+    line-height: 1.5;
     color: var(--muted);
     margin-bottom: 10px;
     padding-bottom: 8px;
@@ -64,17 +75,28 @@
   .definition {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    color: var(--text);
+    font-size: clamp(14px, 1.5vw, 17px);
+    line-height: 1.7;
   }
-  .definition-name,
-  .equals {
+  .definition-name {
     font-family: var(--mono);
     color: var(--text-strong);
+    font-weight: 650;
+    overflow-wrap: anywhere;
+  }
+  .equals {
+    font-family: var(--mono);
+    color: var(--muted2);
+    font-weight: 600;
   }
   .body {
+    flex: 1 1 18rem;
     min-width: 0;
-    font-size: 12.5px;
     color: var(--text);
+    overflow-wrap: anywhere;
   }
   .empty {
     color: var(--muted);
