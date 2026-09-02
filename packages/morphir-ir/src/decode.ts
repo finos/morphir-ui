@@ -66,6 +66,24 @@ function readModule(entry: unknown): RawModule {
   return { path: entry[0], access: ac['access'], types, values }
 }
 
+/** The IR format versions this decoder accepts. Single-valued today; when a v4
+ * decoder lands (see the Insight v4 work) adding it here is what tells every caller
+ * — including the Playground, which uses this to decide what IR version to ask a
+ * frontend for — that v4 became renderable. */
+export const DECODABLE_FORMAT_VERSIONS: ReadonlyArray<number> = [3]
+
+/** Whether IR advertised as `version` is something {@link decodeMorphirIr} can read.
+ *
+ * Catalogs spell an IR version two ways at once: morphir-elm advertises a bare major
+ * ("3") while morphir-gleam-binding advertises a full triplet ("4.0.0"). Both name a
+ * format version, so the major component is what decides — and anything that does not
+ * parse as one is not decodable, since claiming otherwise would send a caller off to
+ * request IR that then fails the format check. */
+export const canDecodeIrVersion = (version: string): boolean => {
+  const major = /^(\d+)(?:\.\d+)*$/.exec(version.trim())?.[1]
+  return major !== undefined && DECODABLE_FORMAT_VERSIONS.includes(Number(major))
+}
+
 export const decodeMorphirIr = (input: string): Effect.Effect<MorphirLibrary, IrError> =>
   Effect.try({
     try: () => JSON.parse(input) as unknown,
@@ -77,8 +95,15 @@ export const decodeMorphirIr = (input: string): Effect.Effect<MorphirLibrary, Ir
           if (typeof root !== 'object' || root === null) throw fail('IR root must be an object')
           const env = root as Record<string, unknown>
           if (!('formatVersion' in env)) throw MissingFormatVersion.make()
-          if (env['formatVersion'] !== 3)
-            throw UnsupportedFormatVersion.make(Number(env['formatVersion']))
+          // The type check is load-bearing, not decoration: Number() coerces '3', [3]
+          // and ['3'] to a supported 3, so testing membership on a coerced value would
+          // accept an envelope whose shape is already wrong.
+          const formatVersion = env['formatVersion']
+          if (
+            typeof formatVersion !== 'number' ||
+            !DECODABLE_FORMAT_VERSIONS.includes(formatVersion)
+          )
+            throw UnsupportedFormatVersion.make(Number(formatVersion))
           const dist = env['distribution']
           if (!Array.isArray(dist) || dist[0] !== 'Library')
             throw fail('expected a Library distribution')

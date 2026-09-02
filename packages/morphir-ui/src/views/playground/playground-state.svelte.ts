@@ -7,6 +7,7 @@ import type {
   ProviderRef,
   TargetEntry,
 } from '@morphir/workspace'
+import { canDecodeIrVersion } from '@morphir/ir'
 import type { EditorDiagnostic } from '../../components/editor/types.ts'
 
 /** Where a Playground exchange currently stands. Set by whatever invokes the
@@ -284,13 +285,32 @@ export const playgroundPackage = (
   }
 }
 
-/** The IR version to ask the frontend for. When a target is already chosen, prefer a
- * version both sides emit so the compile output can actually be generated from; otherwise
- * take the frontend's first. Returns '' for a frontend that declares no versions at all,
- * which `targetRefusalReason` already reports as an undeclared extension.  */
+/** The IR version to ask the frontend for.
+ *
+ * Two things are being satisfied at once, and they are not equal in weight. Generation
+ * compatibility comes first: IR the chosen target cannot consume fails the generate
+ * outright, so an agreed version is never traded away. Among the versions that survive
+ * that, one this client can decode is preferred, because a compile emitting IR
+ * `@morphir/ir` cannot read still succeeds — and then leaves Insight and XRay showing a
+ * format error beside it, which reads as a broken view rather than as a request that
+ * asked for the wrong thing. When the frontend offered a decodable version, asking for
+ * it costs nothing.
+ *
+ * When nothing decodable is on offer the first candidate still wins: compile and
+ * generate keep working and only the inspect panes degrade, which is the situation
+ * tracked separately as making v4 renderable at all.
+ *
+ * Returns '' for a frontend that declares no versions, which `targetRefusalReason`
+ * already reports as an undeclared extension. */
 export const preferredIrVersion = (frontend: FrontendEntry, target: TargetEntry | null): string => {
-  const agreed = target?.irVersions.find((version) => frontend.irVersions.includes(version))
-  return agreed ?? frontend.irVersions[0] ?? ''
+  // A target that agrees on nothing yields no candidates rather than bad ones: it is
+  // already refused, and compiling is still allowed in that state (hydrate can restore
+  // a selection the current frontend has since become incompatible with), so the
+  // frontend's own versions are what remain to choose from.
+  const agreed =
+    target?.irVersions.filter((version) => frontend.irVersions.includes(version)) ?? []
+  const candidates = agreed.length > 0 ? agreed : frontend.irVersions
+  return candidates.find(canDecodeIrVersion) ?? candidates[0] ?? ''
 }
 
 /** Documents being edited, the frontend/target pairing, and the last

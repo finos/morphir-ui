@@ -405,8 +405,41 @@ describe('preferredIrVersion', () => {
     expect(preferredIrVersion(frontend('elm', ['2', '3']), target('scala', ['3']))).toBe('3')
   })
 
-  test('falls back to the first version the frontend emits when no target is chosen', () => {
-    expect(preferredIrVersion(frontend('elm', ['2', '3']), null)).toBe('2')
+  // Requirement: a compile whose IR this client cannot decode leaves Insight and XRay
+  // showing a format error while the compile itself reports success — a failure that
+  // looks like a broken view rather than a badly chosen request. When the frontend
+  // offers a decodable version at all, ask for that one.
+  test('prefers a decodable version over an earlier undecodable one', () => {
+    expect(preferredIrVersion(frontend('elm', ['4', '3']), null)).toBe('3')
+  })
+
+  test('matches a decodable version spelled as a triplet', () => {
+    expect(preferredIrVersion(frontend('elm', ['4.0.0', '3.0.0']), null)).toBe('3.0.0')
+  })
+
+  // Generation compatibility outranks decodability: an IR the target cannot consume
+  // fails the generate outright, while an undecodable one only degrades the inspect
+  // panes, which is what morphir-19s6 tracks.
+  test('never trades target agreement away for decodability', () => {
+    expect(preferredIrVersion(frontend('gleam', ['4', '3']), target('gleam', ['4']))).toBe('4')
+  })
+
+  test('falls back to the first agreed version when none of them is decodable', () => {
+    expect(preferredIrVersion(frontend('gleam', ['4', '5']), target('gleam', ['5', '4']))).toBe(
+      '5',
+    )
+  })
+
+  // A target selected before the frontend changed can survive as an incompatible
+  // selection (hydrate restores one without a compatibility check), and compiling is
+  // still allowed in that state. With no agreement to honor, the frontend's own
+  // versions are the candidates.
+  test('ignores a target that agrees on nothing and picks from the frontend', () => {
+    expect(preferredIrVersion(frontend('elm', ['4', '3']), target('scala', ['9']))).toBe('3')
+  })
+
+  test('falls back to the first version when the frontend offers nothing decodable', () => {
+    expect(preferredIrVersion(frontend('gleam', ['4', '5']), null)).toBe('4')
   })
 
   test('an empty frontend yields an empty version rather than throwing', () => {
