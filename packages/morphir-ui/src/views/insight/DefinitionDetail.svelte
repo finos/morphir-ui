@@ -50,7 +50,7 @@
   </header>
   <DetailTabs {tabs} {active} onSelect={(id) => (active = id)} />
   {#if active === 'insight' && kind === 'value'}
-    <InsightView {def} {library} {onSelect} />
+    <InsightView {def} {library} definitionName={displayName} {onSelect} />
   {:else if active === 'xray' && kind === 'value'}
     <XRayView {def} />
   {:else}

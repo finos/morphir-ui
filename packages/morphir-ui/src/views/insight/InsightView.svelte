@@ -9,9 +9,14 @@
   let {
     def,
     library,
+    definitionName,
     onSelect,
-  }: { def: ValueDef | null; library: MorphirLibrary; onSelect?: (meta: InspectMeta) => void } =
-    $props()
+  }: {
+    def: ValueDef | null
+    library: MorphirLibrary
+    definitionName?: string
+    onSelect?: (meta: InspectMeta) => void
+  } = $props()
 
   const state = new InsightState()
 
@@ -31,9 +36,17 @@
 </script>
 
 {#if def && tree}
-  <div class="signature">({signature}) → {typeText(def.output)}</div>
-  <div class="body">
-    <InsightNode node={tree} />
+  <div class="insight-canvas">
+    <div class="signature" data-testid="insight-signature">({signature}) → {typeText(def.output)}</div>
+    <div class="definition" data-testid="insight-definition">
+      {#if definitionName}
+        <span class="definition-name" data-testid="insight-definition-name">{definitionName}</span>
+        <span class="equals" aria-hidden="true">=</span>
+      {/if}
+      <div class="body">
+        <InsightNode node={tree} />
+      </div>
+    </div>
   </div>
 {:else}
   <p class="empty">This definition could not be decoded.</p>
@@ -48,7 +61,18 @@
     padding-bottom: 8px;
     border-bottom: 1px solid var(--row-edge);
   }
+  .definition {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .definition-name,
+  .equals {
+    font-family: var(--mono);
+    color: var(--text-strong);
+  }
   .body {
+    min-width: 0;
     font-size: 12.5px;
     color: var(--text);
   }

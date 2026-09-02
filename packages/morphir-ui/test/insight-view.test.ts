@@ -15,14 +15,30 @@ const fixture = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '../../morphir-ir/test/fixtures/insight-ir.json'),
   'utf8',
 )
-const setup = async (name: string, onSelect?: (meta: InspectMeta) => void) => {
+const setup = async (
+  name: string,
+  onSelect?: (meta: InspectMeta) => void,
+  definitionName?: string,
+) => {
   const lib: MorphirLibrary = await Effect.runPromise(decodeMorphirIr(fixture))
   const entry = lib.modules[0]!.values.find((v) => nameToCamel(v.name) === name)!
-  render(InsightView, { props: { def: decodeEntryValueDef(entry), library: lib, onSelect } })
+  render(InsightView, {
+    props: { def: decodeEntryValueDef(entry), library: lib, onSelect, definitionName },
+  })
   return lib
 }
 
 describe('InsightView', () => {
+  test('renders the selected definition name before its body', async () => {
+    await setup('chainedArithmetic', undefined, 'chainedArithmetic')
+    expect(screen.getByTestId('insight-definition').textContent).toMatch(/^chainedArithmetic =/)
+  })
+
+  test('does not render a definition name when none is supplied', async () => {
+    await setup('chainedArithmetic')
+    expect(screen.queryByTestId('insight-definition-name')).toBeNull()
+  })
+
   test('renders an arithmetic chain with operator separators', async () => {
     await setup('chainedArithmetic')
     expect(screen.getAllByText('+')).toHaveLength(2)
