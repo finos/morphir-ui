@@ -66,22 +66,44 @@ function readModule(entry: unknown): RawModule {
   return { path: entry[0], access: ac['access'], types, values }
 }
 
-/** The IR format versions this decoder accepts. Single-valued today; when a v4
- * decoder lands (see the Insight v4 work) adding it here is what tells every caller
- * — including the Playground, which uses this to decide what IR version to ask a
- * frontend for — that v4 became renderable. */
+/** The IR format versions this decoder accepts, as they appear in an envelope.
+ *
+ * Single-valued today; when a v4 decoder lands (see the Insight v4 work) adding it here
+ * is what tells every caller — including the Playground, which uses this to decide what
+ * IR version to ask a frontend for — that v4 became renderable. */
 export const DECODABLE_FORMAT_VERSIONS: ReadonlyArray<number> = [3]
+
+/** The exact releases this decoder accepts.
+ *
+ * An envelope's integer `N` denotes the baseline release `N.0.0`: that is the
+ * formatVersion contract's own rule, which writes a baseline as an integer and any
+ * other release as an exact `major.minor.patch` string. Deriving the releases from
+ * {@link DECODABLE_FORMAT_VERSIONS} keeps one list to maintain. */
+export const DECODABLE_IR_RELEASES: ReadonlyArray<string> = DECODABLE_FORMAT_VERSIONS.map(
+  (major) => `${major}.0.0`,
+)
+
+/** The exact release `version` names, or null when it is not a release at all. Missing
+ * components default to zero, so '3' and '3.0.0' are two spellings of one release. */
+const normalizeIrRelease = (version: string): string | null => {
+  const parts = /^(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(version.trim())
+  if (parts === null) return null
+  return `${Number(parts[1])}.${Number(parts[2] ?? 0)}.${Number(parts[3] ?? 0)}`
+}
 
 /** Whether IR advertised as `version` is something {@link decodeMorphirIr} can read.
  *
- * Catalogs spell an IR version two ways at once: morphir-elm advertises a bare major
- * ("3") while morphir-gleam-binding advertises a full triplet ("4.0.0"). Both name a
- * format version, so the major component is what decides — and anything that does not
- * parse as one is not decodable, since claiming otherwise would send a caller off to
- * request IR that then fails the format check. */
+ * Catalogs spell versions two ways at once — morphir-elm advertises '3', while
+ * morphir-gleam-binding advertises '4.0.0' — so the comparison is on the normalized
+ * release rather than on the text. It is the *exact* release that decides, not the
+ * major family: support is defined per release (the contract separates an unsupported
+ * revision from an unsupported major), and a non-baseline release such as 3.1.0 is
+ * written into the envelope as the string '3.1.0', which this decoder refuses. Admitting
+ * it on the strength of its major would steer a caller into requesting IR that then
+ * fails to decode — the exact failure this predicate exists to prevent. */
 export const canDecodeIrVersion = (version: string): boolean => {
-  const major = /^(\d+)(?:\.\d+)*$/.exec(version.trim())?.[1]
-  return major !== undefined && DECODABLE_FORMAT_VERSIONS.includes(Number(major))
+  const release = normalizeIrRelease(version)
+  return release !== null && DECODABLE_IR_RELEASES.includes(release)
 }
 
 export const decodeMorphirIr = (input: string): Effect.Effect<MorphirLibrary, IrError> =>
