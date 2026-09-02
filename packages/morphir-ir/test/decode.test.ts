@@ -77,13 +77,25 @@ describe('decodeMorphirIr', () => {
 
 describe('canDecodeIrVersion', () => {
   // The catalog spells advertised versions two ways at once: morphir-elm reports a bare
-  // major ('3') while morphir-gleam-binding reports a full triplet ('4.0.0'). Both name a
-  // format version, so both have to be answerable.
-  test('answers for a bare major and for a full triplet alike', () => {
+  // major ('3') while morphir-gleam-binding reports a full triplet ('4.0.0'). Per the
+  // formatVersion contract those are two spellings of one release — integer N means the
+  // baseline release N.0.0 — so both have to answer the same.
+  test('reads a bare major and a baseline triplet as the same release', () => {
     expect(canDecodeIrVersion('3')).toBe(true)
     expect(canDecodeIrVersion('3.0.0')).toBe(true)
     expect(canDecodeIrVersion('4')).toBe(false)
     expect(canDecodeIrVersion('4.0.0')).toBe(false)
+  })
+
+  // Support is per exact release, not per major family: the contract's own outcomes
+  // separate an unsupported revision from an unsupported major. A non-baseline release
+  // is written on the wire as the exact string '3.1.0' rather than the integer 3, which
+  // is precisely what decodeMorphirIr refuses — so admitting it here would steer a
+  // caller into requesting IR that then fails to decode.
+  test('a revision inside a decodable major is not itself decodable', () => {
+    expect(canDecodeIrVersion('3.1.0')).toBe(false)
+    expect(canDecodeIrVersion('3.1')).toBe(false)
+    expect(canDecodeIrVersion('3.0.1')).toBe(false)
   })
 
   // A version this decoder has never heard of is not decodable. Saying otherwise would

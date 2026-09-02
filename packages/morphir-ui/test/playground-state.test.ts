@@ -442,6 +442,13 @@ describe('preferredIrVersion', () => {
     expect(preferredIrVersion(frontend('gleam', ['4', '5']), null)).toBe('4')
   })
 
+  // A revision inside a decodable major is a different release, spelled on the wire as
+  // an exact string the decoder rejects. Preferring it over the frontend's own first
+  // choice would trade a working request for one that cannot be rendered either way.
+  test('does not prefer an undecodable revision of a decodable major', () => {
+    expect(preferredIrVersion(frontend('elm', ['4', '3.1.0']), null)).toBe('4')
+  })
+
   test('an empty frontend yields an empty version rather than throwing', () => {
     expect(preferredIrVersion(frontend('elm', []), null)).toBe('')
   })
