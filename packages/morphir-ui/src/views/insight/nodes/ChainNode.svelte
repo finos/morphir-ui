@@ -22,7 +22,8 @@
   {#each items as item, i (i)}
     {#if i > 0}<span class="op" class:logic={isLogic}>{node.op}</span>{/if}
     {#if item.grouped}
-      <span class="grouped"><span class="punctuation grouping">(</span>{@render render(item.node)}<span
+      <span class="grouped"
+        ><span class="punctuation grouping">(</span>{@render render(item.node)}<span
           class="punctuation grouping">)</span
         ></span
       >

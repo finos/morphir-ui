@@ -34,9 +34,9 @@ describe('InsightView', () => {
     const definition = screen.getByTestId('insight-definition')
     expect(document.querySelector('.insight-canvas')).toBeTruthy()
     expect(document.querySelector('.signature')).toBeTruthy()
-    expect(screen.getByTestId('insight-definition-name').classList.contains('definition-name')).toBe(
-      true,
-    )
+    expect(
+      screen.getByTestId('insight-definition-name').classList.contains('definition-name'),
+    ).toBe(true)
     expect(definition.textContent).toMatch(/^chainedArithmetic =/)
     expect(definition.querySelector('.op')).toBeTruthy()
     expect(definition.querySelector('.equals')?.getAttribute('aria-hidden')).toBe('true')
@@ -61,7 +61,9 @@ describe('InsightView', () => {
 
   test('marks grouped arithmetic parentheses as semantic punctuation', async () => {
     await setup('mixedPrecedence')
-    expect(document.querySelector('.grouped .punctuation.grouping')).toBeTruthy()
+    const grouping = Array.from(document.querySelectorAll('.grouped .punctuation.grouping'))
+    expect(grouping).toHaveLength(2)
+    expect(grouping.map((element) => element.textContent)).toEqual(['(', ')'])
   })
 
   test('marks reference call punctuation as secondary syntax', async () => {
@@ -77,9 +79,9 @@ describe('InsightView', () => {
 
   test('marks keyboard-selectable Insight nodes for scoped focus styling', async () => {
     await setup('chainedArithmetic')
-    expect(screen.getByRole('button', { name: 'v-arith-chain' }).getAttribute('data-insight-selectable')).toBe(
-      'true',
-    )
+    expect(
+      screen.getByRole('button', { name: 'v-arith-chain' }).getAttribute('data-insight-selectable'),
+    ).toBe('true')
   })
 
   test('renders a decision table with wildcard cells as anything else', async () => {

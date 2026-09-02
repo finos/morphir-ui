@@ -37,7 +37,9 @@
 
 {#if def && tree}
   <div class="insight-canvas scroll-boundary">
-    <div class="signature" data-testid="insight-signature">({signature}) → {typeText(def.output)}</div>
+    <div class="signature" data-testid="insight-signature">
+      ({signature}) → {typeText(def.output)}
+    </div>
     <div class="definition" data-testid="insight-definition">
       {#if definitionName}
         <span class="definition-name" data-testid="insight-definition-name">{definitionName}</span>

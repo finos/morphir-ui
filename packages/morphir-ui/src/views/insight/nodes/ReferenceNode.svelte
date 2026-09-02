@@ -24,10 +24,12 @@
   {/if}
   {#if node.args.length > 0}
     <span class="call"
-      ><span class="punctuation grouping">(</span><!--
+      ><span class="punctuation grouping">(</span
+      ><!--
     -->{#each node.args as arg, i (i)}{#if i > 0}<span class="punctuation">,</span>
         {/if}{@render render(arg)}{/each}<!--
-    --><span class="punctuation grouping">)</span></span
+    --><span class="punctuation grouping">)</span
+      ></span
     >
   {/if}
   {#if node.cycle}

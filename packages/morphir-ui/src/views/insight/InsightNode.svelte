@@ -82,11 +82,13 @@
   >
 {:else if node.kind === 'v-prefix-call'}
   <span class="inline" {...selectProps(node.kind)}
-    ><span class="label">{node.label}</span
-    >{#if node.args.length}<span class="punctuation grouping">(</span><!--
+    ><span class="label">{node.label}</span>{#if node.args.length}<span class="punctuation grouping"
+        >(</span
+      ><!--
   -->{#each node.args as a, i (i)}{#if i > 0}<span class="punctuation">,</span>
         {/if}<InsightNode node={a} />{/each}<!--
-  --><span class="punctuation grouping">)</span>{/if}</span
+  --><span class="punctuation grouping">)</span
+      >{/if}</span
   >
 {:else if node.kind === 'v-binary-op'}
   <span class="inline" {...selectProps(node.kind)}
@@ -99,7 +101,9 @@
   >
 {:else if node.kind === 'v-member-of'}
   <span class="inline" {...selectProps(node.kind)}
-    ><InsightNode node={node.item} /> is one of <span class="punctuation grouping">[</span><!--
+    ><InsightNode node={node.item} /> is one of
+    <span class="punctuation grouping">[</span
+    ><!--
   -->{#each node.options as o, i (i)}{#if i > 0}<span class="punctuation">,</span>
       {/if}<InsightNode node={o} />{/each}<!--
   --><span class="punctuation grouping">]</span></span
@@ -117,10 +121,13 @@
 {:else if node.kind === 'v-list' || node.kind === 'v-tuple'}
   {@const items = node.kind === 'v-list' ? node.items : node.elements}
   <span class="inline" {...selectProps(node.kind)}
-    ><span class="punctuation grouping">{node.kind === 'v-list' ? '[' : '('}</span><!--
+    ><span class="punctuation grouping">{node.kind === 'v-list' ? '[' : '('}</span
+    ><!--
   -->{#each items as item, i (i)}{#if i > 0}<span class="punctuation">,</span>
       {/if}<InsightNode node={item} />{/each}<!--
-  --><span class="punctuation grouping">{node.kind === 'v-list' ? ']' : ')'}</span></span
+  --><span class="punctuation grouping"
+      >{node.kind === 'v-list' ? ']' : ')'}</span
+    ></span
   >
 {:else if node.kind === 'v-lambda'}
   <span class="inline" {...selectProps(node.kind)}
@@ -139,11 +146,13 @@
   </div>
 {:else if node.kind === 'v-constructor'}
   <span class="inline" {...selectProps(node.kind)}
-    ><span class="ctor">{node.name}</span
-    >{#if node.args.length}<span class="punctuation grouping">(</span><!--
+    ><span class="ctor">{node.name}</span>{#if node.args.length}<span class="punctuation grouping"
+        >(</span
+      ><!--
   -->{#each node.args as a, i (i)}{#if i > 0}<span class="punctuation">,</span>
         {/if}<InsightNode node={a} />{/each}<!--
-  --><span class="punctuation grouping">)</span>{/if}</span
+  --><span class="punctuation grouping">)</span
+      >{/if}</span
   >
 {:else if node.kind === 'v-pipeline'}
   <span class="inline" {...selectProps(node.kind)}
