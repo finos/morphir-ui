@@ -17,6 +17,19 @@ const xrayRoute: Route = {
 }
 
 describe('route parsing', () => {
+  test('workspace route types require a definition before detail fields', () => {
+    const acceptsRoute = (route: Route): Route => route
+
+    expect(acceptsRoute({ kind: 'workspace' })).toEqual({ kind: 'workspace' })
+    expect(
+      acceptsRoute({ kind: 'workspace', definition: 'A.B.c', view: 'xray', node: '/body' }),
+    ).toEqual({ kind: 'workspace', definition: 'A.B.c', view: 'xray', node: '/body' })
+    // @ts-expect-error A node is invalid without a selected definition.
+    acceptsRoute({ kind: 'workspace', node: '/body' })
+    // @ts-expect-error A detail view is invalid without a selected definition.
+    acceptsRoute({ kind: 'workspace', view: 'xray' })
+  })
+
   test('an empty hash is the workspace', () => {
     for (const hash of ['', '#', '#/']) {
       expect(hashToRoute(hash)).toEqual({ kind: 'workspace' })
@@ -114,6 +127,22 @@ describe('route parsing', () => {
     expect(hashToRoute('#/?future=enabled&definition=A.B.c&another=value')).toEqual({
       kind: 'workspace',
       definition: 'A.B.c',
+    })
+  })
+
+  test.each([
+    '#/playground?definition=A.B.c',
+    '#/settings/about?node=%2Fbody',
+    '#/settings?view=xray',
+  ])('rejects workspace-only fields on a non-workspace route: %s', (hash) => {
+    expect(hashToRoute(hash)).toBeNull()
+  })
+
+  test('ignores unrelated future keys on non-workspace routes', () => {
+    expect(hashToRoute('#/playground?future=enabled')).toEqual({ kind: 'playground' })
+    expect(hashToRoute('#/settings/about?future=enabled')).toEqual({
+      kind: 'settings',
+      section: 'about',
     })
   })
 })

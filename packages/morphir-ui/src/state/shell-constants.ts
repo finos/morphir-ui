@@ -4,7 +4,12 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 export const DETAIL_VIEWS = ['insight', 'type', 'xray'] as const
 export type DetailView = (typeof DETAIL_VIEWS)[number]
 export type WorkspaceRoute =
-  | { readonly kind: 'workspace' }
+  | {
+      readonly kind: 'workspace'
+      readonly definition?: never
+      readonly view?: never
+      readonly node?: never
+    }
   | {
       readonly kind: 'workspace'
       readonly definition: string

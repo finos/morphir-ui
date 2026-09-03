@@ -10,12 +10,15 @@ import type { ShellState } from './shell-state.svelte.ts'
 
 const KNOWN_SECTIONS: ReadonlySet<string> = new Set(SETTINGS_SECTIONS)
 const KNOWN_DETAIL_VIEWS: ReadonlySet<string> = new Set(DETAIL_VIEWS)
+const WORKSPACE_QUERY_FIELDS = ['definition', 'view', 'node'] as const
 
 const isSettingsSection = (value: string): value is SettingsSection => KNOWN_SECTIONS.has(value)
 const isDetailView = (value: string): value is DetailView => KNOWN_DETAIL_VIEWS.has(value)
 
-const parseWorkspaceRoute = (search: string): WorkspaceRoute | null => {
-  const params = new URLSearchParams(search)
+const hasWorkspaceQueryField = (params: URLSearchParams): boolean =>
+  WORKSPACE_QUERY_FIELDS.some((field) => params.has(field))
+
+const parseWorkspaceRoute = (params: URLSearchParams): WorkspaceRoute | null => {
   const hasDefinition = params.has('definition')
   const hasView = params.has('view')
   const hasNode = params.has('node')
@@ -26,10 +29,10 @@ const parseWorkspaceRoute = (search: string): WorkspaceRoute | null => {
   if (definition.length === 0) return null
 
   const viewValue = params.get('view')
-  if (hasView && (viewValue === null || !isDetailView(viewValue))) return null
+  if (viewValue !== null && !isDetailView(viewValue)) return null
 
   const nodeValue = params.get('node')
-  if (hasNode && (nodeValue === null || !nodeValue.startsWith('/'))) return null
+  if (nodeValue !== null && !nodeValue.startsWith('/')) return null
 
   return {
     kind: 'workspace',
@@ -43,7 +46,7 @@ const parseWorkspaceRoute = (search: string): WorkspaceRoute | null => {
 export const routeToHash = (route: Route): string => {
   switch (route.kind) {
     case 'workspace': {
-      if (!('definition' in route)) return '#/'
+      if (route.definition === undefined) return '#/'
 
       const params = new URLSearchParams()
       params.set('definition', route.definition)
@@ -68,7 +71,9 @@ export const hashToRoute = (hash: string): Route | null => {
   const queryStart = fragment.indexOf('?')
   const path = queryStart === -1 ? fragment : fragment.slice(0, queryStart)
   const search = queryStart === -1 ? '' : fragment.slice(queryStart + 1)
-  if (path === '') return parseWorkspaceRoute(search)
+  const params = new URLSearchParams(search)
+  if (path === '') return parseWorkspaceRoute(params)
+  if (hasWorkspaceQueryField(params)) return null
 
   const [first, section] = path.split('/')
   if (first === 'playground') {
