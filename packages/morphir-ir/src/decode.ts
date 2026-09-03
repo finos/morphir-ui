@@ -34,6 +34,23 @@ const isAccess = (u: unknown): u is Access => u === 'Public' || u === 'Private'
 const isRecord = (u: unknown): u is Record<string, unknown> => typeof u === 'object' && u !== null
 const isV4Record = (u: unknown): u is Record<string, unknown> => isRecord(u) && !Array.isArray(u)
 
+const V4_ACCESS_BY_SPELLING = Object.freeze({
+  Public: 'Public',
+  Private: 'Private',
+  public: 'Public',
+  private: 'Private',
+  pub: 'Public',
+} satisfies Readonly<Record<string, Access>>)
+
+type V4AccessSpelling = keyof typeof V4_ACCESS_BY_SPELLING
+
+const V4_ACCESS_SPELLINGS = Object.freeze(Object.keys(V4_ACCESS_BY_SPELLING) as V4AccessSpelling[])
+
+const normalizeV4Access = (value: unknown): Access | null =>
+  typeof value === 'string' && Object.hasOwn(V4_ACCESS_BY_SPELLING, value)
+    ? V4_ACCESS_BY_SPELLING[value as V4AccessSpelling]
+    : null
+
 const readCanonicalName = (value: unknown, label: string): Name => {
   const name = nameFromCanonical(value)
   if (name === null) throw fail(`malformed ${label}`)
@@ -100,26 +117,27 @@ function normalizeV4AccessControlled(
 ): NormalizedV4AccessControlled {
   if (!isV4Record(entry)) throw fail(`malformed ${section} access`)
 
-  const publicKey = Object.hasOwn(entry, 'Public')
-  const privateKey = Object.hasOwn(entry, 'Private')
+  const canonicalKeys = V4_ACCESS_SPELLINGS.filter((key) => Object.hasOwn(entry, key))
   const explicitAccess = Object.hasOwn(entry, 'access')
-  if ((publicKey && privateKey) || ((publicKey || privateKey) && explicitAccess))
+  if (canonicalKeys.length > 1 || (canonicalKeys.length === 1 && explicitAccess))
     throw fail(`malformed ${section} access`)
 
   let access: Access
   let payload: Record<string, unknown>
   let docSource: unknown
 
-  if (publicKey || privateKey) {
-    access = publicKey ? 'Public' : 'Private'
-    const canonicalPayload = entry[access]
+  const canonicalKey = canonicalKeys[0]
+  if (canonicalKey !== undefined) {
+    access = V4_ACCESS_BY_SPELLING[canonicalKey]
+    const canonicalPayload = entry[canonicalKey]
     if (!isV4Record(canonicalPayload)) throw fail(`malformed ${section} definition`)
     payload = canonicalPayload
     docSource = Object.hasOwn(payload, 'doc') ? payload['doc'] : undefined
   } else {
     const accessValue = explicitAccess ? entry['access'] : undefined
-    if (!isAccess(accessValue)) throw fail(`malformed ${section} access`)
-    access = accessValue
+    const normalizedAccess = normalizeV4Access(accessValue)
+    if (normalizedAccess === null) throw fail(`malformed ${section} access`)
+    access = normalizedAccess
 
     if (Object.hasOwn(entry, 'value')) {
       const legacyPayload = entry['value']
@@ -156,8 +174,8 @@ function readV4Module(name: string, entry: unknown): RawModule {
   const { access, rawDefinition: definition } = normalizeV4AccessControlled(entry, 'module')
   const types = definition['types']
   const values = definition['values']
-  if (!isRecord(types)) throw fail('malformed type definitions')
-  if (!isRecord(values)) throw fail('malformed value definitions')
+  if (!isV4Record(types)) throw fail('malformed type definitions')
+  if (!isV4Record(values)) throw fail('malformed value definitions')
   return {
     path: readCanonicalPath(name, 'module name'),
     access,
@@ -182,10 +200,11 @@ function readV3Library(env: Record<string, unknown>): MorphirLibrary {
 
 function readV4Library(env: Record<string, unknown>): MorphirLibrary {
   const dist = env['distribution']
-  if (!isRecord(dist) || !isRecord(dist['Library'])) throw fail('expected a Library distribution')
+  if (!isV4Record(dist) || !isV4Record(dist['Library']))
+    throw fail('expected a Library distribution')
   const library = dist['Library']
   const definition = library['def']
-  if (!isRecord(definition) || !isRecord(definition['modules']))
+  if (!isV4Record(definition) || !isV4Record(definition['modules']))
     throw fail('malformed package definition')
   return {
     packageName: readCanonicalPath(library['packageName'], 'package name'),

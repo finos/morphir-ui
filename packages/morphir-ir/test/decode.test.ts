@@ -224,6 +224,130 @@ describe('decodeMorphirIr', () => {
       expect(canonicalBody.attr).toEqual({ source: 'canonical' })
   })
 
+  test('normalizes every accepted canonical-key access spelling', async () => {
+    const typeDefinition = {
+      TypeAliasDefinition: { typeParams: [], typeExp: { Unit: { attrs: {} } } },
+    }
+    const valueDefinition = {
+      ExpressionBody: {
+        inputTypes: {},
+        outputType: { Unit: { attrs: {} } },
+        body: { Unit: { attrs: {} } },
+      },
+    }
+    const spellings = [
+      ['Public', 'Public'],
+      ['Private', 'Private'],
+      ['public', 'Public'],
+      ['private', 'Private'],
+      ['pub', 'Public'],
+    ] as const
+
+    for (const [spelling, normalized] of spellings) {
+      const moduleDefinition = {
+        types: { item: { [spelling]: typeDefinition } },
+        values: { answer: { [spelling]: valueDefinition } },
+      }
+      const v4 = JSON.stringify({
+        formatVersion: 4,
+        distribution: {
+          Library: {
+            packageName: 'morphir/ui-smoke',
+            def: { modules: { main: { [spelling]: moduleDefinition } } },
+          },
+        },
+      })
+
+      const module = (await Effect.runPromise(decodeMorphirIr(v4))).modules[0]!
+      expect(module.access, spelling).toBe(normalized)
+      expect(module.types[0]?.access, spelling).toBe(normalized)
+      expect(module.values[0]?.access, spelling).toBe(normalized)
+      expect(module.types[0]?.rawDefinition, spelling).toEqual(typeDefinition)
+      expect(module.values[0]?.rawDefinition, spelling).toEqual(valueDefinition)
+    }
+  })
+
+  test('normalizes every accepted explicit access spelling', async () => {
+    const typeDefinition = {
+      TypeAliasDefinition: { typeParams: [], typeExp: { Unit: { attrs: {} } } },
+    }
+    const valueDefinition = {
+      ExpressionBody: {
+        inputTypes: {},
+        outputType: { Unit: { attrs: {} } },
+        body: { Unit: { attrs: {} } },
+      },
+    }
+    const spellings = [
+      ['Public', 'Public'],
+      ['Private', 'Private'],
+      ['public', 'Public'],
+      ['private', 'Private'],
+      ['pub', 'Public'],
+    ] as const
+
+    for (const [spelling, normalized] of spellings) {
+      const v4 = JSON.stringify({
+        formatVersion: 4,
+        distribution: {
+          Library: {
+            packageName: 'morphir/ui-smoke',
+            def: {
+              modules: {
+                main: {
+                  access: spelling,
+                  value: {
+                    types: { item: { access: spelling, value: typeDefinition } },
+                    values: { answer: { access: spelling, value: valueDefinition } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      })
+
+      const module = (await Effect.runPromise(decodeMorphirIr(v4))).modules[0]!
+      expect(module.access, spelling).toBe(normalized)
+      expect(module.types[0]?.access, spelling).toBe(normalized)
+      expect(module.values[0]?.access, spelling).toBe(normalized)
+      expect(module.types[0]?.rawDefinition, spelling).toEqual(typeDefinition)
+      expect(module.values[0]?.rawDefinition, spelling).toEqual(valueDefinition)
+    }
+  })
+
+  test('rejects ambiguous canonical and explicit access wrappers', async () => {
+    const moduleDefinition = { types: {}, values: {} }
+    const typeDefinition = {
+      TypeAliasDefinition: { typeParams: [], typeExp: { Unit: { attrs: {} } } },
+    }
+    const invalidModules = [
+      { Public: moduleDefinition, private: moduleDefinition },
+      {
+        Public: {
+          types: {
+            item: { pub: typeDefinition, access: 'Private', value: typeDefinition },
+          },
+          values: {},
+        },
+      },
+    ]
+
+    for (const invalidModule of invalidModules) {
+      const v4 = JSON.stringify({
+        formatVersion: 4,
+        distribution: {
+          Library: {
+            packageName: 'morphir/ui-smoke',
+            def: { modules: { main: invalidModule } },
+          },
+        },
+      })
+      const exit = await Effect.runPromiseExit(decodeMorphirIr(v4))
+      expect(Exit.isFailure(exit)).toBe(true)
+    }
+  })
+
   test('prefers published attributes and preserves the attrs fallback', async () => {
     const expressionBody = (attributeKey: 'attributes' | 'attrs', source: string) => ({
       ExpressionBody: {
@@ -305,6 +429,27 @@ describe('decodeMorphirIr', () => {
 
       const exit = await Effect.runPromiseExit(decodeMorphirIr(v4))
       expect(Exit.isFailure(exit)).toBe(true)
+    }
+  })
+
+  test('rejects arrays at every v4 mapping boundary', async () => {
+    const library = (def: unknown) => ({
+      Library: { packageName: 'morphir/ui-smoke', def },
+    })
+    const cases: ReadonlyArray<readonly [string, unknown]> = [
+      ['distribution', []],
+      ['Library payload', { Library: [] }],
+      ['package definition', { Library: { packageName: 'morphir/ui-smoke', def: [] } }],
+      ['modules map', library({ modules: [] })],
+      ['types map', library({ modules: { main: { Public: { types: [], values: {} } } } })],
+      ['values map', library({ modules: { main: { Public: { types: {}, values: [] } } } })],
+    ]
+
+    for (const [boundary, distribution] of cases) {
+      const exit = await Effect.runPromiseExit(
+        decodeMorphirIr(JSON.stringify({ formatVersion: 4, distribution })),
+      )
+      expect(Exit.isFailure(exit), boundary).toBe(true)
     }
   })
 
