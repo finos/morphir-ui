@@ -7,13 +7,23 @@
   import type { WorkbenchStore } from '../workbench/workbench-store.svelte.ts'
   import type { WorkbenchEntry } from '../workbench/types.ts'
   import type { InspectMeta } from './insight/insight-context.ts'
+  import type { DetailLocation, DetailResolution } from './insight/detail-location.ts'
 
   let {
     entry,
     store,
     onInspect,
-  }: { entry: WorkbenchEntry; store: WorkbenchStore; onInspect?: (meta: InspectMeta) => void } =
-    $props()
+    detailLocation,
+    onDetailLocation,
+    onDetailResolution,
+  }: {
+    entry: WorkbenchEntry
+    store: WorkbenchStore
+    onInspect?: (meta: InspectMeta) => void
+    detailLocation?: DetailLocation
+    onDetailLocation?: (location: DetailLocation) => void
+    onDetailResolution?: (resolution: DetailResolution) => void
+  } = $props()
 </script>
 
 {#if entry.status === 'loading'}
@@ -38,6 +48,9 @@
     onSelectDefinition={(projectId, definitionId) =>
       store.selectDevelopmentDefinition(entry.descriptor.id, projectId, definitionId)}
     {onInspect}
+    {detailLocation}
+    {onDetailLocation}
+    {onDetailResolution}
   />
 {:else if entry.data.kind === 'development'}
   <DevelopmentWorkbenchView
@@ -50,9 +63,18 @@
     onSelectDefinition={(projectId, definitionId) =>
       store.selectDevelopmentDefinition(entry.descriptor.id, projectId, definitionId)}
     {onInspect}
+    {detailLocation}
+    {onDetailLocation}
+    {onDetailResolution}
   />
 {:else if entry.descriptor.route === 'explorer' && entry.data.ir}
-  <IrExplorerView model={entry.data} {onInspect} />
+  <IrExplorerView
+    model={entry.data}
+    {onInspect}
+    {detailLocation}
+    {onDetailLocation}
+    {onDetailResolution}
+  />
 {:else}
   <OverviewView model={entry.data} />
 {/if}
