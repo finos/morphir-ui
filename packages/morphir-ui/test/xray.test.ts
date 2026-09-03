@@ -59,6 +59,28 @@ describe('XRayView', () => {
     expect(screen.getAllByText('variable').length).toBeGreaterThan(0)
   })
 
+  test('separates search actions and filters into toolbar rows', async () => {
+    const { container } = render(XRayView, {
+      props: { def: await defByName('chainedArithmetic') },
+    })
+    const primary = container.querySelector<HTMLElement>('.xray-toolbar-primary')
+    const filters = container.querySelector<HTMLElement>('.xray-toolbar-filters')
+
+    expect(primary).not.toBeNull()
+    expect(filters).not.toBeNull()
+    expect(within(primary!).getByRole('searchbox', { name: 'Search XRay' })).toBeTruthy()
+    expect(within(primary!).getByRole('button', { name: 'Expand all' })).toBeTruthy()
+    expect(within(primary!).getByRole('button', { name: 'Collapse all' })).toBeTruthy()
+    expect(within(primary!).getByRole('status')).toBeTruthy()
+    expect(within(filters!).getByText('Filter')).toBeTruthy()
+    expect(within(filters!).getByRole('group', { name: 'XRay search scopes' })).toBeTruthy()
+    expect(within(filters!).queryByText('matching paths auto-expanded')).toBeNull()
+
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search XRay' }), 'Basics.add')
+
+    expect(within(filters!).getByText('matching paths auto-expanded')).toBeTruthy()
+  })
+
   test('renders every projected kind through the presentation catalog', async () => {
     const { container } = render(XRayView, { props: { def: await allKindsDefinition() } })
 
