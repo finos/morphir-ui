@@ -108,6 +108,21 @@
     }
     return null
   })
+  let requestedRoutedProjectId: string | null = null
+
+  $effect(() => {
+    const callback = onSelectProject
+    const projects = workbench.snapshot.projects
+    if (navigation.activeProjectId || !detailLocation || projects.length !== 1 || !callback) {
+      requestedRoutedProjectId = null
+      return
+    }
+
+    const projectId = projects[0]!.id
+    if (requestedRoutedProjectId === projectId) return
+    requestedRoutedProjectId = projectId
+    callback(projectId)
+  })
 
   const recover = () => {
     if (unavailableReason) {

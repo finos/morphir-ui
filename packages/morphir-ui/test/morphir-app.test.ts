@@ -393,6 +393,68 @@ describe('MorphirApp', () => {
     expect(screen.getByRole('button', { name: 'Projects, workspace open, 1 project' })).toBeTruthy()
   })
 
+  test('restores a routed XRay node through the sole Development project after reload', async () => {
+    const source = legacySourceRef('/dev')
+    const projectId = projectKey(source, 'packages/pricing')
+    const snapshot: WorkspaceSnapshot = {
+      id: sourceKey(source),
+      root: source,
+      name: 'Development',
+      configAnchor: '/dev/morphir.toml',
+      state: 'open',
+      projects: [
+        {
+          id: projectId,
+          name: 'Pricing',
+          version: '1.0.0',
+          relativePath: 'packages/pricing',
+          configAnchor: 'packages/pricing/morphir.toml',
+          sourceDirectory: 'src',
+          state: 'unloaded',
+          modelSources: [],
+          knowledgeBaseSources: [],
+          diagnostics: [],
+        },
+      ],
+      modelSources: [],
+      knowledgeBaseSources: [],
+      diagnostics: [],
+    }
+    const { core } = makeFakeCore({
+      workspaceContent: insightFixture,
+      development: { snapshot },
+    })
+    const services = await makeAppServices({ core })
+    const descriptor = await services.inspectWorkbench(source)
+    if (descriptor.kind !== 'development') throw new Error('expected development descriptor')
+    const initialConfig = {
+      ...defaultUiConfig,
+      workbenches: {
+        ...defaultUiConfig.workbenches,
+        open: [descriptor],
+        activeId: descriptor.id,
+      },
+    }
+    const hash =
+      '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray&node=%2Fbody%2Ffn'
+    history.replaceState(null, '', hash)
+
+    render(MorphirApp, {
+      props: { services, badge: 'WEB', version: '0.0.1', initialConfig },
+    })
+
+    expect((await screen.findByRole('tab', { name: 'XRay' })).getAttribute('aria-selected')).toBe(
+      'true',
+    )
+    const selected = within(screen.getByRole('tree', { name: 'XRay structure' })).getByRole(
+      'treeitem',
+      { selected: true },
+    )
+    expect(selected.getAttribute('data-path')).toBe('/body/fn')
+    await waitFor(() => expect(document.activeElement).toBe(selected))
+    expect(location.hash).toBe(hash)
+  })
+
   test('clears routed detail state when switching between loaded Development projects', async () => {
     const source = legacySourceRef('/dev')
     const pricingId = projectKey(source, 'packages/pricing')

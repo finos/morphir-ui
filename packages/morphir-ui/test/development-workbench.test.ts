@@ -104,6 +104,43 @@ const renderView = (
   })
 
 describe('DevelopmentWorkbenchView', () => {
+  test('opens the sole project automatically for a routed definition', async () => {
+    const onSelectProject = vi.fn()
+    renderView(
+      [orders],
+      { activeProjectId: null, projects: [] },
+      { onSelectProject },
+      {
+        detailLocation: {
+          definition: 'Morphir.Example.App.Forecast.listExample',
+          view: 'xray',
+          node: '/body',
+        },
+      },
+    )
+
+    await waitFor(() => expect(onSelectProject).toHaveBeenCalledWith(orders.id))
+  })
+
+  test('does not guess a project for a routed definition when several exist', async () => {
+    const onSelectProject = vi.fn()
+    renderView(
+      [orders, { ...orders, id: `${orders.id}:other`, name: 'Other' }],
+      { activeProjectId: null, projects: [] },
+      { onSelectProject },
+      {
+        detailLocation: {
+          definition: 'Morphir.Example.App.Forecast.listExample',
+          view: 'xray',
+          node: '/body',
+        },
+      },
+    )
+
+    await Promise.resolve()
+    expect(onSelectProject).not.toHaveBeenCalled()
+  })
+
   test('resolves a deep-linked definition through the project selection callback', async () => {
     const { core } = makeFakeCore({ workspaceContent: irFixture })
     const services = await makeAppServices({ core })
