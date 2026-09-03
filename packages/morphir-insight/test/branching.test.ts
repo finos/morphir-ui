@@ -1,7 +1,44 @@
 import { describe, expect, test } from 'bun:test'
 import { Effect } from 'effect'
-import { decodeMorphirIr, decodeEntryValueDef, nameToCamel, type MorphirLibrary, type RawDefEntry } from '@morphir/ir'
+import {
+  decodeMorphirIr,
+  decodeEntryValueDef,
+  nameToCamel,
+  type MorphirLibrary,
+  type Pattern,
+  type RawDefEntry,
+  type ValueDef,
+  type ValueExpr,
+} from '@morphir/ir'
 import { makeContext, toViewTree, type ViewNode } from '../src/index.ts'
+
+const emptyLib: MorphirLibrary = { packageName: [['test']], modules: [] }
+const nestedTuplePattern: Pattern = {
+  kind: 'pattern-tuple',
+  elements: [
+    { kind: 'as', inner: { kind: 'wildcard' }, name: ['x'] },
+    {
+      kind: 'pattern-tuple',
+      elements: [
+        { kind: 'as', inner: { kind: 'wildcard' }, name: ['y'] },
+        { kind: 'as', inner: { kind: 'wildcard' }, name: ['z'] },
+      ],
+    },
+  ],
+}
+const decisionTable = (subject: ValueExpr): ViewNode => {
+  const def: ValueDef = {
+    inputs: [],
+    output: { kind: 'type-unit' },
+    body: {
+      kind: 'pattern-match',
+      attr: {},
+      subject,
+      cases: [{ pattern: nestedTuplePattern, body: { kind: 'value-unit', attr: {} } }],
+    },
+  }
+  return toViewTree(def, makeContext(emptyLib))
+}
 
 let lib: MorphirLibrary
 const defs = new Map<string, RawDefEntry>()
@@ -38,6 +75,48 @@ describe('if trees', () => {
 })
 
 describe('decision tables', () => {
+  test('nested tuple subject and pattern produce one cell per leaf', () => {
+    const node = decisionTable({
+      kind: 'value-tuple',
+      attr: {},
+      elements: [
+        { kind: 'variable', attr: {}, name: ['a'] },
+        {
+          kind: 'value-tuple',
+          attr: {},
+          elements: [
+            { kind: 'variable', attr: {}, name: ['b'] },
+            { kind: 'variable', attr: {}, name: ['c'] },
+          ],
+        },
+      ],
+    })
+
+    expect(node.kind).toBe('v-decision-table')
+    if (node.kind === 'v-decision-table') {
+      expect(node.columns).toHaveLength(3)
+      expect(node.rows[0]!.cells).toEqual([
+        { kind: 'cell-pattern', text: 'x' },
+        { kind: 'cell-pattern', text: 'y' },
+        { kind: 'cell-pattern', text: 'z' },
+      ])
+    }
+  })
+
+  test('nested tuple pattern determines columns for a variable subject', () => {
+    const node = decisionTable({ kind: 'variable', attr: {}, name: ['input'] })
+
+    expect(node.kind).toBe('v-decision-table')
+    if (node.kind === 'v-decision-table') {
+      expect(node.columns).toHaveLength(3)
+      expect(node.rows[0]!.cells).toEqual([
+        { kind: 'cell-pattern', text: 'x' },
+        { kind: 'cell-pattern', text: 'y' },
+        { kind: 'cell-pattern', text: 'z' },
+      ])
+    }
+  })
+
   test('colorCase: one column, three constructor rows', async () => {
     const node = await tree('colorCase')
     expect(node.kind).toBe('v-decision-table')

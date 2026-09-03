@@ -54,6 +54,9 @@ const countColumns = (subject: ValueExpr): number =>
 const columnSubjects = (subject: ValueExpr): ValueExpr[] =>
   subject.kind === 'value-tuple' ? subject.elements.flatMap(columnSubjects) : [subject]
 
+const patternLeaves = (pattern: Pattern): Pattern[] =>
+  pattern.kind === 'pattern-tuple' ? pattern.elements.flatMap(patternLeaves) : [pattern]
+
 const rowCells = (pattern: Pattern, columnCount: number): ViewCell[] => {
   const pad = (cells: ViewCell[]): ViewCell[] => {
     while (cells.length < columnCount) cells.push({ kind: 'cell-missing' })
@@ -62,7 +65,11 @@ const rowCells = (pattern: Pattern, columnCount: number): ViewCell[] => {
   switch (pattern.kind) {
     case 'wildcard': return Array.from({ length: columnCount }, () => ({ kind: 'cell-wildcard' as const }))
     case 'pattern-tuple':
-      return pad(pattern.elements.map((p): ViewCell => (p.kind === 'wildcard' ? { kind: 'cell-wildcard' } : { kind: 'cell-pattern', text: patternToText(p) })))
+      return pad(
+        patternLeaves(pattern).map((p): ViewCell =>
+          p.kind === 'wildcard' ? { kind: 'cell-wildcard' } : { kind: 'cell-pattern', text: patternToText(p) }
+        )
+      )
     case 'literal-pattern':
     case 'constructor-pattern':
     case 'as':
@@ -77,7 +84,7 @@ const rowCells = (pattern: Pattern, columnCount: number): ViewCell[] => {
 // fixture's tupleCase subject is a variable whose *type* is a tuple (`case pair of ...`), so the
 // literal expression never decomposes — we instead fall back to the arity of any pattern-tuple
 // case to size the table, using the subject's own view repeated per column as the header.
-const patternArity = (p: Pattern): number => (p.kind === 'pattern-tuple' ? p.elements.length : 1)
+const patternArity = (pattern: Pattern): number => patternLeaves(pattern).length
 
 const columnCountFor = (subject: ValueExpr, cases: MatchExpr['cases']): number =>
   subject.kind === 'value-tuple'
