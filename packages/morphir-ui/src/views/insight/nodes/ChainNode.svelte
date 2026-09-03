@@ -22,7 +22,11 @@
   {#each items as item, i (i)}
     {#if i > 0}<span class="op" class:logic={isLogic}>{node.op}</span>{/if}
     {#if item.grouped}
-      <span class="grouped">({@render render(item.node)})</span>
+      <span class="grouped"
+        ><span class="punctuation grouping">(</span>{@render render(item.node)}<span
+          class="punctuation grouping">)</span
+        ></span
+      >
     {:else}
       {@render render(item.node)}
     {/if}
@@ -31,7 +35,6 @@
 
 <style>
   .chain {
-    font-size: 12.5px;
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -46,5 +49,13 @@
   }
   .grouped {
     display: inline-flex;
+  }
+  .punctuation {
+    font-family: var(--mono);
+    color: var(--muted2);
+    font-size: 0.9em;
+  }
+  .grouping {
+    font-weight: 700;
   }
 </style>

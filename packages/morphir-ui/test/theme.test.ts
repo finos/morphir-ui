@@ -29,16 +29,43 @@ const PALETTE: ReadonlyArray<readonly [string, string, string]> = [
   ['accent-text', '#9c2f77', '#f2b7dd'],
 ]
 
+const THEMED_COLORS: ReadonlyArray<readonly [string, string, string]> = [
+  ...PALETTE,
+  ['xray-match', '#0e7490', '#22d3ee'],
+  ['status-unloaded', '#6c6484', '#8d849e'],
+  ['status-loading', '#6b4cc5', '#a78bfa'],
+  ['status-ready', '#24734c', '#72d6a0'],
+  ['status-stale', '#95620b', '#efc66d'],
+  ['status-error', '#ad2f5f', '#f17ca7'],
+  ['status-disconnected', '#7a5360', '#c49aa8'],
+]
+
 describe('theme stylesheets', () => {
-  test('every palette token is defined exactly once as light-dark(light, dark)', () => {
-    for (const [name, light, dark] of PALETTE) {
+  test('every themed color token is defined exactly once as light-dark(light, dark)', () => {
+    for (const [name, light, dark] of THEMED_COLORS) {
       const definitions = tokens.match(new RegExp(`--${name}:`, 'g')) ?? []
       expect(definitions, `--${name} defined once`).toHaveLength(1)
       expect(tokens).toContain(`--${name}: light-dark(${light}, ${dark});`)
     }
   })
 
-  test('scheme classes only flip color-scheme', () => {
+  test('root and every scheme class own the complete themed color block', () => {
+    const rule = tokens.match(
+      /(?<selectors>(?::root|\.theme-(?:dark|light|system))(?:\s*,\s*(?::root|\.theme-(?:dark|light|system)))*)\s*\{(?<declarations>[^{}]*--bg:[^{}]*)\}/,
+    )
+    expect(rule, 'themed color rule').not.toBeNull()
+
+    const selectors = rule?.groups?.selectors?.split(',').map((selector) => selector.trim())
+    expect(selectors).toEqual([':root', '.theme-dark', '.theme-light', '.theme-system'])
+
+    for (const [name, light, dark] of THEMED_COLORS) {
+      expect(rule?.groups?.declarations, `--${name} belongs to every scheme selector`).toContain(
+        `--${name}: light-dark(${light}, ${dark});`,
+      )
+    }
+  })
+
+  test('root and scheme classes select the expected color scheme', () => {
     expect(tokens).toMatch(/\.theme-dark\s*{\s*color-scheme:\s*dark;\s*}/)
     expect(tokens).toMatch(/\.theme-light\s*{\s*color-scheme:\s*light;\s*}/)
     expect(tokens).toMatch(/\.theme-system\s*{\s*color-scheme:\s*light dark;\s*}/)

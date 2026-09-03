@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import IrExplorerView from '../src/views/IrExplorerView.svelte'
+import { definitionForFqn, definitionFqn } from '../src/views/insight/detail-location.ts'
 import { legacySourceRef, makeAppServices, type ModelWorkbenchData } from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
 
@@ -31,6 +32,252 @@ const openModel = async (): Promise<ModelWorkbenchData> => {
 }
 
 describe('IrExplorerView', () => {
+  test('identifies definitions by an exact unique fully-qualified name', async () => {
+    const model = await openModel()
+    if (!model.ir) throw new Error('expected decoded IR')
+    const listExample = model.ir.definitions.find(
+      (definition) => definition.ref.localName === 'listExample',
+    )
+    if (!listExample) throw new Error('expected listExample')
+
+    expect(definitionFqn(listExample)).toBe('Morphir.Example.App.Forecast.listExample')
+    expect(definitionForFqn(model.ir.definitions, 'Morphir.Example.App.Forecast.listExample')).toBe(
+      listExample,
+    )
+    expect(
+      definitionForFqn(
+        [...model.ir.definitions, { ...listExample }],
+        'Morphir.Example.App.Forecast.listExample',
+      ),
+    ).toBeNull()
+  })
+
+  test('opens a controlled definition directly in XRay without reporting hydration', async () => {
+    const onDetailLocation = vi.fn()
+    render(IrExplorerView, {
+      props: {
+        model: await openModel(),
+        detailLocation: {
+          definition: 'Morphir.Example.App.Forecast.listExample',
+          view: 'xray',
+          node: '/body',
+        },
+        onDetailLocation,
+      },
+    })
+
+    expect(screen.getByRole('tab', { name: 'XRay' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('treeitem', { name: /body/ }).getAttribute('aria-selected')).toBe(
+      'true',
+    )
+    expect(onDetailLocation).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('treeitem', { name: /output/ }))
+    expect(onDetailLocation).toHaveBeenLastCalledWith({
+      definition: 'Morphir.Example.App.Forecast.listExample',
+      view: 'xray',
+      node: '/output',
+    })
+  })
+
+  test('preserves a controlled XRay node across tabs and clears it for another definition', async () => {
+    const onDetailLocation = vi.fn()
+    const view = render(IrExplorerView, {
+      props: {
+        model: await openModel(),
+        detailLocation: {
+          definition: 'Morphir.Example.App.Forecast.listExample',
+          view: 'xray',
+          node: '/body',
+        },
+        onDetailLocation,
+      },
+    })
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Insight' }))
+    expect(onDetailLocation).toHaveBeenLastCalledWith({
+      definition: 'Morphir.Example.App.Forecast.listExample',
+      view: 'insight',
+      node: '/body',
+    })
+
+    await view.rerender({
+      model: await openModel(),
+      detailLocation: {
+        definition: 'Morphir.Example.App.Forecast.listExample',
+        view: 'insight',
+        node: '/body',
+      },
+      onDetailLocation,
+    })
+
+    await userEvent.click(screen.getByRole('treeitem', { name: 'WindDirection' }))
+    expect(onDetailLocation).toHaveBeenLastCalledWith({
+      definition: 'Morphir.Example.App.Forecast.WindDirection',
+      view: 'type',
+    })
+  })
+
+  test('reports controlled detail resolution after IR and node validation', async () => {
+    const model = await openModel()
+    const onDetailResolution = vi.fn()
+    const view = render(IrExplorerView, {
+      props: {
+        model: { ...model, ir: null },
+        detailLocation: {
+          definition: 'Morphir.Example.App.Forecast.listExample',
+          view: 'xray',
+          node: '/body/missing',
+        },
+        onDetailResolution,
+      },
+    })
+    expect(onDetailResolution).toHaveBeenLastCalledWith({ kind: 'pending' })
+
+    await view.rerender({
+      model,
+      detailLocation: {
+        definition: 'Morphir.Example.App.Forecast.listExample',
+        view: 'xray',
+        node: '/body/missing',
+      },
+      onDetailResolution,
+    })
+    expect(onDetailResolution).toHaveBeenLastCalledWith({
+      kind: 'invalid-node',
+      definition: 'Morphir.Example.App.Forecast.listExample',
+      node: '/body/missing',
+    })
+
+    await view.rerender({
+      model,
+      detailLocation: {
+        definition: 'Morphir.Example.App.Forecast.listExample',
+        view: 'xray',
+        node: '/body',
+      },
+      onDetailResolution,
+    })
+    expect(onDetailResolution).toHaveBeenLastCalledWith({ kind: 'resolved' })
+
+    await view.rerender({
+      model,
+      detailLocation: {
+        definition: 'Morphir.Example.App.Forecast.missing',
+        view: 'xray',
+      },
+      onDetailResolution,
+    })
+    expect(onDetailResolution).toHaveBeenLastCalledWith({
+      kind: 'invalid-definition',
+      definition: 'Morphir.Example.App.Forecast.missing',
+    })
+
+    const reportCount = onDetailResolution.mock.calls.length
+    await view.rerender({ model, detailLocation: undefined, onDetailResolution })
+    await screen.findByText('Select a definition')
+    await view.rerender({
+      model,
+      detailLocation: {
+        definition: 'Morphir.Example.App.Forecast.missing',
+        view: 'xray',
+      },
+      onDetailResolution,
+    })
+    expect(onDetailResolution).toHaveBeenCalledTimes(reportCount + 1)
+  })
+
+  test('a valid routed detail replaces a stale local resolution error', async () => {
+    const model = await openModel()
+    if (!model.ir) throw new Error('expected decoded IR')
+    const firstModule = model.ir.modules[0]
+    if (!firstModule) throw new Error('expected first module')
+    const missing = {
+      ref: {
+        packageName: firstModule.packageName,
+        moduleName: firstModule.name,
+        localName: 'MissingDefinition',
+      },
+      kind: 'type' as const,
+      access: 'Public' as const,
+      doc: null,
+    }
+    const inconsistent = {
+      ...model,
+      ir: { ...model.ir, definitions: [...model.ir.definitions, missing] },
+    }
+    const view = render(IrExplorerView, { props: { model: inconsistent } })
+    await userEvent.click(screen.getByRole('treeitem', { name: 'MissingDefinition' }))
+    expect(screen.getByRole('alert').textContent).toContain('MissingDefinition')
+
+    await view.rerender({
+      model: inconsistent,
+      detailLocation: {
+        definition: 'Morphir.Example.App.Forecast.listExample',
+        view: 'insight',
+      },
+    })
+
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText('listExample', { selector: '.local' })).toBeTruthy()
+  })
+
+  test('reuses routed definition projection when only the selected node changes', async () => {
+    const model = await openModel()
+    if (!model.library) throw new Error('expected decoded library')
+    const module = model.library.modules[0]
+    const entry = module?.values[0]
+    if (!module || !entry) throw new Error('expected value definition')
+    let rawDefinitionReads = 0
+    const instrumentedEntry = {
+      ...entry,
+      get rawDefinition() {
+        rawDefinitionReads += 1
+        return entry.rawDefinition
+      },
+    }
+    const instrumentedModel = {
+      ...model,
+      library: {
+        ...model.library,
+        modules: [
+          {
+            ...module,
+            values: [instrumentedEntry, ...module.values.slice(1)],
+          },
+          ...model.library.modules.slice(1),
+        ],
+      },
+    }
+    const view = render(IrExplorerView, {
+      props: {
+        model: instrumentedModel,
+        selectedDefinitionId: null,
+        onSelectedDefinition: vi.fn(),
+        detailLocation: {
+          definition: 'Morphir.Example.App.Forecast.listExample',
+          view: 'insight',
+          node: '/body',
+        },
+      },
+    })
+    const initialReads = rawDefinitionReads
+    expect(initialReads).toBeGreaterThan(0)
+
+    await view.rerender({
+      model: instrumentedModel,
+      selectedDefinitionId: null,
+      onSelectedDefinition: vi.fn(),
+      detailLocation: {
+        definition: 'Morphir.Example.App.Forecast.listExample',
+        view: 'insight',
+        node: '/output',
+      },
+    })
+
+    expect(rawDefinitionReads).toBe(initialReads)
+  })
+
   test('renders the model hierarchy instead of the old explorer columns', async () => {
     render(IrExplorerView, { props: { model: await openModel() } })
     const tree = screen.getByRole('tree', { name: 'Model hierarchy' })
@@ -80,7 +327,11 @@ describe('IrExplorerView', () => {
       screen.getByText('WindDirection', { selector: '.local' }).closest('.fqn')?.textContent,
     ).toBe('Morphir.Example.App.Forecast.WindDirection')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Types' }))
+    await userEvent.click(
+      within(screen.getByRole('group', { name: 'Definition filters' })).getByRole('button', {
+        name: 'Types',
+      }),
+    )
 
     expect(screen.queryByRole('treeitem', { name: 'WindDirection' })).toBeNull()
     expect(

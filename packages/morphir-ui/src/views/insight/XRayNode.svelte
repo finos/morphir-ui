@@ -1,110 +1,192 @@
 <script lang="ts">
+  import type { XRayTreeNode } from './xray-tree.ts'
+  import XRayKindBadge from './XRayKindBadge.svelte'
   import XRayNode from './XRayNode.svelte'
-  let { node, label = '' }: { node: unknown; label?: string } = $props()
 
-  const scalar = (v: unknown) =>
-    typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
+  type Props = {
+    node: XRayTreeNode
+    expanded: ReadonlySet<string>
+    directMatchPaths: ReadonlySet<string>
+    level: number
+    selectedPath: string | null
+    focusedPath: string | null
+    onToggle: (path: string) => void
+    onSelect: (path: string) => void
+    onFocus: (path: string) => void
+    onKeyDown: (event: KeyboardEvent, path: string) => void
+    onRow: (path: string, element: HTMLButtonElement | null) => void
+  }
 
-  // Plain records cover both AST nodes (tagged with `kind`) and the untagged pair-wrappers
-  // the decoder produces for pattern-match cases, record/update-record fields, let-recursion
-  // definitions, and the nested ValueDef under let-definition.definition. Both need to be
-  // browsable — only the summary rendering (whether a `kind` badge is shown) differs.
-  const isRecord = (v: unknown): v is Record<string, unknown> =>
-    typeof v === 'object' && v !== null && !Array.isArray(v)
+  let {
+    node,
+    expanded,
+    directMatchPaths,
+    level,
+    selectedPath,
+    focusedPath,
+    onToggle,
+    onSelect,
+    onFocus,
+    onKeyDown,
+    onRow,
+  }: Props = $props()
+  let rowElement: HTMLButtonElement | undefined = $state()
+  const branch = () => node.children.length > 0
+  const open = () => expanded.has(node.path)
+  const directMatch = () => directMatchPaths.has(node.path)
 
-  const isAstNode = (v: unknown): v is Record<string, unknown> & { kind: string } =>
-    isRecord(v) && 'kind' in v
-
-  // Name is string[]; Path is Name[] (i.e. string[][]). Both should keep rendering inline
-  // rather than exploding into a disclosure tree of single-string leaves.
-  const isPrimitiveArray = (v: unknown): boolean =>
-    Array.isArray(v) && v.every((el) => scalar(el) || isPrimitiveArray(el))
-
-  const children = $derived.by(() => {
-    if (!isRecord(node)) return []
-    const out: { label: string; value: unknown }[] = []
-    for (const [key, value] of Object.entries(node)) {
-      if (key === 'kind' || key === 'attr' || key === 'raw' || key === 'tag') continue
-      if (Array.isArray(value) && !isPrimitiveArray(value)) {
-        value.forEach((v, i) => out.push({ label: `${key}[${i}]`, value: v }))
-      } else {
-        out.push({ label: key, value })
-      }
-    }
-    return out
+  $effect(() => {
+    if (!rowElement) return
+    onRow(node.path, rowElement)
+    return () => onRow(node.path, null)
   })
+
+  const activate = () => {
+    onFocus(node.path)
+    onSelect(node.path)
+    if (branch()) onToggle(node.path)
+  }
 </script>
 
-{#if isRecord(node)}
-  <details open class="xray-node">
-    <summary>
-      {#if label}<span class="label">{label}:</span>{/if}
-      {#if isAstNode(node)}
-        <span class="kind" class:unknown={node.kind === 'unknown'}>{node.kind}</span>
-        {#if node.kind === 'unknown'}<span class="tag">{String(node['tag'])}</span><span
-            class="raw-marker">raw unavailable in xray</span
-          >{/if}
-      {/if}
-    </summary>
-    <div class="children">
-      {#each children as child (child.label)}
-        {#if scalar(child.value) || isPrimitiveArray(child.value)}
-          <div class="scalar">
-            <span class="label">{child.label}:</span>
-            <span class="value">{JSON.stringify(child.value)}</span>
-          </div>
-        {:else}
-          <XRayNode node={child.value} label={child.label} />
-        {/if}
+<div class="xray-node" class:branch={branch()}>
+  <button
+    bind:this={rowElement}
+    type="button"
+    class="xray-row"
+    class:leaf={!branch()}
+    class:direct-match={directMatch()}
+    class:selected={selectedPath === node.path}
+    role="treeitem"
+    aria-level={level}
+    aria-expanded={branch() ? open() : undefined}
+    aria-selected={selectedPath === node.path}
+    tabindex={focusedPath === node.path ? 0 : -1}
+    data-path={node.path}
+    data-xray-path={node.path}
+    data-direct-match={directMatch()}
+    onclick={activate}
+    onfocus={() => onFocus(node.path)}
+    onkeydown={(event) => onKeyDown(event, node.path)}
+  >
+    <span class:leaf-gutter={!branch()} class:disclosure={branch()} aria-hidden="true"
+      >{branch() ? (open() ? '⌄' : '›') : '·'}</span
+    >
+    <span class="label">{node.label}</span>
+    {#if node.kind}<XRayKindBadge kind={node.kind} />{/if}
+    {#if node.typeText}<span class="xray-type type-badge">{node.typeText}</span>{/if}
+    {#if node.scalar}<span class="value">{node.scalar}</span>{/if}
+    {#if node.warning}<span class="warning">{node.warning}</span>{/if}
+    {#if directMatch()}<span class="match-badge">MATCH</span>{/if}
+  </button>
+  {#if branch() && open()}
+    <div class="children" role="group">
+      {#each node.children as child (child.path)}
+        <XRayNode
+          {expanded}
+          {directMatchPaths}
+          {selectedPath}
+          {focusedPath}
+          {onToggle}
+          {onSelect}
+          {onFocus}
+          {onKeyDown}
+          {onRow}
+          node={child}
+          level={level + 1}
+        />
       {/each}
     </div>
-  </details>
-{:else}
-  <div class="scalar">
-    {#if label}<span class="label">{label}:</span>{/if}
-    <span class="value">{JSON.stringify(node)}</span>
-  </div>
-{/if}
+  {/if}
+</div>
 
 <style>
   .xray-node {
     font-family: var(--mono);
     font-size: 12.5px;
   }
-  summary {
+  .xray-row {
+    display: flex;
+    align-items: baseline;
+    width: 100%;
+    gap: 6px;
+    padding: 3px 5px;
+    color: var(--text);
+    text-align: left;
+  }
+  .xray-row {
+    border: 1px solid transparent;
+    background: transparent;
+    font: inherit;
     cursor: pointer;
-    padding: 1px 0;
   }
-  .kind {
-    color: var(--accent2);
-    font-weight: 600;
+  .xray-row:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
   }
-  .kind.unknown {
-    color: var(--accent);
+  .xray-row.selected {
+    border-color: var(--accent2);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
   }
-  .tag {
+  .xray-row.direct-match {
+    border-color: color-mix(in srgb, var(--xray-match) 65%, var(--panel-edge));
+    background: color-mix(in srgb, var(--xray-match) 12%, var(--surface));
+  }
+  .xray-row.selected.direct-match {
+    border-color: color-mix(in srgb, var(--xray-match) 65%, var(--panel-edge));
+    background: color-mix(in srgb, var(--xray-match) 12%, var(--surface));
+    box-shadow: inset 3px 0 0 var(--accent2);
+  }
+  .xray-row:focus-visible {
+    outline: 2px solid var(--accent2);
+    outline-offset: -2px;
+  }
+  .disclosure,
+  .leaf-gutter {
+    flex: 0 0 10px;
     color: var(--muted);
-    margin-left: 6px;
-  }
-  .raw-marker {
-    color: var(--muted);
-    margin-left: 6px;
-    font-style: italic;
   }
   .label {
     color: var(--muted2);
   }
+  .type-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border: 1px solid color-mix(in srgb, var(--status-stale) 55%, var(--panel-edge));
+    border-radius: 999px;
+    color: var(--text);
+    background: color-mix(in srgb, var(--status-stale) 12%, var(--surface));
+    font-size: 10px;
+    font-weight: 650;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+  .match-badge {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    margin-inline-start: auto;
+    padding: 1px 5px;
+    border: 1px solid color-mix(in srgb, var(--xray-match) 65%, var(--panel-edge));
+    border-radius: 999px;
+    color: var(--text);
+    background: color-mix(in srgb, var(--xray-match) 12%, var(--surface));
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+  .warning {
+    color: var(--accent);
+  }
   .value {
     color: var(--text);
   }
-  .children {
-    padding-left: 18px;
-    border-left: 1px solid var(--row-edge);
-    margin-left: 4px;
+  .warning {
+    font-style: italic;
   }
-  .scalar {
-    padding: 1px 0;
-    font-family: var(--mono);
-    font-size: 12.5px;
+  .children {
+    margin-left: 9px;
+    padding-left: 9px;
+    border-left: 1px solid var(--row-edge);
   }
 </style>

@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/svelte'
+import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -20,6 +20,7 @@ import {
   type WorkbenchRecoveryReason,
 } from '../src/index.ts'
 import { makeFakeCore } from './support/fake-services.ts'
+import type { DetailLocation } from '../src/views/insight/detail-location.ts'
 
 afterEach(() => cleanup())
 
@@ -86,6 +87,7 @@ const renderView = (
     workspaceState?: WorkspaceSnapshot['state']
     workspaceDiagnostics?: ReadonlyArray<WorkspaceDiagnostic>
     unavailableReason?: WorkbenchRecoveryReason
+    detailLocation?: DetailLocation
   } = {},
 ) =>
   render(DevelopmentWorkbenchView, {
@@ -97,10 +99,81 @@ const renderView = (
       onSelectDefinition: callbacks.onSelectDefinition ?? vi.fn(),
       onRecoverWorkbench: callbacks.onRecoverWorkbench ?? vi.fn(),
       unavailableReason: options.unavailableReason,
+      detailLocation: options.detailLocation,
     },
   })
 
 describe('DevelopmentWorkbenchView', () => {
+  test('opens the sole project automatically for a routed definition', async () => {
+    const onSelectProject = vi.fn()
+    renderView(
+      [orders],
+      { activeProjectId: null, projects: [] },
+      { onSelectProject },
+      {
+        detailLocation: {
+          definition: 'Morphir.Example.App.Forecast.listExample',
+          view: 'xray',
+          node: '/body',
+        },
+      },
+    )
+
+    await waitFor(() => expect(onSelectProject).toHaveBeenCalledWith(orders.id))
+  })
+
+  test('does not guess a project for a routed definition when several exist', async () => {
+    const onSelectProject = vi.fn()
+    renderView(
+      [orders, { ...orders, id: `${orders.id}:other`, name: 'Other' }],
+      { activeProjectId: null, projects: [] },
+      { onSelectProject },
+      {
+        detailLocation: {
+          definition: 'Morphir.Example.App.Forecast.listExample',
+          view: 'xray',
+          node: '/body',
+        },
+      },
+    )
+
+    await Promise.resolve()
+    expect(onSelectProject).not.toHaveBeenCalled()
+  })
+
+  test('resolves a deep-linked definition through the project selection callback', async () => {
+    const { core } = makeFakeCore({ workspaceContent: irFixture })
+    const services = await makeAppServices({ core })
+    const model = await services.loadDevelopmentProjectModel(descriptor, orders.id)
+    const onSelectDefinition = vi.fn()
+    renderView(
+      [orders],
+      {
+        activeProjectId: orders.id,
+        projects: [
+          {
+            projectId: orders.id,
+            modelState: { tag: 'ready', current: { model, selectedDefinitionId: null } },
+          },
+        ],
+      },
+      { onSelectDefinition },
+      {
+        detailLocation: {
+          definition: 'Morphir.Example.App.Forecast.listExample',
+          view: 'xray',
+        },
+      },
+    )
+
+    await waitFor(() =>
+      expect(onSelectDefinition).toHaveBeenCalledWith(
+        orders.id,
+        'definition:value:Morphir.Example.App:Forecast:listExample',
+      ),
+    )
+  })
+
   test('renders the empty project state', () => {
     renderView([], { activeProjectId: null, projects: [] })
 

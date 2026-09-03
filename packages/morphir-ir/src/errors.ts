@@ -13,16 +13,16 @@ export class MissingFormatVersion extends Data.TaggedError('MissingFormatVersion
 }
 
 export class UnsupportedFormatVersion extends Data.TaggedError('UnsupportedFormatVersion')<{
-  readonly found: number
+  readonly found: number | string
   readonly message: string
 }> {
-  static make = (found: number) =>
+  static make = (found: number | string) =>
     new UnsupportedFormatVersion({
       found,
       message:
         found === 1
           ? 'The IR is using format version 1, a legacy format that morphir-ui does not support yet. Please regenerate it with a current morphir-elm!'
-          : `The IR is using format version ${found} but the latest format version is 3. Please regenerate it!`,
+          : `The IR is using format version ${found} but this client supports versions 3 and 4. Please regenerate it!`,
     })
 }
 

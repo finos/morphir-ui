@@ -11,6 +11,7 @@
   import IrExplorerView from './IrExplorerView.svelte'
   import ProjectNavigation from './development/ProjectNavigation.svelte'
   import LifecycleNotice from './development/LifecycleNotice.svelte'
+  import type { DetailLocation, DetailResolution } from './insight/detail-location.ts'
 
   let {
     workbench,
@@ -21,6 +22,9 @@
     onInspect,
     unavailableReason,
     onRecoverWorkbench,
+    detailLocation,
+    onDetailLocation,
+    onDetailResolution,
   }: {
     workbench: DevelopmentWorkbenchData
     navigation: DevelopmentNavigationState
@@ -30,6 +34,9 @@
     onInspect?: (meta: InspectMeta) => void
     unavailableReason?: WorkbenchRecoveryReason
     onRecoverWorkbench?: () => void
+    detailLocation?: DetailLocation
+    onDetailLocation?: (location: DetailLocation) => void
+    onDetailResolution?: (resolution: DetailResolution) => void
   } = $props()
 
   const activeProject = $derived(
@@ -101,6 +108,21 @@
     }
     return null
   })
+  let requestedRoutedProjectId: string | null = null
+
+  $effect(() => {
+    const callback = onSelectProject
+    const projects = workbench.snapshot.projects
+    if (navigation.activeProjectId || !detailLocation || projects.length !== 1 || !callback) {
+      requestedRoutedProjectId = null
+      return
+    }
+
+    const projectId = projects[0]!.id
+    if (requestedRoutedProjectId === projectId) return
+    requestedRoutedProjectId = projectId
+    callback(projectId)
+  })
 
   const recover = () => {
     if (unavailableReason) {
@@ -127,6 +149,9 @@
     {selectedDefinitionId}
     onSelectedDefinition={(definitionId) => onSelectDefinition?.(activeProject.id, definitionId)}
     {onInspect}
+    {detailLocation}
+    {onDetailLocation}
+    {onDetailResolution}
   />
 {:else}
   <section class="development-workbench">

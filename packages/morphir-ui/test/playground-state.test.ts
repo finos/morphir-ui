@@ -391,11 +391,7 @@ describe('playgroundPackage', () => {
   // instead, mirroring module_name_from_document_uri in morphir-gleam-binding.
   test('derives the module name from the URI for Gleam, not from the source text', () => {
     expect(
-      playgroundPackage(
-        'pub fn hello() { "world" }',
-        'gleam',
-        'morphir-playground:/main.gleam',
-      ),
+      playgroundPackage('pub fn hello() { "world" }', 'gleam', 'morphir-playground:/main.gleam'),
     ).toEqual({ name: 'local/main', exposedModules: ['main'] })
   })
 })
@@ -425,9 +421,7 @@ describe('preferredIrVersion', () => {
   })
 
   test('falls back to the first agreed version when none of them is decodable', () => {
-    expect(preferredIrVersion(frontend('gleam', ['4', '5']), target('gleam', ['5', '4']))).toBe(
-      '5',
-    )
+    expect(preferredIrVersion(frontend('gleam', ['5', '6']), target('gleam', ['6', '5']))).toBe('6')
   })
 
   // A target selected before the frontend changed can survive as an incompatible
@@ -439,14 +433,14 @@ describe('preferredIrVersion', () => {
   })
 
   test('falls back to the first version when the frontend offers nothing decodable', () => {
-    expect(preferredIrVersion(frontend('gleam', ['4', '5']), null)).toBe('4')
+    expect(preferredIrVersion(frontend('gleam', ['5', '6']), null)).toBe('5')
   })
 
   // A revision inside a decodable major is a different release, spelled on the wire as
   // an exact string the decoder rejects. Preferring it over the frontend's own first
   // choice would trade a working request for one that cannot be rendered either way.
   test('does not prefer an undecodable revision of a decodable major', () => {
-    expect(preferredIrVersion(frontend('elm', ['4', '3.1.0']), null)).toBe('4')
+    expect(preferredIrVersion(frontend('elm', ['3.1.0', '3']), null)).toBe('3')
   })
 
   test('an empty frontend yields an empty version rather than throwing', () => {

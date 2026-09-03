@@ -235,7 +235,7 @@
             }
           }}
         />
-        <div class="filters" aria-label="Definition filters">
+        <div class="filters" role="group" aria-label="Definition filters">
           <button
             type="button"
             class:pressed={showTypes}

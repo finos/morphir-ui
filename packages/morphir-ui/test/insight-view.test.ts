@@ -15,18 +15,73 @@ const fixture = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '../../morphir-ir/test/fixtures/insight-ir.json'),
   'utf8',
 )
-const setup = async (name: string, onSelect?: (meta: InspectMeta) => void) => {
+const setup = async (
+  name: string,
+  onSelect?: (meta: InspectMeta) => void,
+  definitionName?: string,
+) => {
   const lib: MorphirLibrary = await Effect.runPromise(decodeMorphirIr(fixture))
   const entry = lib.modules[0]!.values.find((v) => nameToCamel(v.name) === name)!
-  render(InsightView, { props: { def: decodeEntryValueDef(entry), library: lib, onSelect } })
+  render(InsightView, {
+    props: { def: decodeEntryValueDef(entry), library: lib, onSelect, definitionName },
+  })
   return lib
 }
 
 describe('InsightView', () => {
+  test('renders the named definition within the semantic expression canvas', async () => {
+    await setup('chainedArithmetic', undefined, 'chainedArithmetic')
+    const definition = screen.getByTestId('insight-definition')
+    expect(document.querySelector('.insight-canvas')).toBeTruthy()
+    expect(document.querySelector('.signature')).toBeTruthy()
+    expect(
+      screen.getByTestId('insight-definition-name').classList.contains('definition-name'),
+    ).toBe(true)
+    expect(definition.textContent).toMatch(/^chainedArithmetic =/)
+    expect(definition.querySelector('.op')).toBeTruthy()
+    expect(definition.querySelector('.equals')?.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  test('does not render a definition name when none is supplied', async () => {
+    await setup('chainedArithmetic')
+    expect(screen.queryByTestId('insight-definition-name')).toBeNull()
+    expect(document.querySelector('.equals')).toBeNull()
+  })
+
+  test('contains structurally wide decision tables within a scroll boundary', async () => {
+    await setup('tupleCase')
+    expect(document.querySelector('.insight-canvas.scroll-boundary')).toBeTruthy()
+  })
+
   test('renders an arithmetic chain with operator separators', async () => {
     await setup('chainedArithmetic')
     expect(screen.getAllByText('+')).toHaveLength(2)
     expect(screen.getByText('a')).toBeTruthy()
+  })
+
+  test('marks grouped arithmetic parentheses as semantic punctuation', async () => {
+    await setup('mixedPrecedence')
+    const grouping = Array.from(document.querySelectorAll('.grouped .punctuation.grouping'))
+    expect(grouping).toHaveLength(2)
+    expect(grouping.map((element) => element.textContent)).toEqual(['(', ')'])
+  })
+
+  test('marks reference call punctuation as secondary syntax', async () => {
+    await setup('usesHelper')
+    expect(document.querySelector('.ref .call')?.querySelectorAll('.punctuation')).toHaveLength(2)
+  })
+
+  test('marks membership list brackets as grouping punctuation', async () => {
+    await setup('memberOf')
+    const membership = screen.getByRole('button', { name: 'v-member-of' })
+    expect(membership.querySelectorAll('.punctuation.grouping')).toHaveLength(2)
+  })
+
+  test('marks keyboard-selectable Insight nodes for scoped focus styling', async () => {
+    await setup('chainedArithmetic')
+    expect(
+      screen.getByRole('button', { name: 'v-arith-chain' }).getAttribute('data-insight-selectable'),
+    ).toBe('true')
   })
 
   test('renders a decision table with wildcard cells as anything else', async () => {

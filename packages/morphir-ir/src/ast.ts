@@ -61,3 +61,10 @@ export type ValueExpr =
   | { readonly kind: 'update-record'; readonly attr: unknown; readonly subject: ValueExpr; readonly fields: readonly { readonly name: Name; readonly value: ValueExpr }[] }
   | { readonly kind: 'value-unit'; readonly attr: unknown }
   | UnknownNode
+
+/** Every normalized discriminator that can appear in the decoded Morphir AST. */
+export type DecodedNodeKind =
+  | ValueExpr['kind']
+  | Pattern['kind']
+  | TypeExpr['kind']
+  | Literal['kind']

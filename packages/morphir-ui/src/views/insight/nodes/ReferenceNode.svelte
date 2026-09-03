@@ -24,10 +24,12 @@
   {/if}
   {#if node.args.length > 0}
     <span class="call"
-      >(<!--
-    -->{#each node.args as arg, i (i)}{#if i > 0},
+      ><span class="punctuation grouping">(</span
+      ><!--
+    -->{#each node.args as arg, i (i)}{#if i > 0}<span class="punctuation">,</span>
         {/if}{@render render(arg)}{/each}<!--
-    -->)</span
+    --><span class="punctuation grouping">)</span
+      ></span
     >
   {/if}
   {#if node.cycle}
@@ -48,7 +50,6 @@
   }
   .ref-name {
     font-family: var(--mono);
-    font-size: 12.5px;
     color: var(--accent2);
     background: none;
     border: none;
@@ -61,13 +62,20 @@
   }
   .call {
     font-family: var(--mono);
-    font-size: 12.5px;
     color: var(--text);
   }
+  .punctuation {
+    color: var(--muted2);
+    font-size: 0.9em;
+  }
+  .grouping {
+    font-weight: 700;
+  }
   .cycle-chip {
-    font-size: 11px;
+    font-size: 0.82em;
     color: var(--accent-text);
-    background: rgba(214, 64, 159, 0.14);
+    background: var(--panel);
+    border: 1px solid var(--accent);
     border-radius: 6px;
     padding: 1px 6px;
   }
@@ -76,5 +84,10 @@
     border-radius: 8px;
     padding: 8px 10px;
     background: var(--code-bg);
+  }
+  .ref-name:focus-visible {
+    outline: 2px solid var(--accent2);
+    outline-offset: 3px;
+    border-radius: 3px;
   }
 </style>

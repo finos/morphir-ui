@@ -525,7 +525,12 @@
       </div>
       <div class="detail">
         {#if activeTab === 'insight'}
-          <InsightView def={currentDef} {library} onSelect={onInspect} />
+          <InsightView
+            def={currentDef}
+            {library}
+            definitionName={currentDefinition?.ref.localName}
+            onSelect={onInspect}
+          />
         {:else}
           <XRayView def={currentDef} />
         {/if}

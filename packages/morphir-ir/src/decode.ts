@@ -6,6 +6,7 @@ import {
   UnsupportedFormatVersion,
   type IrError,
 } from './errors.ts'
+import { nameFromCanonical, pathFromCanonical } from './names.ts'
 
 export type Name = ReadonlyArray<string>
 export type Path = ReadonlyArray<Name>
@@ -30,6 +31,44 @@ export interface MorphirLibrary {
 const isName = (u: unknown): u is Name => Array.isArray(u) && u.every((p) => typeof p === 'string')
 const isPath = (u: unknown): u is Path => Array.isArray(u) && u.every(isName)
 const isAccess = (u: unknown): u is Access => u === 'Public' || u === 'Private'
+const isRecord = (u: unknown): u is Record<string, unknown> => typeof u === 'object' && u !== null
+const isV4Record = (u: unknown): u is Record<string, unknown> => isRecord(u) && !Array.isArray(u)
+
+const V4_ACCESS_BY_SPELLING = Object.freeze({
+  Public: 'Public',
+  Private: 'Private',
+  public: 'Public',
+  private: 'Private',
+  pub: 'Public',
+} satisfies Readonly<Record<string, Access>>)
+
+type V4AccessSpelling = keyof typeof V4_ACCESS_BY_SPELLING
+
+const V4_ACCESS_SPELLINGS = Object.freeze(Object.keys(V4_ACCESS_BY_SPELLING) as V4AccessSpelling[])
+
+const normalizeV4Access = (value: unknown): Access | null =>
+  typeof value === 'string' && Object.hasOwn(V4_ACCESS_BY_SPELLING, value)
+    ? V4_ACCESS_BY_SPELLING[value as V4AccessSpelling]
+    : null
+
+const readCanonicalName = (value: unknown, label: string): Name => {
+  const name = nameFromCanonical(value)
+  if (name === null) throw fail(`malformed ${label}`)
+  return name
+}
+
+const readCanonicalPath = (value: unknown, label: string): Path => {
+  const path = pathFromCanonical(value)
+  if (path === null) throw fail(`malformed ${label}`)
+  return path
+}
+
+const readDocumentation = (value: unknown): string | null => {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value) && value.every((line) => typeof line === 'string'))
+    return value.join('\n')
+  return null
+}
 
 const fail = (message: string) => new InvalidIr({ message })
 
@@ -66,32 +105,187 @@ function readModule(entry: unknown): RawModule {
   return { path: entry[0], access: ac['access'], types, values }
 }
 
-/** The IR format versions this decoder accepts, as they appear in an envelope.
- *
- * Single-valued today; when a v4 decoder lands (see the Insight v4 work) adding it here
- * is what tells every caller — including the Playground, which uses this to decide what
- * IR version to ask a frontend for — that v4 became renderable. */
-export const DECODABLE_FORMAT_VERSIONS: ReadonlyArray<number> = [3]
-
-/** The exact releases this decoder accepts.
- *
- * An envelope's integer `N` denotes the baseline release `N.0.0`: that is the
- * formatVersion contract's own rule, which writes a baseline as an integer and any
- * other release as an exact `major.minor.patch` string. Deriving the releases from
- * {@link DECODABLE_FORMAT_VERSIONS} keeps one list to maintain. */
-export const DECODABLE_IR_RELEASES: ReadonlyArray<string> = DECODABLE_FORMAT_VERSIONS.map(
-  (major) => `${major}.0.0`,
-)
-
-/** The exact release `version` names, or null when it is not a release at all. Missing
- * components default to zero, so '3' and '3.0.0' are two spellings of one release. */
-const normalizeIrRelease = (version: string): string | null => {
-  const parts = /^(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(version.trim())
-  if (parts === null) return null
-  return `${Number(parts[1])}.${Number(parts[2] ?? 0)}.${Number(parts[3] ?? 0)}`
+interface NormalizedV4AccessControlled {
+  readonly access: Access
+  readonly doc: string | null
+  readonly rawDefinition: Record<string, unknown>
 }
 
-/** Whether IR advertised as `version` is something {@link decodeMorphirIr} can read.
+function normalizeV4AccessControlled(
+  entry: unknown,
+  section: string,
+): NormalizedV4AccessControlled {
+  if (!isV4Record(entry)) throw fail(`malformed ${section} access`)
+
+  const canonicalKeys = V4_ACCESS_SPELLINGS.filter((key) => Object.hasOwn(entry, key))
+  const explicitAccess = Object.hasOwn(entry, 'access')
+  if (canonicalKeys.length > 1 || (canonicalKeys.length === 1 && explicitAccess))
+    throw fail(`malformed ${section} access`)
+
+  let access: Access
+  let payload: Record<string, unknown>
+  let docSource: unknown
+
+  const canonicalKey = canonicalKeys[0]
+  if (canonicalKey !== undefined) {
+    access = V4_ACCESS_BY_SPELLING[canonicalKey]
+    const canonicalPayload = entry[canonicalKey]
+    if (!isV4Record(canonicalPayload)) throw fail(`malformed ${section} definition`)
+    payload = canonicalPayload
+    docSource = Object.hasOwn(payload, 'doc') ? payload['doc'] : undefined
+  } else {
+    const accessValue = explicitAccess ? entry['access'] : undefined
+    const normalizedAccess = normalizeV4Access(accessValue)
+    if (normalizedAccess === null) throw fail(`malformed ${section} access`)
+    access = normalizedAccess
+
+    if (Object.hasOwn(entry, 'value')) {
+      const legacyPayload = entry['value']
+      if (!isV4Record(legacyPayload)) throw fail(`malformed ${section} definition`)
+      payload = legacyPayload
+      docSource = Object.hasOwn(payload, 'doc') ? payload['doc'] : undefined
+    } else {
+      payload = Object.fromEntries(
+        Object.entries(entry).filter(([key]) => key !== 'access' && key !== 'doc'),
+      )
+      docSource = Object.hasOwn(entry, 'doc') ? entry['doc'] : undefined
+    }
+  }
+
+  if (Object.hasOwn(payload, 'doc') && Object.hasOwn(payload, 'value')) {
+    const documentedValue = payload['value']
+    if (!isV4Record(documentedValue)) throw fail(`malformed ${section} definition`)
+    return { access, doc: readDocumentation(docSource), rawDefinition: documentedValue }
+  }
+
+  const rawDefinition = Object.fromEntries(Object.entries(payload).filter(([key]) => key !== 'doc'))
+  if (Object.keys(rawDefinition).length === 0) throw fail(`malformed ${section} definition`)
+  return { access, doc: readDocumentation(docSource), rawDefinition }
+}
+
+function readV4DefEntry(name: string, entry: unknown, section: string): RawDefEntry {
+  return {
+    name: readCanonicalName(name, `${section} name`),
+    ...normalizeV4AccessControlled(entry, section),
+  }
+}
+
+function readV4Module(name: string, entry: unknown): RawModule {
+  const { access, rawDefinition: definition } = normalizeV4AccessControlled(entry, 'module')
+  const types = definition['types']
+  const values = definition['values']
+  if (!isV4Record(types)) throw fail('malformed type definitions')
+  if (!isV4Record(values)) throw fail('malformed value definitions')
+  return {
+    path: readCanonicalPath(name, 'module name'),
+    access,
+    types: Object.entries(types).map(([localName, value]) =>
+      readV4DefEntry(localName, value, 'type'),
+    ),
+    values: Object.entries(values).map(([localName, value]) =>
+      readV4DefEntry(localName, value, 'value'),
+    ),
+  }
+}
+
+function readV3Library(env: Record<string, unknown>): MorphirLibrary {
+  const dist = env['distribution']
+  if (!Array.isArray(dist) || dist[0] !== 'Library') throw fail('expected a Library distribution')
+  if (!isPath(dist[1])) throw fail('malformed package name')
+  const pkgDef = dist[3] as Record<string, unknown>
+  if (typeof pkgDef !== 'object' || pkgDef === null || !Array.isArray(pkgDef['modules']))
+    throw fail('malformed package definition')
+  return { packageName: dist[1], modules: pkgDef['modules'].map(readModule) }
+}
+
+function readV4Library(env: Record<string, unknown>): MorphirLibrary {
+  const dist = env['distribution']
+  if (!isV4Record(dist) || !isV4Record(dist['Library']))
+    throw fail('expected a Library distribution')
+  const library = dist['Library']
+  const definition = library['def']
+  if (!isV4Record(definition) || !isV4Record(definition['modules']))
+    throw fail('malformed package definition')
+  return {
+    packageName: readCanonicalPath(library['packageName'], 'package name'),
+    modules: Object.entries(definition['modules']).map(([name, value]) =>
+      readV4Module(name, value),
+    ),
+  }
+}
+
+type IrDecoder = (env: Record<string, unknown>) => MorphirLibrary
+
+const DECODER_BY_IR_RELEASE: Readonly<Record<string, IrDecoder | undefined>> = Object.freeze({
+  '3.0.0': readV3Library,
+  '4.0.0': readV4Library,
+})
+
+/**
+ * Releases whose complete semantic vocabulary reaches the shared AST.
+ *
+ * The V4 envelope/library reader remains available for direct inspection while the
+ * sibling semantic decoder is completed, but callers must not prefer V4 over V3 yet.
+ */
+export const DECODABLE_IR_RELEASES: ReadonlyArray<string> = Object.freeze(['3.0.0'])
+
+/** The IR format versions this decoder accepts, as they appear in baseline envelopes. */
+export const DECODABLE_FORMAT_VERSIONS: ReadonlyArray<number> = Object.freeze([
+  ...new Set(
+    DECODABLE_IR_RELEASES.flatMap((release) => {
+      const [major, minor, patch] = release.split('.')
+      return minor === '0' && patch === '0' ? [Number(major)] : []
+    }),
+  ),
+])
+
+const MAX_FORMAT_VERSION_COMPONENT = 4_294_967_295
+
+interface EnvelopeIrRelease {
+  readonly release: string
+  readonly found: number | string
+}
+
+const parseFormatVersionComponent = (component: string): number | null => {
+  if (!/^(0|[1-9]\d*)$/.test(component) || component.length > 10) return null
+  const parsed = Number(component)
+  return parsed <= MAX_FORMAT_VERSION_COMPONENT ? parsed : null
+}
+
+const normalizeReleaseTriplet = (version: string): string | null => {
+  const parts = version.split('.')
+  if (parts.length !== 3) return null
+  const components = parts.map(parseFormatVersionComponent)
+  if (components.some((component) => component === null)) return null
+  const [major] = components
+  return typeof major === 'number' && major >= 3 ? version : null
+}
+
+const displayFormatVersion = (version: unknown): number | string =>
+  typeof version === 'number' || typeof version === 'string' ? version : String(version)
+
+/** Recognize the strict JSON envelope spelling before checking decoder support. */
+const normalizeEnvelopeIrRelease = (version: unknown): EnvelopeIrRelease | null => {
+  if (typeof version === 'number') {
+    if (!Number.isInteger(version) || version < 1 || version > MAX_FORMAT_VERSION_COMPONENT)
+      return null
+    return { release: `${version}.0.0`, found: version }
+  }
+
+  if (typeof version !== 'string') return null
+  const release = normalizeReleaseTriplet(version)
+  return release === null ? null : { release, found: version }
+}
+
+/** Normalize strict catalog triplets plus the catalog's explicit bare-major spelling. */
+const normalizeCatalogIrRelease = (version: string): string | null => {
+  const release = normalizeReleaseTriplet(version)
+  if (release !== null) return release
+  const major = parseFormatVersionComponent(version)
+  return major !== null && major >= 3 ? `${major}.0.0` : null
+}
+
+/** Whether IR advertised as `version` is complete enough for Insight and XRay.
  *
  * Catalogs spell versions two ways at once — morphir-elm advertises '3', while
  * morphir-gleam-binding advertises '4.0.0' — so the comparison is on the normalized
@@ -100,9 +294,10 @@ const normalizeIrRelease = (version: string): string | null => {
  * revision from an unsupported major), and a non-baseline release such as 3.1.0 is
  * written into the envelope as the string '3.1.0', which this decoder refuses. Admitting
  * it on the strength of its major would steer a caller into requesting IR that then
- * fails to decode — the exact failure this predicate exists to prevent. */
+ * fails to decode — the exact failure this predicate exists to prevent. Partial envelope
+ * readers are deliberately absent from {@link DECODABLE_IR_RELEASES}. */
 export const canDecodeIrVersion = (version: string): boolean => {
-  const release = normalizeIrRelease(version)
+  const release = normalizeCatalogIrRelease(version)
   return release !== null && DECODABLE_IR_RELEASES.includes(release)
 }
 
@@ -117,23 +312,13 @@ export const decodeMorphirIr = (input: string): Effect.Effect<MorphirLibrary, Ir
           if (typeof root !== 'object' || root === null) throw fail('IR root must be an object')
           const env = root as Record<string, unknown>
           if (!('formatVersion' in env)) throw MissingFormatVersion.make()
-          // The type check is load-bearing, not decoration: Number() coerces '3', [3]
-          // and ['3'] to a supported 3, so testing membership on a coerced value would
-          // accept an envelope whose shape is already wrong.
           const formatVersion = env['formatVersion']
-          if (
-            typeof formatVersion !== 'number' ||
-            !DECODABLE_FORMAT_VERSIONS.includes(formatVersion)
-          )
-            throw UnsupportedFormatVersion.make(Number(formatVersion))
-          const dist = env['distribution']
-          if (!Array.isArray(dist) || dist[0] !== 'Library')
-            throw fail('expected a Library distribution')
-          if (!isPath(dist[1])) throw fail('malformed package name')
-          const pkgDef = dist[3] as Record<string, unknown>
-          if (typeof pkgDef !== 'object' || pkgDef === null || !Array.isArray(pkgDef['modules']))
-            throw fail('malformed package definition')
-          return { packageName: dist[1], modules: pkgDef['modules'].map(readModule) }
+          const normalized = normalizeEnvelopeIrRelease(formatVersion)
+          if (normalized === null)
+            throw UnsupportedFormatVersion.make(displayFormatVersion(formatVersion))
+          const decoder = DECODER_BY_IR_RELEASE[normalized.release]
+          if (decoder === undefined) throw UnsupportedFormatVersion.make(normalized.found)
+          return decoder(env)
         },
         catch: (e) =>
           e instanceof MissingFormatVersion ||

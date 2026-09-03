@@ -1,6 +1,6 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/svelte'
 import { userEvent } from '@testing-library/user-event'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,9 +19,222 @@ const insightFixture = readFileSync(
 // See ir-explorer.test.ts: this project has no vitest globals, so auto-cleanup from
 // @testing-library/svelte never registers itself. Without this, DOM from each render()
 // bleeds into the next test in this file.
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 describe('MorphirApp', () => {
+  const renderDeepLinkedApp = async (hash: string) => {
+    const { core } = makeFakeCore({ workspaceContent: insightFixture })
+    const services = await makeAppServices({ core })
+    const source = legacySourceRef('/models/insight.json')
+    const descriptor = await services.inspectWorkbench(source)
+    if (descriptor.kind !== 'model') throw new Error('expected model descriptor')
+    const initialConfig = {
+      ...defaultUiConfig,
+      workbenches: {
+        ...defaultUiConfig.workbenches,
+        open: [{ ...descriptor, route: 'explorer' as const }],
+        activeId: descriptor.id,
+      },
+    }
+    history.replaceState(null, '', hash)
+    return render(MorphirApp, {
+      props: { services, badge: 'WEB', version: '0.0.1', initialConfig },
+    })
+  }
+
+  test('keeps a deep link pending while its restored model is loading', async () => {
+    const hash =
+      '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray&node=%2Fbody'
+    const { core } = makeFakeCore({ workspaceContent: insightFixture })
+    const services = await makeAppServices({ core })
+    const source = legacySourceRef('/models/insight.json')
+    const descriptor = await services.inspectWorkbench(source)
+    if (descriptor.kind !== 'model') throw new Error('expected model descriptor')
+    let releaseModel!: () => void
+    const delayedServices: typeof services = {
+      ...services,
+      loadModelWorkbench: (requested) =>
+        new Promise((resolve, reject) => {
+          releaseModel = () => void services.loadModelWorkbench(requested).then(resolve, reject)
+        }),
+    }
+    const initialConfig = {
+      ...defaultUiConfig,
+      workbenches: {
+        ...defaultUiConfig.workbenches,
+        open: [{ ...descriptor, route: 'explorer' as const }],
+        activeId: descriptor.id,
+      },
+    }
+    history.replaceState(null, '', hash)
+
+    render(MorphirApp, {
+      props: {
+        services: delayedServices,
+        badge: 'WEB',
+        version: '0.0.1',
+        initialConfig,
+      },
+    })
+
+    expect(await screen.findByText('Loading insight.json…')).toBeTruthy()
+    expect(location.hash).toBe(hash)
+    expect(screen.queryByText(/unavailable/i)).toBeNull()
+
+    releaseModel()
+    expect(await screen.findByRole('tab', { name: 'XRay' })).toBeTruthy()
+  })
+
+  test('hydrates a definition, XRay tab, node selection, expansion, focus, and scroll', async () => {
+    const scrollIntoView = vi
+      .spyOn(HTMLElement.prototype, 'scrollIntoView')
+      .mockImplementation(() => undefined)
+    await renderDeepLinkedApp(
+      '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray&node=%2Fbody%2Ffn',
+    )
+    const xrayTab = await screen.findByRole('tab', { name: 'XRay' })
+    expect(xrayTab.getAttribute('aria-selected')).toBe('true')
+    const selected = within(screen.getByRole('tree', { name: 'XRay structure' })).getByRole(
+      'treeitem',
+      { selected: true },
+    )
+    expect(selected.getAttribute('data-path')).toBe('/body/fn')
+    await waitFor(() => expect(document.activeElement).toBe(selected))
+    expect(scrollIntoView).toHaveBeenCalled()
+  })
+
+  test('explicit definition, tab, and node choices create history entries', async () => {
+    await renderDeepLinkedApp('#/')
+    const before = history.length
+    await userEvent.click(await screen.findByRole('treeitem', { name: 'chainedArithmetic' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'XRay' }))
+    await userEvent.click(screen.getByRole('treeitem', { name: /body/ }))
+    expect(history.length).toBe(before + 3)
+    expect(location.hash).toContain('node=%2Fbody')
+  })
+
+  test('hashchange restores a previous XRay node', async () => {
+    await renderDeepLinkedApp(
+      '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray&node=%2Fbody',
+    )
+    await screen.findByRole('tree', { name: 'XRay structure' })
+    location.hash =
+      '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray&node=%2Foutput'
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('tree', { name: 'XRay structure' }))
+          .getByRole('treeitem', { selected: true })
+          .getAttribute('data-path'),
+      ).toBe('/output'),
+    )
+  })
+
+  test('browser back and forward restore routed XRay selections', async () => {
+    await renderDeepLinkedApp(
+      '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray&node=%2Fbody',
+    )
+    const xrayTree = await screen.findByRole('tree', { name: 'XRay structure' })
+    await userEvent.click(within(xrayTree).getByRole('treeitem', { name: /output/ }))
+    expect(location.hash).toContain('node=%2Foutput')
+
+    history.back()
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('tree', { name: 'XRay structure' }))
+          .getByRole('treeitem', { selected: true })
+          .getAttribute('data-path'),
+      ).toBe('/body'),
+    )
+
+    history.forward()
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('tree', { name: 'XRay structure' }))
+          .getByRole('treeitem', { selected: true })
+          .getAttribute('data-path'),
+      ).toBe('/output'),
+    )
+  })
+
+  test('visiting Insight preserves the selected XRay path for the return trip', async () => {
+    await renderDeepLinkedApp(
+      '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray&node=%2Fbody',
+    )
+    await screen.findByRole('tree', { name: 'XRay structure' })
+    await userEvent.click(screen.getByRole('tab', { name: 'Insight' }))
+    expect(location.hash).toContain('view=insight')
+    expect(location.hash).toContain('node=%2Fbody')
+    await userEvent.click(screen.getByRole('tab', { name: 'XRay' }))
+    expect(
+      within(screen.getByRole('tree', { name: 'XRay structure' }))
+        .getByRole('treeitem', { selected: true })
+        .getAttribute('data-path'),
+    ).toBe('/body')
+  })
+
+  test('an unavailable definition normalizes to the workspace and warns', async () => {
+    const before = history.length
+    await renderDeepLinkedApp(
+      '#/?definition=Morphir.Ui.Fixtures.Insight.missing&view=xray&node=%2Fbody',
+    )
+    expect((await screen.findByRole('status')).textContent).toMatch(/definition.*unavailable/i)
+    expect(location.hash).toBe('#/')
+    expect(history.length).toBe(before)
+    expect(screen.getByText('Select a definition')).toBeTruthy()
+  })
+
+  test('a stale node keeps the definition and XRay tab but removes only node', async () => {
+    const before = history.length
+    await renderDeepLinkedApp(
+      '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray&node=%2Fbody%2Fmissing',
+    )
+    expect((await screen.findByText(/node .* unavailable/i)).getAttribute('role')).toBe('status')
+    expect(location.hash).toBe(
+      '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray',
+    )
+    expect(history.length).toBe(before)
+    expect(screen.getByRole('tab', { name: 'XRay' }).getAttribute('aria-selected')).toBe('true')
+  })
+
+  test('does not duplicate history for an already-active detail location', async () => {
+    await renderDeepLinkedApp(
+      '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray&node=%2Fbody',
+    )
+    await screen.findByRole('tree', { name: 'XRay structure' })
+    const before = history.length
+
+    await userEvent.click(screen.getByRole('tab', { name: 'XRay' }))
+    await userEvent.click(
+      within(screen.getByRole('tree', { name: 'XRay structure' })).getByRole('treeitem', {
+        name: /body/,
+      }),
+    )
+
+    expect(history.length).toBe(before)
+  })
+
+  test('a resolved hashchange clears a prior stale-link warning', async () => {
+    await renderDeepLinkedApp(
+      '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray&node=%2Fmissing',
+    )
+    await screen.findByText(/node .* unavailable/i)
+
+    history.replaceState(
+      null,
+      '',
+      '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray&node=%2Foutput',
+    )
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+
+    await waitFor(() => expect(screen.queryByText(/node .* unavailable/i)).toBeNull())
+  })
+
   test('keeps each Model Workbench on its own selected route', async () => {
     const { core } = makeFakeCore()
     const services = await makeAppServices({ core })
@@ -178,6 +391,161 @@ describe('MorphirApp', () => {
     expect(await screen.findByRole('tree', { name: 'Model hierarchy' })).toBeTruthy()
     expect(screen.getByRole('searchbox', { name: 'Search model' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Projects, workspace open, 1 project' })).toBeTruthy()
+  })
+
+  test('restores a routed XRay node through the sole Development project after reload', async () => {
+    const source = legacySourceRef('/dev')
+    const projectId = projectKey(source, 'packages/pricing')
+    const snapshot: WorkspaceSnapshot = {
+      id: sourceKey(source),
+      root: source,
+      name: 'Development',
+      configAnchor: '/dev/morphir.toml',
+      state: 'open',
+      projects: [
+        {
+          id: projectId,
+          name: 'Pricing',
+          version: '1.0.0',
+          relativePath: 'packages/pricing',
+          configAnchor: 'packages/pricing/morphir.toml',
+          sourceDirectory: 'src',
+          state: 'unloaded',
+          modelSources: [],
+          knowledgeBaseSources: [],
+          diagnostics: [],
+        },
+      ],
+      modelSources: [],
+      knowledgeBaseSources: [],
+      diagnostics: [],
+    }
+    const { core } = makeFakeCore({
+      workspaceContent: insightFixture,
+      development: { snapshot },
+    })
+    const services = await makeAppServices({ core })
+    const descriptor = await services.inspectWorkbench(source)
+    if (descriptor.kind !== 'development') throw new Error('expected development descriptor')
+    const initialConfig = {
+      ...defaultUiConfig,
+      workbenches: {
+        ...defaultUiConfig.workbenches,
+        open: [descriptor],
+        activeId: descriptor.id,
+      },
+    }
+    const hash =
+      '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray&node=%2Fbody%2Ffn'
+    history.replaceState(null, '', hash)
+
+    render(MorphirApp, {
+      props: { services, badge: 'WEB', version: '0.0.1', initialConfig },
+    })
+
+    expect((await screen.findByRole('tab', { name: 'XRay' })).getAttribute('aria-selected')).toBe(
+      'true',
+    )
+    const selected = within(screen.getByRole('tree', { name: 'XRay structure' })).getByRole(
+      'treeitem',
+      { selected: true },
+    )
+    expect(selected.getAttribute('data-path')).toBe('/body/fn')
+    await waitFor(() => expect(document.activeElement).toBe(selected))
+    expect(location.hash).toBe(hash)
+  })
+
+  test('clears routed detail state when switching between loaded Development projects', async () => {
+    const source = legacySourceRef('/dev')
+    const pricingId = projectKey(source, 'packages/pricing')
+    const riskId = projectKey(source, 'packages/risk')
+    const snapshot: WorkspaceSnapshot = {
+      id: sourceKey(source),
+      root: source,
+      name: 'Development',
+      configAnchor: '/dev/morphir.toml',
+      state: 'open',
+      projects: [
+        {
+          id: pricingId,
+          name: 'Pricing',
+          version: '1.0.0',
+          relativePath: 'packages/pricing',
+          configAnchor: 'packages/pricing/morphir.toml',
+          sourceDirectory: 'src',
+          state: 'unloaded',
+          modelSources: [],
+          knowledgeBaseSources: [],
+          diagnostics: [],
+        },
+        {
+          id: riskId,
+          name: 'Risk',
+          version: '1.0.0',
+          relativePath: 'packages/risk',
+          configAnchor: 'packages/risk/morphir.toml',
+          sourceDirectory: 'src',
+          state: 'unloaded',
+          modelSources: [],
+          knowledgeBaseSources: [],
+          diagnostics: [],
+        },
+      ],
+      modelSources: [],
+      knowledgeBaseSources: [],
+      diagnostics: [],
+    }
+    const { core } = makeFakeCore({
+      workspaceContent: insightFixture,
+      development: { snapshot },
+    })
+    const services = await makeAppServices({ core })
+    history.replaceState(null, '', '#/')
+    render(MorphirApp, {
+      props: {
+        services,
+        badge: 'WEB',
+        version: '0.0.1',
+        initialConfig: defaultUiConfig,
+        initialSources: [source],
+      },
+    })
+
+    const pricing = () =>
+      screen.getByRole('button', {
+        name: 'Project Pricing, packages/pricing, unloaded',
+      })
+    const risk = () =>
+      screen.getByRole('button', {
+        name: 'Project Risk, packages/risk, unloaded',
+      })
+    await screen.findByRole('button', {
+      name: 'Project Pricing, packages/pricing, unloaded',
+    })
+    await userEvent.click(pricing())
+    await screen.findByRole('tree', { name: 'Model hierarchy' })
+    await userEvent.click(risk())
+    await waitFor(() => expect(risk().getAttribute('aria-current')).toBe('page'))
+    await screen.findByRole('tree', { name: 'Model hierarchy' })
+    await userEvent.click(pricing())
+    await waitFor(() => expect(pricing().getAttribute('aria-current')).toBe('page'))
+
+    await userEvent.click(screen.getByRole('treeitem', { name: 'chainedArithmetic' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'XRay' }))
+    await userEvent.click(
+      within(screen.getByRole('tree', { name: 'XRay structure' })).getByRole('treeitem', {
+        name: /body/,
+      }),
+    )
+    expect(location.hash).toContain('node=%2Fbody')
+    const before = history.length
+
+    await userEvent.click(risk())
+
+    await waitFor(() => expect(location.hash).toBe('#/'))
+    expect(history.length).toBe(before)
+    expect(await screen.findByText('Select a definition')).toBeTruthy()
+    expect(screen.queryByText(/unavailable/i)).toBeNull()
   })
 
   test('offers access recovery when the initial Development load loses permission', async () => {
