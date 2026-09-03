@@ -134,7 +134,7 @@
       xrayState.manualExpanded.add(action.path)
     } else if (action.kind === 'collapse') {
       xrayState.manualExpanded.delete(action.path)
-    } else {
+    } else if (action.kind === 'select') {
       selectRow(action.path)
     }
   }

@@ -328,6 +328,24 @@ describe('XRayView', () => {
     expect((document.activeElement as HTMLElement).dataset.path).toMatch(/^\/body/)
   })
 
+  test('prevents browser scrolling for navigation keys at tree boundaries only', async () => {
+    render(XRayView, { props: { def: await defByName('chainedArithmetic') } })
+    const dispatchKey = (target: HTMLElement, key: string): boolean => {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      target.dispatchEvent(event)
+      return event.defaultPrevented
+    }
+
+    const leaf = document.querySelector<HTMLElement>('[data-path="/output/args"]')!
+    expect(dispatchKey(leaf, 'ArrowRight')).toBe(true)
+    expect(dispatchKey(leaf, 'x')).toBe(false)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all' }))
+    expect(dispatchKey(branch('/inputs'), 'ArrowUp')).toBe(true)
+    expect(dispatchKey(branch('/inputs'), 'ArrowLeft')).toBe(true)
+    expect(dispatchKey(branch('/body'), 'ArrowDown')).toBe(true)
+  })
+
   test('click selects rows in uncontrolled mode and reports selection in controlled mode', async () => {
     const def = await defByName('chainedArithmetic')
     const uncontrolled = render(XRayView, { props: { def } })

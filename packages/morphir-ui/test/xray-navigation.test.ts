@@ -133,13 +133,22 @@ describe('xrayKeyAction', () => {
     })
   })
 
-  test('returns no action at boundaries and for unhandled keys', () => {
+  test('handles navigation keys at boundaries without changing state', () => {
     expect(xrayKeyAction(rows, '/inputs', 'ArrowUp', new Set(['/body']))).toEqual({
-      kind: 'none',
+      kind: 'handled',
     })
     expect(xrayKeyAction(rows, '/body/arg', 'ArrowDown', new Set(['/body']))).toEqual({
-      kind: 'none',
+      kind: 'handled',
     })
+    expect(xrayKeyAction(rows, '/inputs', 'ArrowLeft', new Set(['/body']))).toEqual({
+      kind: 'handled',
+    })
+    expect(xrayKeyAction(rows, '/body/arg', 'ArrowRight', new Set(['/body']))).toEqual({
+      kind: 'handled',
+    })
+  })
+
+  test('leaves unrelated keys and paths outside the visible tree unhandled', () => {
     expect(xrayKeyAction(rows, '/body', 'Escape', new Set(['/body']))).toEqual({
       kind: 'none',
     })

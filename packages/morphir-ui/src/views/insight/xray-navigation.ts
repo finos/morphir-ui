@@ -5,7 +5,10 @@ export type XRayKeyAction =
   | { readonly kind: 'expand'; readonly path: string }
   | { readonly kind: 'collapse'; readonly path: string }
   | { readonly kind: 'select'; readonly path: string }
+  | { readonly kind: 'handled' }
   | { readonly kind: 'none' }
+
+const NAVIGATION_KEYS = new Set(['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Home', 'End'])
 
 export interface VisibleXRayRow {
   readonly node: XRayTreeNode
@@ -112,5 +115,6 @@ export const xrayKeyAction = (
     if (current.parentPath) return { kind: 'focus', path: current.parentPath }
   }
   if (key === 'Enter' || key === ' ') return { kind: 'select', path: current.path }
+  if (NAVIGATION_KEYS.has(key)) return { kind: 'handled' }
   return { kind: 'none' }
 }
