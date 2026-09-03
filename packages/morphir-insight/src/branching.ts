@@ -48,14 +48,26 @@ const maybeSpecial = (e: MatchExpr, ctx: InsightContext): ViewNode | null => {
   }
 }
 
-const countColumns = (subject: ValueExpr): number =>
-  subject.kind === 'value-tuple' ? subject.elements.reduce((n, el) => n + countColumns(el), 0) : 1
-
-const columnSubjects = (subject: ValueExpr): ValueExpr[] =>
-  subject.kind === 'value-tuple' ? subject.elements.flatMap(columnSubjects) : [subject]
-
 const patternLeaves = (pattern: Pattern): Pattern[] =>
   pattern.kind === 'pattern-tuple' ? pattern.elements.flatMap(patternLeaves) : [pattern]
+
+const patternArity = (pattern: Pattern): number => patternLeaves(pattern).length
+
+const columnSubjects = (subject: ValueExpr, patterns: readonly Pattern[]): ValueExpr[] => {
+  if (subject.kind !== 'value-tuple') {
+    const columnCount = patterns.reduce((max, pattern) => Math.max(max, patternArity(pattern)), 1)
+    return Array.from({ length: columnCount }, () => subject)
+  }
+
+  return subject.elements.flatMap((element, index) => {
+    const elementPatterns = patterns.flatMap((pattern): Pattern[] => {
+      if (pattern.kind !== 'pattern-tuple') return []
+      const elementPattern = pattern.elements[index]
+      return elementPattern ? [elementPattern] : []
+    })
+    return columnSubjects(element, elementPatterns)
+  })
+}
 
 const rowCells = (pattern: Pattern, columnCount: number): ViewCell[] => {
   const pad = (cells: ViewCell[]): ViewCell[] => {
@@ -80,29 +92,14 @@ const rowCells = (pattern: Pattern, columnCount: number): ViewCell[] => {
   }
 }
 
-// elm's decomposeInput only splits a literal tuple *expression* into columns. In practice the
-// fixture's tupleCase subject is a variable whose *type* is a tuple (`case pair of ...`), so the
-// literal expression never decomposes — we instead fall back to the arity of any pattern-tuple
-// case to size the table, using the subject's own view repeated per column as the header.
-const patternArity = (pattern: Pattern): number => patternLeaves(pattern).length
-
-const columnCountFor = (subject: ValueExpr, cases: MatchExpr['cases']): number =>
-  subject.kind === 'value-tuple'
-    ? countColumns(subject)
-    : cases.reduce((max, c) => Math.max(max, patternArity(c.pattern)), 1)
-
-const columnHeaders = (subject: ValueExpr, columnCount: number, ctx: InsightContext): ViewNode[] =>
-  subject.kind === 'value-tuple'
-    ? columnSubjects(subject).map((s) => viewExpr(s, ctx))
-    : Array.from({ length: columnCount }, () => viewExpr(subject, ctx))
-
 export const viewDecisionTable = (e: MatchExpr, ctx: InsightContext): ViewNode => {
   const special = maybeSpecial(e, ctx)
   if (special) return special
-  const columnCount = columnCountFor(e.subject, e.cases)
+  const subjects = columnSubjects(e.subject, e.cases.map((c) => c.pattern))
+  const columnCount = subjects.length
   return {
     kind: 'v-decision-table',
-    columns: columnHeaders(e.subject, columnCount, ctx),
+    columns: subjects.map((subject) => viewExpr(subject, ctx)),
     rows: e.cases.map((c) => ({ cells: rowCells(c.pattern, columnCount), result: viewExpr(c.body, ctx) }))
   }
 }

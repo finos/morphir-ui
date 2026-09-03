@@ -26,7 +26,7 @@ const nestedTuplePattern: Pattern = {
     },
   ],
 }
-const decisionTable = (subject: ValueExpr): ViewNode => {
+const decisionTable = (subject: ValueExpr, pattern: Pattern = nestedTuplePattern): ViewNode => {
   const def: ValueDef = {
     inputs: [],
     output: { kind: 'type-unit' },
@@ -34,7 +34,7 @@ const decisionTable = (subject: ValueExpr): ViewNode => {
       kind: 'pattern-match',
       attr: {},
       subject,
-      cases: [{ pattern: nestedTuplePattern, body: { kind: 'value-unit', attr: {} } }],
+      cases: [{ pattern, body: { kind: 'value-unit', attr: {} } }],
     },
   }
   return toViewTree(def, makeContext(emptyLib))
@@ -100,6 +100,74 @@ describe('decision tables', () => {
         { kind: 'cell-pattern', text: 'y' },
         { kind: 'cell-pattern', text: 'z' },
       ])
+    }
+  })
+
+  test('opaque tuple position repeats its subject header for nested pattern leaves', () => {
+    const node = decisionTable({
+      kind: 'value-tuple',
+      attr: {},
+      elements: [
+        { kind: 'variable', attr: {}, name: ['a'] },
+        { kind: 'variable', attr: {}, name: ['pair'] },
+      ],
+    })
+
+    expect(node.kind).toBe('v-decision-table')
+    if (node.kind === 'v-decision-table') {
+      expect(node.columns).toEqual([
+        { kind: 'v-variable', name: 'a' },
+        { kind: 'v-variable', name: 'pair' },
+        { kind: 'v-variable', name: 'pair' },
+      ])
+      expect(node.rows[0]!.cells).toEqual([
+        { kind: 'cell-pattern', text: 'x' },
+        { kind: 'cell-pattern', text: 'y' },
+        { kind: 'cell-pattern', text: 'z' },
+      ])
+      for (const row of node.rows) expect(row.cells).toHaveLength(node.columns.length)
+    }
+  })
+
+  test('opaque first tuple position repeats before the following subject header', () => {
+    const pattern: Pattern = {
+      kind: 'pattern-tuple',
+      elements: [
+        {
+          kind: 'pattern-tuple',
+          elements: [
+            { kind: 'as', inner: { kind: 'wildcard' }, name: ['x'] },
+            { kind: 'as', inner: { kind: 'wildcard' }, name: ['y'] },
+          ],
+        },
+        { kind: 'as', inner: { kind: 'wildcard' }, name: ['z'] },
+      ],
+    }
+    const node = decisionTable(
+      {
+        kind: 'value-tuple',
+        attr: {},
+        elements: [
+          { kind: 'variable', attr: {}, name: ['pair'] },
+          { kind: 'variable', attr: {}, name: ['c'] },
+        ],
+      },
+      pattern,
+    )
+
+    expect(node.kind).toBe('v-decision-table')
+    if (node.kind === 'v-decision-table') {
+      expect(node.columns).toEqual([
+        { kind: 'v-variable', name: 'pair' },
+        { kind: 'v-variable', name: 'pair' },
+        { kind: 'v-variable', name: 'c' },
+      ])
+      expect(node.rows[0]!.cells).toEqual([
+        { kind: 'cell-pattern', text: 'x' },
+        { kind: 'cell-pattern', text: 'y' },
+        { kind: 'cell-pattern', text: 'z' },
+      ])
+      for (const row of node.rows) expect(row.cells).toHaveLength(node.columns.length)
     }
   })
 
