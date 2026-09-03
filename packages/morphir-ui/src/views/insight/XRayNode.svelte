@@ -72,11 +72,11 @@
       >{branch() ? (open() ? '⌄' : '›') : '·'}</span
     >
     <span class="label">{node.label}</span>
-    {#if directMatch()}<span class="match-badge">Match</span>{/if}
     {#if node.kind}<XRayKindBadge kind={node.kind} />{/if}
     {#if node.typeText}<span class="xray-type type-badge">{node.typeText}</span>{/if}
     {#if node.scalar}<span class="value">{node.scalar}</span>{/if}
     {#if node.warning}<span class="warning">{node.warning}</span>{/if}
+    {#if directMatch()}<span class="match-badge">MATCH</span>{/if}
   </button>
   {#if branch() && open()}
     <div class="children" role="group">
@@ -123,6 +123,7 @@
     background: color-mix(in srgb, var(--accent) 10%, transparent);
   }
   .xray-row.selected {
+    border: 1px solid color-mix(in srgb, var(--accent2) 65%, var(--panel-edge));
     background: color-mix(in srgb, var(--accent) 14%, transparent);
   }
   .xray-row.direct-match {
@@ -130,6 +131,7 @@
     background: color-mix(in srgb, var(--xray-match) 12%, var(--surface));
   }
   .xray-row.selected.direct-match {
+    border-color: color-mix(in srgb, var(--accent2) 65%, var(--panel-edge));
     background: color-mix(in srgb, var(--accent) 14%, var(--xray-match) 12%);
   }
   .xray-row:focus-visible {
@@ -159,7 +161,9 @@
   }
   .match-badge {
     display: inline-flex;
+    flex: 0 0 auto;
     align-items: center;
+    margin-inline-start: auto;
     padding: 1px 5px;
     border: 1px solid color-mix(in srgb, var(--xray-match) 65%, var(--panel-edge));
     border-radius: 999px;

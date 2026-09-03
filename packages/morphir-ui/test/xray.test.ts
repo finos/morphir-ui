@@ -226,10 +226,75 @@ describe('XRayView', () => {
     )
 
     expect(container.querySelectorAll('[data-direct-match="true"]')).toHaveLength(2)
-    expect(within(container).getAllByText('Match')).toHaveLength(2)
+    expect(within(container).getAllByText('MATCH')).toHaveLength(2)
     expect(container.querySelector('[data-path="/body"]')?.getAttribute('data-direct-match')).toBe(
       'false',
     )
+  })
+
+  test('gives a controlled non-matching selection a strong border without a match badge', async () => {
+    const { container } = render(XRayView, {
+      props: { def: await defByName('chainedArithmetic'), selectedPath: '/body' },
+    })
+    const selected = container.querySelector<HTMLButtonElement>('[data-path="/body"]')!
+
+    expect(selected.classList.contains('selected')).toBe(true)
+    expect(selected.classList.contains('direct-match')).toBe(false)
+    expect(within(selected).queryByText('MATCH')).toBeNull()
+    expect(xrayNodeSource).toMatch(/\.xray-row\.selected\s*\{[^}]*border:\s*1px solid color-mix\(/)
+  })
+
+  test('keeps selection and direct matching as independent row states', async () => {
+    const def = await defByName('chainedArithmetic')
+    const firstRender = render(XRayView, { props: { def } })
+    const firstSearch = within(firstRender.container).getByRole('searchbox', {
+      name: 'Search XRay',
+    })
+
+    await userEvent.type(firstSearch, 'Basics.add')
+
+    const matchOnly = firstRender.container.querySelector<HTMLButtonElement>(
+      '[data-direct-match="true"]',
+    )!
+    const matchedPath = matchOnly.dataset.path!
+    const retainedAncestor =
+      firstRender.container.querySelector<HTMLButtonElement>('[data-path="/body"]')!
+    expect(matchOnly.classList.contains('selected')).toBe(false)
+    expect(within(matchOnly).getByText('MATCH')).toBeTruthy()
+    expect(retainedAncestor.classList.contains('selected')).toBe(false)
+    expect(retainedAncestor.classList.contains('direct-match')).toBe(false)
+    expect(within(retainedAncestor).queryByText('MATCH')).toBeNull()
+
+    firstRender.unmount()
+    const selectedMatchRender = render(XRayView, { props: { def, selectedPath: matchedPath } })
+    await userEvent.type(
+      within(selectedMatchRender.container).getByRole('searchbox', { name: 'Search XRay' }),
+      'Basics.add',
+    )
+    const selectedMatch = selectedMatchRender.container.querySelector<HTMLButtonElement>(
+      `[data-path="${matchedPath}"]`,
+    )!
+
+    expect(selectedMatch.classList.contains('selected')).toBe(true)
+    expect(selectedMatch.classList.contains('direct-match')).toBe(true)
+    expect(within(selectedMatch).getByText('MATCH')).toBeTruthy()
+  })
+
+  test('puts the direct-match badge at the row edge with an uppercase visible label', async () => {
+    const { container } = render(XRayView, {
+      props: { def: await defByName('chainedArithmetic') },
+    })
+
+    await userEvent.type(
+      within(container).getByRole('searchbox', { name: 'Search XRay' }),
+      'Basics.add',
+    )
+
+    for (const row of container.querySelectorAll<HTMLButtonElement>('[data-direct-match="true"]')) {
+      const badge = within(row).getByText('MATCH')
+      expect(row.lastElementChild).toBe(badge)
+    }
+    expect(xrayNodeSource).toMatch(/\.match-badge\s*\{[^}]*margin-inline-start:\s*auto/)
   })
 
   test('renders a matching value reference name inline as readable row text', async () => {
