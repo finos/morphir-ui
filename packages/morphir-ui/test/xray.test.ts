@@ -59,6 +59,48 @@ describe('XRayView', () => {
     expect(screen.getAllByText('variable').length).toBeGreaterThan(0)
   })
 
+  test('frames complete and contextual XRay results', async () => {
+    const { container } = render(XRayView, {
+      props: { def: await defByName('chainedArithmetic') },
+    })
+    const result = within(container).getByRole('region', { name: 'XRay result' })
+
+    expect(within(result).getByRole('heading', { name: 'XRay structure' })).toBeTruthy()
+
+    await userEvent.type(
+      within(container).getByRole('searchbox', { name: 'Search XRay' }),
+      'Basics.add',
+    )
+
+    expect(within(result).getByRole('heading', { name: 'Body · contextual result' })).toBeTruthy()
+  })
+
+  test('shows the URL-backed structural path', async () => {
+    const { container } = render(XRayView, {
+      props: { def: await defByName('chainedArithmetic'), selectedPath: '/body/fn' },
+    })
+    const linkedSelection = within(container).getByRole('region', {
+      name: 'Linked XRay selection',
+    })
+
+    expect(linkedSelection.textContent).toContain('/body/fn')
+    expect(linkedSelection.textContent).toContain('stored in URL')
+  })
+
+  test('does not describe an uncontrolled selection as URL-backed', async () => {
+    const { container } = render(XRayView, {
+      props: { def: await defByName('chainedArithmetic') },
+    })
+    const tree = within(container).getByRole('tree', { name: 'XRay structure' })
+    const body = within(tree).getByRole('treeitem', { name: /body.*apply/ })
+
+    await userEvent.click(body)
+
+    expect(body.getAttribute('aria-selected')).toBe('true')
+    expect(within(container).queryByRole('region', { name: 'Linked XRay selection' })).toBeNull()
+    expect(within(container).queryByText('stored in URL')).toBeNull()
+  })
+
   test('separates search actions and filters into toolbar rows', async () => {
     const { container } = render(XRayView, {
       props: { def: await defByName('chainedArithmetic') },

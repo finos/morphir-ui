@@ -43,6 +43,9 @@
   const effectiveSelectedPath = $derived(
     selectedPath === undefined ? xrayState.selectedPath : selectedPath,
   )
+  const isUrlBackedSelection = $derived(
+    selectedPath !== undefined && effectiveSelectedPath !== null && effectiveSelectedPath !== '',
+  )
   const rovingPath = $derived(
     visibleRows.some((row) => row.path === focusedPath)
       ? focusedPath
@@ -51,6 +54,11 @@
         : (visibleRows[0]?.path ?? null),
   )
   const hasQuery = $derived(xrayState.query.trim().length > 0)
+  const resultHeading = $derived.by(() => {
+    if (!hasQuery) return 'XRay structure'
+    const onlyRoot = filtered.tree.length === 1 ? filtered.tree[0] : undefined
+    return `${onlyRoot?.label === 'body' ? 'Body' : 'XRay'} · contextual result`
+  })
   const selectionHidden = $derived.by(() => {
     if (!effectiveSelectedPath) return false
     const selectionExists = xrayAncestorPaths(roots, effectiveSelectedPath) !== undefined
@@ -161,29 +169,43 @@
       </p>
     {/if}
 
-    {#if hasQuery && filtered.tree.length === 0}
-      <div class="no-matches">
-        <p>No matching nodes</p>
-        <button type="button" onclick={() => (xrayState.query = '')}>Clear search</button>
-      </div>
-    {:else}
-      <div class="xray-tree" role="tree" aria-label="XRay structure">
-        {#each filtered.tree as node (node.path)}
-          <XRayNode
-            {node}
-            {expanded}
-            {directMatchPaths}
-            selectedPath={effectiveSelectedPath}
-            focusedPath={rovingPath}
-            level={1}
-            onToggle={(path) => xrayState.toggle(path)}
-            onSelect={selectRow}
-            onFocus={(path) => (focusedPath = path)}
-            onKeyDown={handleRowKey}
-            onRow={registerRow}
-          />
-        {/each}
-      </div>
+    <section class="xray-result" aria-label="XRay result">
+      <h3>{resultHeading}</h3>
+      {#if hasQuery && filtered.tree.length === 0}
+        <div class="no-matches">
+          <p>No matching nodes</p>
+          <button type="button" onclick={() => (xrayState.query = '')}>Clear search</button>
+        </div>
+      {:else}
+        <div class="xray-tree" role="tree" aria-label="XRay structure">
+          {#each filtered.tree as node (node.path)}
+            <XRayNode
+              {node}
+              {expanded}
+              {directMatchPaths}
+              selectedPath={effectiveSelectedPath}
+              focusedPath={rovingPath}
+              level={1}
+              onToggle={(path) => xrayState.toggle(path)}
+              onSelect={selectRow}
+              onFocus={(path) => (focusedPath = path)}
+              onKeyDown={handleRowKey}
+              onRow={registerRow}
+            />
+          {/each}
+        </div>
+      {/if}
+    </section>
+
+    {#if isUrlBackedSelection}
+      <section class="linked-selection" aria-label="Linked XRay selection">
+        <h3>Linked selection</h3>
+        <div class="linked-path">
+          <span aria-hidden="true">→</span>
+          <code>{effectiveSelectedPath}</code>
+          <span>stored in URL</span>
+        </div>
+      </section>
     {/if}
   </section>
 {:else}
@@ -194,13 +216,47 @@
   .xray-canvas {
     overflow-x: auto;
     overflow-y: hidden;
+  }
+  .xray-result,
+  .linked-selection {
+    margin: 12px;
     border: 1px solid var(--panel-edge);
-    border-radius: 6px;
-    background: var(--surface);
+    border-radius: 7px;
+    background: var(--panel);
+  }
+  .xray-result > h3,
+  .linked-selection > h3 {
+    margin: 0;
+    padding: 8px 11px;
+    border-bottom: 1px solid var(--row-edge);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .linked-selection {
+    margin-top: 0;
   }
   .xray-tree {
     min-width: max-content;
     padding: 6px;
+  }
+  .linked-path {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .linked-path code {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--accent-text);
+    font-family: var(--mono);
+    user-select: text;
   }
   .no-matches {
     display: flex;
