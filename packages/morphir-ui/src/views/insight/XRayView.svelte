@@ -36,6 +36,7 @@
   })
   const source = $derived(typeRaw !== undefined ? typeRaw : def)
   const filtered = $derived.by(() => filterXRayTree(roots, xrayState.query, xrayState.scopes))
+  const directMatchPaths = $derived(new Set(filtered.matchPaths))
   const expanded = $derived.by(() => xrayState.expandedWith(filtered.expandedPaths))
   const visibleBranchPaths = $derived.by(() => branchPaths(filtered.tree))
   const visibleRows = $derived.by(() => visibleXRayRows(filtered.tree, expanded))
@@ -171,6 +172,7 @@
           <XRayNode
             {node}
             {expanded}
+            {directMatchPaths}
             selectedPath={effectiveSelectedPath}
             focusedPath={rovingPath}
             level={1}

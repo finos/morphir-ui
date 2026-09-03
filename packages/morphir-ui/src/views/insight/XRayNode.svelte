@@ -6,6 +6,7 @@
   type Props = {
     node: XRayTreeNode
     expanded: ReadonlySet<string>
+    directMatchPaths: ReadonlySet<string>
     level: number
     selectedPath: string | null
     focusedPath: string | null
@@ -19,6 +20,7 @@
   let {
     node,
     expanded,
+    directMatchPaths,
     level,
     selectedPath,
     focusedPath,
@@ -31,6 +33,7 @@
   let rowElement: HTMLButtonElement | undefined = $state()
   const branch = () => node.children.length > 0
   const open = () => expanded.has(node.path)
+  const directMatch = () => directMatchPaths.has(node.path)
 
   $effect(() => {
     if (!rowElement) return
@@ -51,6 +54,7 @@
     type="button"
     class="xray-row"
     class:leaf={!branch()}
+    class:direct-match={directMatch()}
     class:selected={selectedPath === node.path}
     role="treeitem"
     aria-level={level}
@@ -59,6 +63,7 @@
     tabindex={focusedPath === node.path ? 0 : -1}
     data-path={node.path}
     data-xray-path={node.path}
+    data-direct-match={directMatch()}
     onclick={activate}
     onfocus={() => onFocus(node.path)}
     onkeydown={(event) => onKeyDown(event, node.path)}
@@ -67,6 +72,7 @@
       >{branch() ? (open() ? '⌄' : '›') : '·'}</span
     >
     <span class="label">{node.label}</span>
+    {#if directMatch()}<span class="match-badge">Match</span>{/if}
     {#if node.kind}<XRayKindBadge kind={node.kind} />{/if}
     {#if node.typeText}<span class="xray-type type-badge">{node.typeText}</span>{/if}
     {#if node.scalar}<span class="value">{node.scalar}</span>{/if}
@@ -77,6 +83,7 @@
       {#each node.children as child (child.path)}
         <XRayNode
           {expanded}
+          {directMatchPaths}
           {selectedPath}
           {focusedPath}
           {onToggle}
@@ -118,6 +125,13 @@
   .xray-row.selected {
     background: color-mix(in srgb, var(--accent) 14%, transparent);
   }
+  .xray-row.direct-match {
+    border: 1px solid color-mix(in srgb, var(--xray-match) 65%, var(--panel-edge));
+    background: color-mix(in srgb, var(--xray-match) 12%, var(--surface));
+  }
+  .xray-row.selected.direct-match {
+    background: color-mix(in srgb, var(--accent) 14%, var(--xray-match) 12%);
+  }
   .xray-row:focus-visible {
     outline: 2px solid var(--accent2);
     outline-offset: -2px;
@@ -140,6 +154,19 @@
     background: color-mix(in srgb, var(--status-stale) 12%, var(--surface));
     font-size: 10px;
     font-weight: 650;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+  .match-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 5px;
+    border: 1px solid color-mix(in srgb, var(--xray-match) 65%, var(--panel-edge));
+    border-radius: 999px;
+    color: var(--text);
+    background: color-mix(in srgb, var(--xray-match) 12%, var(--surface));
+    font-size: 10px;
+    font-weight: 700;
     line-height: 1.4;
     white-space: nowrap;
   }

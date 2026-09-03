@@ -52,6 +52,10 @@ describe('theme stylesheets', () => {
     expect(tokens).toContain('--traffic-light-inset: 78px;')
   })
 
+  test('defines the semantic XRay direct-match color', () => {
+    expect(tokens).toContain('--xray-match: light-dark(#0e7490, #22d3ee);')
+  })
+
   test('global css holds only true globals', () => {
     const global = css('global.css')
     expect(global).toContain('.no-motion *')

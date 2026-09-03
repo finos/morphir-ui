@@ -173,6 +173,23 @@ describe('XRayView', () => {
     expect(screen.queryByText('inputs')).toBeNull()
   })
 
+  test('marks direct search matches without marking retained ancestors', async () => {
+    const { container } = render(XRayView, {
+      props: { def: await defByName('chainedArithmetic') },
+    })
+
+    await userEvent.type(
+      within(container).getByRole('searchbox', { name: 'Search XRay' }),
+      'Basics.add',
+    )
+
+    expect(container.querySelectorAll('[data-direct-match="true"]')).toHaveLength(2)
+    expect(within(container).getAllByText('Match')).toHaveLength(2)
+    expect(container.querySelector('[data-path="/body"]')?.getAttribute('data-direct-match')).toBe(
+      'false',
+    )
+  })
+
   test('type-scoped search exposes readable Int type chips', async () => {
     const { container } = render(XRayView, {
       props: { def: await defByName('chainedArithmetic') },

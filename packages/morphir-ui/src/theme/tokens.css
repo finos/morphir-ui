@@ -22,6 +22,7 @@
   --accent: light-dark(#c02e8c, #d6409f);
   --accent2: light-dark(#7c4ddb, #8b5cf6);
   --accent-text: light-dark(#9c2f77, #f2b7dd);
+  --xray-match: light-dark(#0e7490, #22d3ee);
   --status-unloaded: light-dark(#6c6484, #8d849e);
   --status-loading: light-dark(#6b4cc5, #a78bfa);
   --status-ready: light-dark(#24734c, #72d6a0);
