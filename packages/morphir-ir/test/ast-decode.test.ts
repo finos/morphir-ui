@@ -1,5 +1,31 @@
 import { describe, expect, test } from 'bun:test'
-import { decodeLiteral, decodePattern, decodeTypeExpr, fqNameFromRaw } from '../src/index.ts'
+import {
+  decodeLiteral,
+  decodePattern,
+  decodeTypeExpr,
+  fqNameFromRaw,
+  type DecodedNodeKind,
+  type Literal,
+  type Pattern,
+  type TypeExpr,
+  type ValueExpr
+} from '../src/index.ts'
+
+const decodedKind = <Kind extends DecodedNodeKind>(kind: Kind): Kind => kind
+type Equal<Left, Right> = [Left] extends [Right] ? ([Right] extends [Left] ? true : false) : false
+const decodedNodeKindIsCanonical: Equal<
+  DecodedNodeKind,
+  ValueExpr['kind'] | Pattern['kind'] | TypeExpr['kind'] | Literal['kind']
+> = true
+
+test('exports the normalized decoded node-kind union', () => {
+  expect(decodedNodeKindIsCanonical).toBe(true)
+  expect(decodedKind('apply')).toBe('apply')
+  expect(decodedKind('constructor-pattern')).toBe('constructor-pattern')
+  expect(decodedKind('type-extensible-record')).toBe('type-extensible-record')
+  expect(decodedKind('decimal')).toBe('decimal')
+  expect(decodedKind('unknown')).toBe('unknown')
+})
 
 const intRef = ['Reference', {}, [[['morphir'], ['s', 'd', 'k']], [['basics']], ['int']], []]
 
