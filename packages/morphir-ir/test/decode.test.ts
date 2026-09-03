@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { Effect, Exit } from 'effect'
 import {
   DECODABLE_FORMAT_VERSIONS,
+  DECODABLE_IR_RELEASES,
   canDecodeIrVersion,
   decodeEntryValueDef,
   decodeMorphirIr,
@@ -160,6 +161,153 @@ describe('decodeMorphirIr', () => {
     })
   })
 
+  test('normalizes canonical-key v4 modules, types, and values', async () => {
+    const typeDefinition = {
+      TypeAliasDefinition: { typeParams: [], typeExp: { Unit: { attrs: {} } } },
+    }
+    const valueDefinition = {
+      ExpressionBody: {
+        inputTypes: {},
+        outputType: { Unit: { attrs: {} } },
+        body: {
+          Literal: {
+            literal: { IntegerLiteral: { value: 42 } },
+            attributes: { source: 'canonical' },
+          },
+        },
+      },
+    }
+    const v4 = JSON.stringify({
+      formatVersion: '4.0.0',
+      distribution: {
+        Library: {
+          packageName: 'morphir/ui-smoke',
+          dependencies: {},
+          def: {
+            modules: {
+              main: {
+                Public: {
+                  types: {
+                    greeting: {
+                      Private: { doc: 'A greeting.', value: typeDefinition },
+                    },
+                  },
+                  values: {
+                    answer: { Public: valueDefinition },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    const lib = await Effect.runPromise(decodeMorphirIr(v4))
+    const module = lib.modules[0]!
+    expect(module.access).toBe('Public')
+    expect(module.types[0]).toEqual({
+      name: ['greeting'],
+      access: 'Private',
+      doc: 'A greeting.',
+      rawDefinition: typeDefinition,
+    })
+    expect(module.values[0]).toEqual({
+      name: ['answer'],
+      access: 'Public',
+      doc: null,
+      rawDefinition: valueDefinition,
+    })
+    const canonicalBody = decodeEntryValueDef(module.values[0]!)?.body
+    expect(canonicalBody?.kind).toBe('literal')
+    if (canonicalBody?.kind === 'literal')
+      expect(canonicalBody.attr).toEqual({ source: 'canonical' })
+  })
+
+  test('prefers published attributes and preserves the attrs fallback', async () => {
+    const expressionBody = (attributeKey: 'attributes' | 'attrs', source: string) => ({
+      ExpressionBody: {
+        inputTypes: {},
+        outputType: { Unit: { attrs: {} } },
+        body: {
+          Literal: {
+            literal: { IntegerLiteral: { value: 42 } },
+            [attributeKey]: { source },
+          },
+        },
+      },
+    })
+    const v4 = JSON.stringify({
+      formatVersion: 4,
+      distribution: {
+        Library: {
+          packageName: 'morphir/ui-smoke',
+          dependencies: {},
+          def: {
+            modules: {
+              main: {
+                access: 'Public',
+                value: {
+                  types: {},
+                  values: {
+                    published: {
+                      access: 'Public',
+                      value: expressionBody('attributes', 'published'),
+                    },
+                    fallback: {
+                      access: 'Public',
+                      value: expressionBody('attrs', 'fallback'),
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    const values = (await Effect.runPromise(decodeMorphirIr(v4))).modules[0]!.values
+    const publishedBody = decodeEntryValueDef(values[0]!)?.body
+    const fallbackBody = decodeEntryValueDef(values[1]!)?.body
+    expect(publishedBody?.kind).toBe('literal')
+    expect(fallbackBody?.kind).toBe('literal')
+    if (publishedBody?.kind === 'literal')
+      expect(publishedBody.attr).toEqual({ source: 'published' })
+    if (fallbackBody?.kind === 'literal') expect(fallbackBody.attr).toEqual({ source: 'fallback' })
+  })
+
+  test('rejects canonical and legacy definition payload arrays', async () => {
+    const definition = {
+      TypeAliasDefinition: { typeParams: [], typeExp: { Unit: { attrs: {} } } },
+    }
+    for (const invalidEntry of [
+      { Public: [definition] },
+      { access: 'Public', value: [definition] },
+    ]) {
+      const v4 = JSON.stringify({
+        formatVersion: 4,
+        distribution: {
+          Library: {
+            packageName: 'morphir/ui-smoke',
+            dependencies: {},
+            def: {
+              modules: {
+                main: {
+                  access: 'Public',
+                  value: { types: { greeting: invalidEntry }, values: {} },
+                },
+              },
+            },
+          },
+        },
+      })
+
+      const exit = await Effect.runPromiseExit(decodeMorphirIr(v4))
+      expect(Exit.isFailure(exit)).toBe(true)
+    }
+  })
+
   test('decodes baseline release strings exactly like their integer spellings', async () => {
     const v3Distribution = ['Library', [['morphir'], ['example'], ['app']], [], { modules: [] }]
     const v4Distribution = {
@@ -190,13 +338,7 @@ describe('decodeMorphirIr', () => {
         decodeMorphirIr(
           JSON.stringify({
             formatVersion: '4.1.0',
-            distribution: {
-              Library: {
-                packageName: 'morphir/example/app',
-                dependencies: {},
-                def: { modules: {} },
-              },
-            },
+            distribution: [],
           }),
         ),
       ),
@@ -296,6 +438,28 @@ describe('canDecodeIrVersion', () => {
     expect(canDecodeIrVersion('')).toBe(false)
     expect(canDecodeIrVersion('draft')).toBe(false)
     expect(canDecodeIrVersion('v3')).toBe(false)
+  })
+
+  test('rejects noncanonical or out-of-range catalog release spellings', () => {
+    for (const version of [
+      '03.0.0',
+      '3.00.0',
+      ' 3.0.0',
+      '3.0.0 ',
+      '3.0',
+      '3.0.0-alpha',
+      '3.0.0+build',
+      '0000000000000000000000000000000000000003.0.0',
+      '3.4294967296.0',
+    ]) {
+      expect(canDecodeIrVersion(version), version).toBe(false)
+    }
+  })
+
+  test('publishes immutable and aligned decoder support tables', () => {
+    expect(DECODABLE_IR_RELEASES).toEqual(DECODABLE_FORMAT_VERSIONS.map((major) => `${major}.0.0`))
+    expect(Object.isFrozen(DECODABLE_IR_RELEASES)).toBe(true)
+    expect(Object.isFrozen(DECODABLE_FORMAT_VERSIONS)).toBe(true)
   })
 
   // The predicate and the decoder must not be able to disagree: whatever

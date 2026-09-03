@@ -268,7 +268,7 @@ export const decodeValueExpr = (u: unknown): ValueExpr => {
   if (isRecord(u) && Object.keys(u).length === 1) {
     const [tag, content] = Object.entries(u)[0]!
     if (!isRecord(content)) return unknown(u)
-    const attr = content['attrs'] ?? {}
+    const attr = content['attributes'] ?? content['attrs'] ?? {}
     switch (tag) {
       case 'Literal':
         return { kind: 'literal', attr, literal: decodeLiteral(content['literal']) }

@@ -32,6 +32,7 @@ const isName = (u: unknown): u is Name => Array.isArray(u) && u.every((p) => typ
 const isPath = (u: unknown): u is Path => Array.isArray(u) && u.every(isName)
 const isAccess = (u: unknown): u is Access => u === 'Public' || u === 'Private'
 const isRecord = (u: unknown): u is Record<string, unknown> => typeof u === 'object' && u !== null
+const isV4Record = (u: unknown): u is Record<string, unknown> => isRecord(u) && !Array.isArray(u)
 
 const readCanonicalName = (value: unknown, label: string): Name => {
   const name = nameFromCanonical(value)
@@ -87,52 +88,79 @@ function readModule(entry: unknown): RawModule {
   return { path: entry[0], access: ac['access'], types, values }
 }
 
-function normalizeV4Definition(
+interface NormalizedV4AccessControlled {
+  readonly access: Access
+  readonly doc: string | null
+  readonly rawDefinition: Record<string, unknown>
+}
+
+function normalizeV4AccessControlled(
   entry: unknown,
   section: string,
-): Pick<RawDefEntry, 'access' | 'doc' | 'rawDefinition'> {
-  if (!isRecord(entry) || !isAccess(entry['access'])) throw fail(`malformed ${section} access`)
+): NormalizedV4AccessControlled {
+  if (!isV4Record(entry)) throw fail(`malformed ${section} access`)
 
-  if ('value' in entry) {
-    const documented = entry['value']
-    if (!isRecord(documented)) throw fail(`malformed ${section} definition`)
-    const hasDocumentWrapper = 'doc' in documented && 'value' in documented
-    return {
-      access: entry['access'],
-      doc: readDocumentation(documented['doc']),
-      rawDefinition: hasDocumentWrapper ? documented['value'] : documented,
+  const publicKey = Object.hasOwn(entry, 'Public')
+  const privateKey = Object.hasOwn(entry, 'Private')
+  const explicitAccess = Object.hasOwn(entry, 'access')
+  if ((publicKey && privateKey) || ((publicKey || privateKey) && explicitAccess))
+    throw fail(`malformed ${section} access`)
+
+  let access: Access
+  let payload: Record<string, unknown>
+  let docSource: unknown
+
+  if (publicKey || privateKey) {
+    access = publicKey ? 'Public' : 'Private'
+    const canonicalPayload = entry[access]
+    if (!isV4Record(canonicalPayload)) throw fail(`malformed ${section} definition`)
+    payload = canonicalPayload
+    docSource = Object.hasOwn(payload, 'doc') ? payload['doc'] : undefined
+  } else {
+    const accessValue = explicitAccess ? entry['access'] : undefined
+    if (!isAccess(accessValue)) throw fail(`malformed ${section} access`)
+    access = accessValue
+
+    if (Object.hasOwn(entry, 'value')) {
+      const legacyPayload = entry['value']
+      if (!isV4Record(legacyPayload)) throw fail(`malformed ${section} definition`)
+      payload = legacyPayload
+      docSource = Object.hasOwn(payload, 'doc') ? payload['doc'] : undefined
+    } else {
+      payload = Object.fromEntries(
+        Object.entries(entry).filter(([key]) => key !== 'access' && key !== 'doc'),
+      )
+      docSource = Object.hasOwn(entry, 'doc') ? entry['doc'] : undefined
     }
   }
 
-  const rawDefinition = Object.fromEntries(
-    Object.entries(entry).filter(([key]) => key !== 'access' && key !== 'doc'),
-  )
-  if (Object.keys(rawDefinition).length === 0) throw fail(`malformed ${section} definition`)
-  return {
-    access: entry['access'],
-    doc: readDocumentation(entry['doc']),
-    rawDefinition,
+  if (Object.hasOwn(payload, 'doc') && Object.hasOwn(payload, 'value')) {
+    const documentedValue = payload['value']
+    if (!isV4Record(documentedValue)) throw fail(`malformed ${section} definition`)
+    return { access, doc: readDocumentation(docSource), rawDefinition: documentedValue }
   }
+
+  const rawDefinition = Object.fromEntries(Object.entries(payload).filter(([key]) => key !== 'doc'))
+  if (Object.keys(rawDefinition).length === 0) throw fail(`malformed ${section} definition`)
+  return { access, doc: readDocumentation(docSource), rawDefinition }
 }
 
 function readV4DefEntry(name: string, entry: unknown, section: string): RawDefEntry {
   return {
     name: readCanonicalName(name, `${section} name`),
-    ...normalizeV4Definition(entry, section),
+    ...normalizeV4AccessControlled(entry, section),
   }
 }
 
 function readV4Module(name: string, entry: unknown): RawModule {
-  if (!isRecord(entry) || !isAccess(entry['access'])) throw fail('malformed module access')
-  const definition = entry['value']
-  if (!isRecord(definition)) throw fail('malformed module definition')
+  const { access, rawDefinition: definition } = normalizeV4AccessControlled(entry, 'module')
   const types = definition['types']
   const values = definition['values']
   if (!isRecord(types)) throw fail('malformed type definitions')
   if (!isRecord(values)) throw fail('malformed value definitions')
   return {
     path: readCanonicalPath(name, 'module name'),
-    access: entry['access'],
+    access,
     types: Object.entries(types).map(([localName, value]) =>
       readV4DefEntry(localName, value, 'type'),
     ),
@@ -167,62 +195,72 @@ function readV4Library(env: Record<string, unknown>): MorphirLibrary {
   }
 }
 
-/** The IR format versions this decoder accepts, as they appear in an envelope.
- *
- * This tells every caller — including the Playground, which uses it to decide what IR
- * version to ask a frontend for — which envelopes can be normalized for the explorer.
- * Individual unrecognized AST nodes retain the decoder's visible UnknownNode fallback. */
-export const DECODABLE_FORMAT_VERSIONS: ReadonlyArray<number> = [3, 4]
+type IrDecoder = (env: Record<string, unknown>) => MorphirLibrary
 
-/** The exact releases this decoder accepts.
- *
- * An envelope's integer `N` denotes the baseline release `N.0.0`: that is the
- * formatVersion contract's own rule, which writes a baseline as an integer and any
- * other release as an exact `major.minor.patch` string. Deriving the releases from
- * {@link DECODABLE_FORMAT_VERSIONS} keeps one list to maintain. */
-export const DECODABLE_IR_RELEASES: ReadonlyArray<string> = DECODABLE_FORMAT_VERSIONS.map(
-  (major) => `${major}.0.0`,
+const DECODER_BY_IR_RELEASE: Readonly<Record<string, IrDecoder | undefined>> = Object.freeze({
+  '3.0.0': readV3Library,
+  '4.0.0': readV4Library,
+})
+
+/** The exact releases this decoder accepts. */
+export const DECODABLE_IR_RELEASES: ReadonlyArray<string> = Object.freeze(
+  Object.keys(DECODER_BY_IR_RELEASE),
 )
+
+/** The IR format versions this decoder accepts, as they appear in baseline envelopes. */
+export const DECODABLE_FORMAT_VERSIONS: ReadonlyArray<number> = Object.freeze([
+  ...new Set(
+    DECODABLE_IR_RELEASES.flatMap((release) => {
+      const [major, minor, patch] = release.split('.')
+      return minor === '0' && patch === '0' ? [Number(major)] : []
+    }),
+  ),
+])
 
 const MAX_FORMAT_VERSION_COMPONENT = 4_294_967_295
 
 interface EnvelopeIrRelease {
   readonly release: string
-  readonly major: number
   readonly found: number | string
 }
+
+const parseFormatVersionComponent = (component: string): number | null => {
+  if (!/^(0|[1-9]\d*)$/.test(component) || component.length > 10) return null
+  const parsed = Number(component)
+  return parsed <= MAX_FORMAT_VERSION_COMPONENT ? parsed : null
+}
+
+const normalizeReleaseTriplet = (version: string): string | null => {
+  const parts = version.split('.')
+  if (parts.length !== 3) return null
+  const components = parts.map(parseFormatVersionComponent)
+  if (components.some((component) => component === null)) return null
+  const [major] = components
+  return typeof major === 'number' && major >= 3 ? version : null
+}
+
+const displayFormatVersion = (version: unknown): number | string =>
+  typeof version === 'number' || typeof version === 'string' ? version : String(version)
 
 /** Recognize the strict JSON envelope spelling before checking decoder support. */
 const normalizeEnvelopeIrRelease = (version: unknown): EnvelopeIrRelease | null => {
   if (typeof version === 'number') {
     if (!Number.isInteger(version) || version < 1 || version > MAX_FORMAT_VERSION_COMPONENT)
       return null
-    return { release: `${version}.0.0`, major: version, found: version }
+    return { release: `${version}.0.0`, found: version }
   }
 
   if (typeof version !== 'string') return null
-  const parts = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version)
-  if (parts === null) return null
-  const [major, minor, patch] = parts.slice(1).map(Number) as [number, number, number]
-  if (
-    major < 3 ||
-    major > MAX_FORMAT_VERSION_COMPONENT ||
-    minor > MAX_FORMAT_VERSION_COMPONENT ||
-    patch > MAX_FORMAT_VERSION_COMPONENT
-  )
-    return null
-  return { release: `${major}.${minor}.${patch}`, major, found: version }
+  const release = normalizeReleaseTriplet(version)
+  return release === null ? null : { release, found: version }
 }
 
-const displayFormatVersion = (version: unknown): number | string =>
-  typeof version === 'number' || typeof version === 'string' ? version : String(version)
-
-/** The exact release `version` names, or null when it is not a release at all. Missing
- * components default to zero, so '3' and '3.0.0' are two spellings of one release. */
-const normalizeIrRelease = (version: string): string | null => {
-  const parts = /^(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(version.trim())
-  if (parts === null) return null
-  return `${Number(parts[1])}.${Number(parts[2] ?? 0)}.${Number(parts[3] ?? 0)}`
+/** Normalize strict catalog triplets plus the catalog's explicit bare-major spelling. */
+const normalizeCatalogIrRelease = (version: string): string | null => {
+  const release = normalizeReleaseTriplet(version)
+  if (release !== null) return release
+  const major = parseFormatVersionComponent(version)
+  return major !== null && major >= 3 ? `${major}.0.0` : null
 }
 
 /** Whether IR advertised as `version` is something {@link decodeMorphirIr} can read.
@@ -236,7 +274,7 @@ const normalizeIrRelease = (version: string): string | null => {
  * it on the strength of its major would steer a caller into requesting IR that then
  * fails to decode — the exact failure this predicate exists to prevent. */
 export const canDecodeIrVersion = (version: string): boolean => {
-  const release = normalizeIrRelease(version)
+  const release = normalizeCatalogIrRelease(version)
   return release !== null && DECODABLE_IR_RELEASES.includes(release)
 }
 
@@ -255,9 +293,9 @@ export const decodeMorphirIr = (input: string): Effect.Effect<MorphirLibrary, Ir
           const normalized = normalizeEnvelopeIrRelease(formatVersion)
           if (normalized === null)
             throw UnsupportedFormatVersion.make(displayFormatVersion(formatVersion))
-          if (!DECODABLE_IR_RELEASES.includes(normalized.release))
-            throw UnsupportedFormatVersion.make(normalized.found)
-          return normalized.major === 3 ? readV3Library(env) : readV4Library(env)
+          const decoder = DECODER_BY_IR_RELEASE[normalized.release]
+          if (decoder === undefined) throw UnsupportedFormatVersion.make(normalized.found)
+          return decoder(env)
         },
         catch: (e) =>
           e instanceof MissingFormatVersion ||
