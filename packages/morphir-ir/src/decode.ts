@@ -221,10 +221,13 @@ const DECODER_BY_IR_RELEASE: Readonly<Record<string, IrDecoder | undefined>> = O
   '4.0.0': readV4Library,
 })
 
-/** The exact releases this decoder accepts. */
-export const DECODABLE_IR_RELEASES: ReadonlyArray<string> = Object.freeze(
-  Object.keys(DECODER_BY_IR_RELEASE),
-)
+/**
+ * Releases whose complete semantic vocabulary reaches the shared AST.
+ *
+ * The V4 envelope/library reader remains available for direct inspection while the
+ * sibling semantic decoder is completed, but callers must not prefer V4 over V3 yet.
+ */
+export const DECODABLE_IR_RELEASES: ReadonlyArray<string> = Object.freeze(['3.0.0'])
 
 /** The IR format versions this decoder accepts, as they appear in baseline envelopes. */
 export const DECODABLE_FORMAT_VERSIONS: ReadonlyArray<number> = Object.freeze([
@@ -282,7 +285,7 @@ const normalizeCatalogIrRelease = (version: string): string | null => {
   return major !== null && major >= 3 ? `${major}.0.0` : null
 }
 
-/** Whether IR advertised as `version` is something {@link decodeMorphirIr} can read.
+/** Whether IR advertised as `version` is complete enough for Insight and XRay.
  *
  * Catalogs spell versions two ways at once — morphir-elm advertises '3', while
  * morphir-gleam-binding advertises '4.0.0' — so the comparison is on the normalized
@@ -291,7 +294,8 @@ const normalizeCatalogIrRelease = (version: string): string | null => {
  * revision from an unsupported major), and a non-baseline release such as 3.1.0 is
  * written into the envelope as the string '3.1.0', which this decoder refuses. Admitting
  * it on the strength of its major would steer a caller into requesting IR that then
- * fails to decode — the exact failure this predicate exists to prevent. */
+ * fails to decode — the exact failure this predicate exists to prevent. Partial envelope
+ * readers are deliberately absent from {@link DECODABLE_IR_RELEASES}. */
 export const canDecodeIrVersion = (version: string): boolean => {
   const release = normalizeCatalogIrRelease(version)
   return release !== null && DECODABLE_IR_RELEASES.includes(release)

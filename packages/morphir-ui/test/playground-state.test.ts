@@ -406,11 +406,11 @@ describe('preferredIrVersion', () => {
   // looks like a broken view rather than a badly chosen request. When the frontend
   // offers a decodable version at all, ask for that one.
   test('prefers a decodable version over an earlier undecodable one', () => {
-    expect(preferredIrVersion(frontend('elm', ['5', '4']), null)).toBe('4')
+    expect(preferredIrVersion(frontend('elm', ['4', '3']), null)).toBe('3')
   })
 
   test('matches a decodable version spelled as a triplet', () => {
-    expect(preferredIrVersion(frontend('elm', ['5.0.0', '4.0.0']), null)).toBe('4.0.0')
+    expect(preferredIrVersion(frontend('elm', ['4.0.0', '3.0.0']), null)).toBe('3.0.0')
   })
 
   // Generation compatibility outranks decodability: an IR the target cannot consume
@@ -429,7 +429,7 @@ describe('preferredIrVersion', () => {
   // still allowed in that state. With no agreement to honor, the frontend's own
   // versions are the candidates.
   test('ignores a target that agrees on nothing and picks from the frontend', () => {
-    expect(preferredIrVersion(frontend('elm', ['5', '4']), target('scala', ['9']))).toBe('4')
+    expect(preferredIrVersion(frontend('elm', ['4', '3']), target('scala', ['9']))).toBe('3')
   })
 
   test('falls back to the first version when the frontend offers nothing decodable', () => {
@@ -440,7 +440,7 @@ describe('preferredIrVersion', () => {
   // an exact string the decoder rejects. Preferring it over the frontend's own first
   // choice would trade a working request for one that cannot be rendered either way.
   test('does not prefer an undecodable revision of a decodable major', () => {
-    expect(preferredIrVersion(frontend('elm', ['4', '3.1.0']), null)).toBe('4')
+    expect(preferredIrVersion(frontend('elm', ['3.1.0', '3']), null)).toBe('3')
   })
 
   test('an empty frontend yields an empty version rather than throwing', () => {

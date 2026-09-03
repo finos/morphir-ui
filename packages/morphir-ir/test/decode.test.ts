@@ -555,15 +555,14 @@ describe('decodeMorphirIr', () => {
 })
 
 describe('canDecodeIrVersion', () => {
-  // The catalog spells advertised versions two ways at once: morphir-elm reports a bare
-  // major ('3') while morphir-gleam-binding reports a full triplet ('4.0.0'). Per the
-  // formatVersion contract those are two spellings of one release — integer N means the
-  // baseline release N.0.0 — so both have to answer the same.
-  test('reads a bare major and a baseline triplet as the same release', () => {
+  // Catalog negotiation is stricter than envelope parsing: the playground may prefer
+  // only releases whose complete semantic vocabulary reaches Insight and XRay. Partial
+  // V4 loading remains useful for direct inspection, but it must not outrank complete V3.
+  test('advertises only releases with complete semantic decoding', () => {
     expect(canDecodeIrVersion('3')).toBe(true)
     expect(canDecodeIrVersion('3.0.0')).toBe(true)
-    expect(canDecodeIrVersion('4')).toBe(true)
-    expect(canDecodeIrVersion('4.0.0')).toBe(true)
+    expect(canDecodeIrVersion('4')).toBe(false)
+    expect(canDecodeIrVersion('4.0.0')).toBe(false)
   })
 
   // Support is per exact release, not per major family: the contract's own outcomes
@@ -607,27 +606,14 @@ describe('canDecodeIrVersion', () => {
     expect(Object.isFrozen(DECODABLE_FORMAT_VERSIONS)).toBe(true)
   })
 
-  // The predicate and the decoder must not be able to disagree: whatever
-  // canDecodeIrVersion admits, decodeMorphirIr has to accept, or callers are steered
-  // toward a version that then fails the format check.
-  test('every admitted version is one decodeMorphirIr actually accepts', async () => {
-    for (const version of DECODABLE_FORMAT_VERSIONS) {
-      expect(canDecodeIrVersion(String(version))).toBe(true)
-      const ir = JSON.stringify({
-        formatVersion: version,
-        distribution:
-          version === 3
-            ? ['Library', [], [], { modules: [] }]
-            : {
-                Library: {
-                  packageName: 'morphir/example/app',
-                  dependencies: {},
-                  def: { modules: {} },
-                },
-              },
-      })
-      const exit = await Effect.runPromiseExit(decodeMorphirIr(ir))
-      expect(Exit.isFailure(exit)).toBe(false)
-    }
+  // Anything advertised as complete must still be accepted by the envelope parser.
+  test('every advertised version is one decodeMorphirIr actually accepts', async () => {
+    expect(canDecodeIrVersion('3')).toBe(true)
+    const ir = JSON.stringify({
+      formatVersion: 3,
+      distribution: ['Library', [], [], { modules: [] }],
+    })
+    const exit = await Effect.runPromiseExit(decodeMorphirIr(ir))
+    expect(Exit.isFailure(exit)).toBe(false)
   })
 })
