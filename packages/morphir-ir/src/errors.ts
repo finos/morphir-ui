@@ -13,10 +13,10 @@ export class MissingFormatVersion extends Data.TaggedError('MissingFormatVersion
 }
 
 export class UnsupportedFormatVersion extends Data.TaggedError('UnsupportedFormatVersion')<{
-  readonly found: number
+  readonly found: number | string
   readonly message: string
 }> {
-  static make = (found: number) =>
+  static make = (found: number | string) =>
     new UnsupportedFormatVersion({
       found,
       message:

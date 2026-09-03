@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { Effect, Exit } from 'effect'
-import { DECODABLE_FORMAT_VERSIONS, canDecodeIrVersion, decodeMorphirIr } from '../src/index.ts'
+import {
+  DECODABLE_FORMAT_VERSIONS,
+  canDecodeIrVersion,
+  decodeEntryValueDef,
+  decodeMorphirIr,
+} from '../src/index.ts'
 
 const fixture = (name: string) => Bun.file(new URL(`./fixtures/${name}`, import.meta.url)).text()
 
@@ -53,7 +58,10 @@ describe('decodeMorphirIr', () => {
                 access: 'Private',
                 value: {
                   types: {
-                    greeting: { access: 'Public', value: typeDefinition },
+                    greeting: {
+                      access: 'Public',
+                      value: { doc: 'A greeting.', value: typeDefinition },
+                    },
                   },
                   values: {
                     answer: { access: 'Public', value: valueDefinition },
@@ -74,7 +82,7 @@ describe('decodeMorphirIr', () => {
     expect(lib.modules[0]?.types[0]).toEqual({
       name: ['greeting'],
       access: 'Public',
-      doc: null,
+      doc: 'A greeting.',
       rawDefinition: typeDefinition,
     })
     expect(lib.modules[0]?.values[0]).toEqual({
@@ -83,6 +91,123 @@ describe('decodeMorphirIr', () => {
       doc: null,
       rawDefinition: valueDefinition,
     })
+  })
+
+  test('normalizes flattened v4 type and value definitions', async () => {
+    const typeDefinition = {
+      TypeAliasDefinition: { typeParams: [], typeExp: { Unit: { attrs: {} } } },
+    }
+    const valueDefinition = {
+      ExpressionBody: {
+        inputTypes: {},
+        outputType: { Unit: { attrs: {} } },
+        body: { Literal: { literal: { IntegerLiteral: { value: 42 } }, attrs: {} } },
+      },
+    }
+    const v4 = JSON.stringify({
+      formatVersion: 4,
+      distribution: {
+        Library: {
+          packageName: 'morphir/ui-smoke',
+          dependencies: {},
+          def: {
+            modules: {
+              main: {
+                access: 'Public',
+                value: {
+                  types: {
+                    greeting: {
+                      access: 'Private',
+                      doc: 'A greeting.',
+                      ...typeDefinition,
+                    },
+                  },
+                  values: {
+                    answer: {
+                      access: 'Public',
+                      doc: 'The answer.',
+                      ...valueDefinition,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    const lib = await Effect.runPromise(decodeMorphirIr(v4))
+    const module = lib.modules[0]!
+    expect(module.types[0]).toEqual({
+      name: ['greeting'],
+      access: 'Private',
+      doc: 'A greeting.',
+      rawDefinition: typeDefinition,
+    })
+    expect(module.values[0]).toEqual({
+      name: ['answer'],
+      access: 'Public',
+      doc: 'The answer.',
+      rawDefinition: valueDefinition,
+    })
+
+    const decodedValue = decodeEntryValueDef(module.values[0]!)
+    expect(decodedValue?.body).toEqual({
+      kind: 'literal',
+      attr: {},
+      literal: { kind: 'whole-number', value: 42 },
+    })
+  })
+
+  test('decodes baseline release strings exactly like their integer spellings', async () => {
+    const v3Distribution = ['Library', [['morphir'], ['example'], ['app']], [], { modules: [] }]
+    const v4Distribution = {
+      Library: {
+        packageName: 'morphir/example/app',
+        dependencies: {},
+        def: { modules: {} },
+      },
+    }
+
+    for (const [major, distribution] of [
+      [3, v3Distribution],
+      [4, v4Distribution],
+    ] as const) {
+      const integerLibrary = await Effect.runPromise(
+        decodeMorphirIr(JSON.stringify({ formatVersion: major, distribution })),
+      )
+      const releaseStringLibrary = await Effect.runPromise(
+        decodeMorphirIr(JSON.stringify({ formatVersion: `${major}.0.0`, distribution })),
+      )
+      expect(releaseStringLibrary).toEqual(integerLibrary)
+    }
+  })
+
+  test('rejects an unsupported v4 revision without losing its release', async () => {
+    const error = await Effect.runPromise(
+      Effect.flip(
+        decodeMorphirIr(
+          JSON.stringify({
+            formatVersion: '4.1.0',
+            distribution: {
+              Library: {
+                packageName: 'morphir/example/app',
+                dependencies: {},
+                def: { modules: {} },
+              },
+            },
+          }),
+        ),
+      ),
+    )
+
+    expect(error._tag).toBe('UnsupportedFormatVersion')
+    if (error._tag === 'UnsupportedFormatVersion') {
+      expect(error.found).toBe('4.1.0')
+      expect(error.message).toContain('format version 4.1.0')
+      expect(error.message).not.toContain('NaN')
+    }
   })
 
   test('rejects formatVersion 2 with the regenerate message', async () => {
@@ -97,17 +222,31 @@ describe('decodeMorphirIr', () => {
     expect(message).toContain('supports versions 3 and 4')
   })
 
-  // The envelope's formatVersion is a JSON number, and only a number. Every value here
-  // coerces to a supported 3 through Number(), so a membership test that coerces would
-  // wave through an envelope whose shape is already wrong.
-  test('rejects a formatVersion that is not a number, however coercible', async () => {
-    for (const found of ['3', [3], ['3'], { valueOf: () => 3 }]) {
+  // A release string must be an exact triplet. Coercible scalars and collections do not
+  // become valid merely because Number() can turn them into a supported major.
+  test('rejects malformed or coercible format versions at the envelope boundary', async () => {
+    for (const found of [
+      '3',
+      '4.0',
+      ' 4.0.0',
+      '04.0.0',
+      '4.4294967296.0',
+      0,
+      -1,
+      3.1,
+      4_294_967_296,
+      true,
+      null,
+      [3],
+      ['3'],
+      { valueOf: () => 3 },
+    ]) {
       const ir = JSON.stringify({
         formatVersion: found,
         distribution: ['Library', [], [], { modules: [] }],
       })
-      const exit = await Effect.runPromiseExit(decodeMorphirIr(ir))
-      expect(Exit.isFailure(exit)).toBe(true)
+      const error = await Effect.runPromise(Effect.flip(decodeMorphirIr(ir)))
+      expect(error._tag, JSON.stringify(found)).toBe('UnsupportedFormatVersion')
     }
   })
 

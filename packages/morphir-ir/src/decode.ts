@@ -87,16 +87,38 @@ function readModule(entry: unknown): RawModule {
   return { path: entry[0], access: ac['access'], types, values }
 }
 
-function readV4DefEntry(name: string, entry: unknown, section: string): RawDefEntry {
+function normalizeV4Definition(
+  entry: unknown,
+  section: string,
+): Pick<RawDefEntry, 'access' | 'doc' | 'rawDefinition'> {
   if (!isRecord(entry) || !isAccess(entry['access'])) throw fail(`malformed ${section} access`)
-  const documented = entry['value']
-  if (!isRecord(documented)) throw fail(`malformed ${section} definition`)
-  const hasDocumentWrapper = 'doc' in documented && 'value' in documented
+
+  if ('value' in entry) {
+    const documented = entry['value']
+    if (!isRecord(documented)) throw fail(`malformed ${section} definition`)
+    const hasDocumentWrapper = 'doc' in documented && 'value' in documented
+    return {
+      access: entry['access'],
+      doc: readDocumentation(documented['doc']),
+      rawDefinition: hasDocumentWrapper ? documented['value'] : documented,
+    }
+  }
+
+  const rawDefinition = Object.fromEntries(
+    Object.entries(entry).filter(([key]) => key !== 'access' && key !== 'doc'),
+  )
+  if (Object.keys(rawDefinition).length === 0) throw fail(`malformed ${section} definition`)
+  return {
+    access: entry['access'],
+    doc: readDocumentation(entry['doc']),
+    rawDefinition,
+  }
+}
+
+function readV4DefEntry(name: string, entry: unknown, section: string): RawDefEntry {
   return {
     name: readCanonicalName(name, `${section} name`),
-    access: entry['access'],
-    doc: readDocumentation(documented['doc']),
-    rawDefinition: hasDocumentWrapper ? documented['value'] : documented,
+    ...normalizeV4Definition(entry, section),
   }
 }
 
@@ -162,6 +184,39 @@ export const DECODABLE_IR_RELEASES: ReadonlyArray<string> = DECODABLE_FORMAT_VER
   (major) => `${major}.0.0`,
 )
 
+const MAX_FORMAT_VERSION_COMPONENT = 4_294_967_295
+
+interface EnvelopeIrRelease {
+  readonly release: string
+  readonly major: number
+  readonly found: number | string
+}
+
+/** Recognize the strict JSON envelope spelling before checking decoder support. */
+const normalizeEnvelopeIrRelease = (version: unknown): EnvelopeIrRelease | null => {
+  if (typeof version === 'number') {
+    if (!Number.isInteger(version) || version < 1 || version > MAX_FORMAT_VERSION_COMPONENT)
+      return null
+    return { release: `${version}.0.0`, major: version, found: version }
+  }
+
+  if (typeof version !== 'string') return null
+  const parts = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version)
+  if (parts === null) return null
+  const [major, minor, patch] = parts.slice(1).map(Number) as [number, number, number]
+  if (
+    major < 3 ||
+    major > MAX_FORMAT_VERSION_COMPONENT ||
+    minor > MAX_FORMAT_VERSION_COMPONENT ||
+    patch > MAX_FORMAT_VERSION_COMPONENT
+  )
+    return null
+  return { release: `${major}.${minor}.${patch}`, major, found: version }
+}
+
+const displayFormatVersion = (version: unknown): number | string =>
+  typeof version === 'number' || typeof version === 'string' ? version : String(version)
+
 /** The exact release `version` names, or null when it is not a release at all. Missing
  * components default to zero, so '3' and '3.0.0' are two spellings of one release. */
 const normalizeIrRelease = (version: string): string | null => {
@@ -196,16 +251,13 @@ export const decodeMorphirIr = (input: string): Effect.Effect<MorphirLibrary, Ir
           if (typeof root !== 'object' || root === null) throw fail('IR root must be an object')
           const env = root as Record<string, unknown>
           if (!('formatVersion' in env)) throw MissingFormatVersion.make()
-          // The type check is load-bearing, not decoration: Number() coerces '3', [3]
-          // and ['3'] to a supported 3, so testing membership on a coerced value would
-          // accept an envelope whose shape is already wrong.
           const formatVersion = env['formatVersion']
-          if (
-            typeof formatVersion !== 'number' ||
-            !DECODABLE_FORMAT_VERSIONS.includes(formatVersion)
-          )
-            throw UnsupportedFormatVersion.make(Number(formatVersion))
-          return formatVersion === 3 ? readV3Library(env) : readV4Library(env)
+          const normalized = normalizeEnvelopeIrRelease(formatVersion)
+          if (normalized === null)
+            throw UnsupportedFormatVersion.make(displayFormatVersion(formatVersion))
+          if (!DECODABLE_IR_RELEASES.includes(normalized.release))
+            throw UnsupportedFormatVersion.make(normalized.found)
+          return normalized.major === 3 ? readV3Library(env) : readV4Library(env)
         },
         catch: (e) =>
           e instanceof MissingFormatVersion ||
