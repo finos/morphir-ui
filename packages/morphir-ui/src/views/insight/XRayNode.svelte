@@ -114,7 +114,7 @@
     text-align: left;
   }
   .xray-row {
-    border: 0;
+    border: 1px solid transparent;
     background: transparent;
     font: inherit;
     cursor: pointer;
@@ -123,16 +123,17 @@
     background: color-mix(in srgb, var(--accent) 10%, transparent);
   }
   .xray-row.selected {
-    border: 1px solid color-mix(in srgb, var(--accent2) 65%, var(--panel-edge));
+    border-color: var(--accent2);
     background: color-mix(in srgb, var(--accent) 14%, transparent);
   }
   .xray-row.direct-match {
-    border: 1px solid color-mix(in srgb, var(--xray-match) 65%, var(--panel-edge));
+    border-color: color-mix(in srgb, var(--xray-match) 65%, var(--panel-edge));
     background: color-mix(in srgb, var(--xray-match) 12%, var(--surface));
   }
   .xray-row.selected.direct-match {
-    border-color: color-mix(in srgb, var(--accent2) 65%, var(--panel-edge));
-    background: color-mix(in srgb, var(--accent) 14%, var(--xray-match) 12%);
+    border-color: color-mix(in srgb, var(--xray-match) 65%, var(--panel-edge));
+    background: color-mix(in srgb, var(--xray-match) 12%, var(--surface));
+    box-shadow: inset 3px 0 0 var(--accent2);
   }
   .xray-row:focus-visible {
     outline: 2px solid var(--accent2);

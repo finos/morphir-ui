@@ -21,6 +21,48 @@ const xrayNodeSource = readFileSync(
   'utf8',
 )
 
+const themeTokensSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '../src/theme/tokens.css'),
+  'utf8',
+)
+
+type Rgb = readonly [number, number, number]
+
+const rgb = (hex: string): Rgb => [
+  Number.parseInt(hex.slice(1, 3), 16),
+  Number.parseInt(hex.slice(3, 5), 16),
+  Number.parseInt(hex.slice(5, 7), 16),
+]
+
+const themeToken = (name: string): readonly [Rgb, Rgb] => {
+  const match = themeTokensSource.match(
+    new RegExp(`--${name}:\\s*light-dark\\((#[0-9a-f]{6}),\\s*(#[0-9a-f]{6})\\)`, 'i'),
+  )
+  if (!match?.[1] || !match[2]) throw new Error(`Missing light-dark token --${name}`)
+  return [rgb(match[1]), rgb(match[2])]
+}
+
+const mix = (foreground: Rgb, background: Rgb, foregroundWeight: number): Rgb => [
+  foreground[0] * foregroundWeight + background[0] * (1 - foregroundWeight),
+  foreground[1] * foregroundWeight + background[1] * (1 - foregroundWeight),
+  foreground[2] * foregroundWeight + background[2] * (1 - foregroundWeight),
+]
+
+const relativeLuminance = (color: Rgb): number => {
+  const [red, green, blue] = color.map((channel) => {
+    const srgb = channel / 255
+    return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * red! + 0.7152 * green! + 0.0722 * blue!
+}
+
+const contrastRatio = (first: Rgb, second: Rgb): number => {
+  const luminances = [relativeLuminance(first), relativeLuminance(second)].sort(
+    (left, right) => right - left,
+  )
+  return (luminances[0]! + 0.05) / (luminances[1]! + 0.05)
+}
+
 const allKindsFixture = readFileSync(
   join(
     dirname(fileURLToPath(import.meta.url)),
@@ -241,7 +283,37 @@ describe('XRayView', () => {
     expect(selected.classList.contains('selected')).toBe(true)
     expect(selected.classList.contains('direct-match')).toBe(false)
     expect(within(selected).queryByText('MATCH')).toBeNull()
-    expect(xrayNodeSource).toMatch(/\.xray-row\.selected\s*\{[^}]*border:\s*1px solid color-mix\(/)
+    expect(xrayNodeSource).toMatch(/\.xray-row\.selected\s*\{[^}]*border-color:\s*var\(--accent2\)/)
+  })
+
+  test('reserves row borders and keeps selected markers above 3:1 contrast in both themes', () => {
+    expect(xrayNodeSource).toMatch(/\.xray-row\s*\{[^}]*border:\s*1px solid transparent/)
+    expect(xrayNodeSource).toMatch(
+      /\.xray-row\.selected\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--accent\) 14%, transparent\)/,
+    )
+    expect(xrayNodeSource).toMatch(
+      /\.xray-row\.selected\.direct-match\s*\{[^}]*border-color:[^;}]*var\(--xray-match\)[^}]*background:\s*color-mix\(in srgb, var\(--xray-match\) 12%, var\(--surface\)\)[^}]*box-shadow:\s*inset 3px 0 0 var\(--accent2\)/,
+    )
+
+    const panels = themeToken('panel')
+    const surfaces = themeToken('surface')
+    const accents = themeToken('accent')
+    const selectionMarkers = themeToken('accent2')
+    const matchMarkers = themeToken('xray-match')
+    for (const themeIndex of [0, 1] as const) {
+      const selectedBackground = mix(accents[themeIndex], panels[themeIndex], 0.14)
+      const matchedBackground = mix(matchMarkers[themeIndex], surfaces[themeIndex], 0.12)
+
+      expect(
+        contrastRatio(selectionMarkers[themeIndex], panels[themeIndex]),
+      ).toBeGreaterThanOrEqual(3)
+      expect(
+        contrastRatio(selectionMarkers[themeIndex], selectedBackground),
+      ).toBeGreaterThanOrEqual(3)
+      expect(contrastRatio(selectionMarkers[themeIndex], matchedBackground)).toBeGreaterThanOrEqual(
+        3,
+      )
+    }
   })
 
   test('keeps selection and direct matching as independent row states', async () => {
