@@ -19,6 +19,8 @@ const hasWorkspaceQueryField = (params: URLSearchParams): boolean =>
   WORKSPACE_QUERY_FIELDS.some((field) => params.has(field))
 
 const parseWorkspaceRoute = (params: URLSearchParams): WorkspaceRoute | null => {
+  if (WORKSPACE_QUERY_FIELDS.some((field) => params.getAll(field).length > 1)) return null
+
   const hasDefinition = params.has('definition')
   const hasView = params.has('view')
   const hasNode = params.has('node')

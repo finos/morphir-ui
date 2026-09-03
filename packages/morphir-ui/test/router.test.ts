@@ -123,6 +123,17 @@ describe('route parsing', () => {
     expect(hashToRoute(hash)).toBeNull()
   })
 
+  test.each([
+    '#/?definition=A.B.c&definition=X.Y.z',
+    '#/?definition=X.Y.z&definition=A.B.c',
+    '#/?definition=A.B.c&view=xray&view=unknown',
+    '#/?definition=A.B.c&view=unknown&view=xray',
+    '#/?definition=A.B.c&node=%2Fbody&node=%2Foutput',
+    '#/?definition=A.B.c&node=%2Foutput&node=%2Fbody',
+  ])('rejects duplicate workspace fields regardless of value order: %s', (hash) => {
+    expect(hashToRoute(hash)).toBeNull()
+  })
+
   test('ignores unrelated workspace query keys', () => {
     expect(hashToRoute('#/?future=enabled&definition=A.B.c&another=value')).toEqual({
       kind: 'workspace',
@@ -179,6 +190,32 @@ describe('route history helpers', () => {
 
     expect(location.hash).toBe(routeToHash(xrayRoute))
     expect(history.length).toBe(before + 1)
+    teardown()
+  })
+
+  test('back and forward traversal restores explicitly pushed workspace routes', () => {
+    const insightRoute: Route = {
+      kind: 'workspace',
+      definition: 'A.B.c',
+      view: 'insight',
+      node: '/body',
+    }
+    replaceRouteInLocation({ kind: 'workspace' })
+    pushRouteToLocation(insightRoute)
+    pushRouteToLocation(xrayRoute)
+    const shell = new ShellState()
+    const teardown = bindRouteToLocation(shell)
+
+    expect(shell.route).toEqual(xrayRoute)
+
+    history.back()
+    // Happy DOM updates the history location but omits the browser's hashchange event.
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    expect(shell.route).toEqual(insightRoute)
+
+    history.forward()
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    expect(shell.route).toEqual(xrayRoute)
     teardown()
   })
 })
