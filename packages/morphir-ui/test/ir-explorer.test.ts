@@ -187,6 +187,97 @@ describe('IrExplorerView', () => {
     expect(onDetailResolution).toHaveBeenCalledTimes(reportCount + 1)
   })
 
+  test('a valid routed detail replaces a stale local resolution error', async () => {
+    const model = await openModel()
+    if (!model.ir) throw new Error('expected decoded IR')
+    const firstModule = model.ir.modules[0]
+    if (!firstModule) throw new Error('expected first module')
+    const missing = {
+      ref: {
+        packageName: firstModule.packageName,
+        moduleName: firstModule.name,
+        localName: 'MissingDefinition',
+      },
+      kind: 'type' as const,
+      access: 'Public' as const,
+      doc: null,
+    }
+    const inconsistent = {
+      ...model,
+      ir: { ...model.ir, definitions: [...model.ir.definitions, missing] },
+    }
+    const view = render(IrExplorerView, { props: { model: inconsistent } })
+    await userEvent.click(screen.getByRole('treeitem', { name: 'MissingDefinition' }))
+    expect(screen.getByRole('alert').textContent).toContain('MissingDefinition')
+
+    await view.rerender({
+      model: inconsistent,
+      detailLocation: {
+        definition: 'Morphir.Example.App.Forecast.listExample',
+        view: 'insight',
+      },
+    })
+
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText('listExample', { selector: '.local' })).toBeTruthy()
+  })
+
+  test('reuses routed definition projection when only the selected node changes', async () => {
+    const model = await openModel()
+    if (!model.library) throw new Error('expected decoded library')
+    const module = model.library.modules[0]
+    const entry = module?.values[0]
+    if (!module || !entry) throw new Error('expected value definition')
+    let rawDefinitionReads = 0
+    const instrumentedEntry = {
+      ...entry,
+      get rawDefinition() {
+        rawDefinitionReads += 1
+        return entry.rawDefinition
+      },
+    }
+    const instrumentedModel = {
+      ...model,
+      library: {
+        ...model.library,
+        modules: [
+          {
+            ...module,
+            values: [instrumentedEntry, ...module.values.slice(1)],
+          },
+          ...model.library.modules.slice(1),
+        ],
+      },
+    }
+    const view = render(IrExplorerView, {
+      props: {
+        model: instrumentedModel,
+        selectedDefinitionId: null,
+        onSelectedDefinition: vi.fn(),
+        detailLocation: {
+          definition: 'Morphir.Example.App.Forecast.listExample',
+          view: 'insight',
+          node: '/body',
+        },
+      },
+    })
+    const initialReads = rawDefinitionReads
+    expect(initialReads).toBeGreaterThan(0)
+
+    await view.rerender({
+      model: instrumentedModel,
+      selectedDefinitionId: null,
+      onSelectedDefinition: vi.fn(),
+      detailLocation: {
+        definition: 'Morphir.Example.App.Forecast.listExample',
+        view: 'insight',
+        node: '/output',
+      },
+    })
+
+    expect(rawDefinitionReads).toBe(initialReads)
+  })
+
   test('renders the model hierarchy instead of the old explorer columns', async () => {
     render(IrExplorerView, { props: { model: await openModel() } })
     const tree = screen.getByRole('tree', { name: 'Model hierarchy' })

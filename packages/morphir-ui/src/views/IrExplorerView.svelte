@@ -20,7 +20,11 @@
     type DetailLocation,
     type DetailResolution,
   } from './insight/detail-location.ts'
-  import { findXRayNode, projectXRayDefinition, projectXRayValue } from './insight/xray-tree.ts'
+  import {
+    projectXRayDefinition,
+    projectXRayValue,
+    type XRayTreeNode,
+  } from './insight/xray-tree.ts'
   import type { Snippet } from 'svelte'
 
   let {
@@ -93,8 +97,10 @@
         : null,
   )
   const currentResolutionError = $derived(
-    detailLocation && ir && (!locationInfo || !locationEntry)
-      ? detailLocation.definition
+    detailLocation
+      ? ir && (!locationInfo || !locationEntry)
+        ? detailLocation.definition
+        : null
       : selectedDefinitionId === undefined
         ? stateModelId === model.descriptor.id
           ? resolutionError
@@ -104,6 +110,17 @@
           : null,
   )
   const selectedId = $derived(currentSelected ? definitionNodeId(currentSelected.info) : null)
+  const locationPathIndex = $derived.by(() => {
+    if (!locationInfo || !locationEntry) return null
+    const roots =
+      locationInfo.kind === 'value'
+        ? (() => {
+            const def = decodeEntryValueDef(locationEntry)
+            return def ? projectXRayDefinition(def) : []
+          })()
+        : [projectXRayValue(decodeTypeExpr(locationEntry.rawDefinition), 'type', '/type')]
+    return indexXRayPaths(roots)
+  })
   const detailResolution = $derived.by(() => resolveDetailLocation())
 
   $effect(() => {
@@ -164,20 +181,27 @@
     }
     if (!detailLocation.node) return { kind: 'resolved' }
 
-    const roots =
-      locationInfo.kind === 'value'
-        ? (() => {
-            const def = decodeEntryValueDef(locationEntry)
-            return def ? projectXRayDefinition(def) : []
-          })()
-        : [projectXRayValue(decodeTypeExpr(locationEntry.rawDefinition), 'type', '/type')]
-    return findXRayNode(roots, detailLocation.node)
+    return locationPathIndex?.has(detailLocation.node)
       ? { kind: 'resolved' }
       : {
           kind: 'invalid-node',
           definition: detailLocation.definition,
           node: detailLocation.node,
         }
+  }
+
+  function indexXRayPaths(roots: readonly XRayTreeNode[]): ReadonlySet<string> {
+    // This derived index is immutable after construction; it does not own reactive state.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const paths = new Set<string>()
+    const stack = [...roots]
+    while (stack.length > 0) {
+      const node = stack.pop()
+      if (!node) continue
+      paths.add(node.path)
+      stack.push(...node.children)
+    }
+    return paths
   }
 
   function compatibleView(kind: 'type' | 'value', requested?: DetailView): DetailView {
