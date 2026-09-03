@@ -6,8 +6,10 @@ import {
   decodeValueExpr,
   uncurryApply,
   nameToCamel,
+  type DecodedNodeKind,
   type RawDefEntry,
 } from '../src/index.ts'
+import { expectedDecodedNodeKinds, xrayAllKindsV3 } from './support/xray-all-kinds-v3.ts'
 
 const loadFixture = async () => {
   const text = await Bun.file(new URL('./fixtures/insight-ir.json', import.meta.url)).text()
@@ -30,6 +32,25 @@ const collectUnknownTags = (node: unknown, found: string[] = []): string[] => {
       collectUnknownTags(value, found)
     }
     return found
+  }
+  return found
+}
+
+const collectDecodedKinds = (
+  node: unknown,
+  found: Set<DecodedNodeKind> = new Set(),
+): ReadonlySet<DecodedNodeKind> => {
+  if (Array.isArray(node)) {
+    for (const item of node) collectDecodedKinds(item, found)
+    return found
+  }
+  if (typeof node === 'object' && node !== null) {
+    const rec = node as Record<string, unknown>
+    if (typeof rec['kind'] === 'string') found.add(rec['kind'] as DecodedNodeKind)
+    for (const [key, value] of Object.entries(rec)) {
+      if (key === 'attr' || key === 'raw') continue
+      collectDecodedKinds(value, found)
+    }
   }
   return found
 }
@@ -201,5 +222,31 @@ describe('decoding the insight fixture', () => {
         fields: [{ name: ['f'], value: planted }],
       }),
     ).toEqual(['Planted'])
+  })
+})
+
+describe('decoding the exhaustive v3 fixture', () => {
+  test('finds every normalized node kind', async () => {
+    const text = await Bun.file(
+      new URL('./fixtures/xray-all-kinds-ir.json', import.meta.url),
+    ).text()
+    expect(JSON.parse(text)).toEqual(xrayAllKindsV3)
+
+    const library = await Effect.runPromise(decodeMorphirIr(text))
+    const coverageModule = library.modules.find(
+      (module) =>
+        module.path[0]?.[0] === 'x' &&
+        module.path[0]?.[1] === 'ray' &&
+        module.path[1]?.[0] === 'coverage',
+    )
+    expect(coverageModule?.path).toEqual([['x', 'ray'], ['coverage']])
+    const entry = coverageModule?.values.find((value) => nameToCamel(value.name) === 'allNodes')
+    const definition = entry === undefined ? null : decodeEntryValueDef(entry)
+
+    expect(definition).not.toBeNull()
+    expect(collectUnknownTags(definition)).toEqual(['FutureExpression'])
+    expect([...collectDecodedKinds(definition)].sort()).toEqual(
+      [...expectedDecodedNodeKinds].sort(),
+    )
   })
 })

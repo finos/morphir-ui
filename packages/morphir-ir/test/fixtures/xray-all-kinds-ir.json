@@ -1,0 +1,268 @@
+{
+  "formatVersion": 3,
+  "distribution": [
+    "Library",
+    [["morphir"], ["ui"], ["fixtures"]],
+    [],
+    {
+      "modules": [
+        [
+          [["x", "ray"], ["coverage"]],
+          {
+            "access": "Public",
+            "value": {
+              "types": [],
+              "values": [
+                [
+                  ["all", "nodes"],
+                  {
+                    "access": "Public",
+                    "value": {
+                      "doc": "",
+                      "value": {
+                        "inputTypes": [
+                          [["variable"], {}, ["Variable", {}, ["a"]]],
+                          [
+                            ["reference"],
+                            {},
+                            [
+                              "Reference",
+                              {},
+                              [[["morphir"], ["s", "d", "k"]], [["basics"]], ["int"]],
+                              []
+                            ]
+                          ],
+                          [
+                            ["tuple"],
+                            {},
+                            [
+                              "Tuple",
+                              {},
+                              [
+                                ["Variable", {}, ["a"]],
+                                [
+                                  "Reference",
+                                  {},
+                                  [[["morphir"], ["s", "d", "k"]], [["basics"]], ["string"]],
+                                  []
+                                ]
+                              ]
+                            ]
+                          ],
+                          [
+                            ["record"],
+                            {},
+                            [
+                              "Record",
+                              {},
+                              [
+                                {
+                                  "name": ["field"],
+                                  "tpe": [
+                                    "Reference",
+                                    {},
+                                    [[["morphir"], ["s", "d", "k"]], [["basics"]], ["int"]],
+                                    []
+                                  ]
+                                }
+                              ]
+                            ]
+                          ],
+                          [
+                            ["extensibleRecord"],
+                            {},
+                            [
+                              "ExtensibleRecord",
+                              {},
+                              ["row"],
+                              [
+                                {
+                                  "name": ["field"],
+                                  "tpe": [
+                                    "Reference",
+                                    {},
+                                    [[["morphir"], ["s", "d", "k"]], [["basics"]], ["int"]],
+                                    []
+                                  ]
+                                }
+                              ]
+                            ]
+                          ],
+                          [
+                            ["function"],
+                            {},
+                            [
+                              "Function",
+                              {},
+                              ["Variable", {}, ["a"]],
+                              [
+                                "Reference",
+                                {},
+                                [[["morphir"], ["s", "d", "k"]], [["basics"]], ["int"]],
+                                []
+                              ]
+                            ]
+                          ],
+                          [["unit"], {}, ["Unit", {}]]
+                        ],
+                        "outputType": ["Unit", {}],
+                        "body": [
+                          "List",
+                          {},
+                          [
+                            ["Literal", {}, ["BoolLiteral", true]],
+                            ["Literal", {}, ["CharLiteral", "x"]],
+                            ["Literal", {}, ["StringLiteral", "Morphir"]],
+                            ["Literal", {}, ["WholeNumberLiteral", 42]],
+                            ["Literal", {}, ["FloatLiteral", 2.5]],
+                            ["Literal", {}, ["DecimalLiteral", "10.01"]],
+                            [
+                              "Constructor",
+                              {},
+                              [[["morphir"], ["s", "d", "k"]], [["basics"]], ["just"]]
+                            ],
+                            ["Tuple", {}, [["Literal", {}, ["StringLiteral", "tuple"]]]],
+                            [
+                              "Record",
+                              {},
+                              [[["field"], ["Literal", {}, ["WholeNumberLiteral", 1]]]]
+                            ],
+                            ["Variable", {}, ["value"]],
+                            [
+                              "Reference",
+                              {},
+                              [[["morphir"], ["s", "d", "k"]], [["basics"]], ["referenced"]]
+                            ],
+                            ["Field", {}, ["Variable", {}, ["record"]], ["field"]],
+                            ["FieldFunction", {}, ["field"]],
+                            [
+                              "Apply",
+                              {},
+                              ["FieldFunction", {}, ["field"]],
+                              ["Literal", {}, ["StringLiteral", "argument"]]
+                            ],
+                            ["Lambda", {}, ["WildcardPattern", {}], ["Unit", {}]],
+                            [
+                              "LetDefinition",
+                              {},
+                              ["bound"],
+                              {
+                                "inputTypes": [],
+                                "outputType": ["Unit", {}],
+                                "body": ["Unit", {}]
+                              },
+                              ["Unit", {}]
+                            ],
+                            [
+                              "LetRecursion",
+                              {},
+                              [
+                                [
+                                  ["recursive"],
+                                  {
+                                    "inputTypes": [],
+                                    "outputType": ["Unit", {}],
+                                    "body": ["Unit", {}]
+                                  }
+                                ]
+                              ],
+                              ["Unit", {}]
+                            ],
+                            [
+                              "Destructure",
+                              {},
+                              ["TuplePattern", {}, [["WildcardPattern", {}]]],
+                              ["Unit", {}],
+                              ["Unit", {}]
+                            ],
+                            [
+                              "IfThenElse",
+                              {},
+                              ["Literal", {}, ["BoolLiteral", true]],
+                              ["Unit", {}],
+                              ["Unit", {}]
+                            ],
+                            [
+                              "PatternMatch",
+                              {},
+                              ["Unit", {}],
+                              [
+                                [
+                                  ["WildcardPattern", {}],
+                                  ["Unit", {}]
+                                ],
+                                [
+                                  ["AsPattern", {}, ["WildcardPattern", {}], ["bound"]],
+                                  ["Unit", {}]
+                                ],
+                                [
+                                  [
+                                    "TuplePattern",
+                                    {},
+                                    [
+                                      ["WildcardPattern", {}],
+                                      ["UnitPattern", {}]
+                                    ]
+                                  ],
+                                  ["Unit", {}]
+                                ],
+                                [
+                                  [
+                                    "ConstructorPattern",
+                                    {},
+                                    [[["morphir"], ["s", "d", "k"]], [["basics"]], ["just"]],
+                                    [["WildcardPattern", {}]]
+                                  ],
+                                  ["Unit", {}]
+                                ],
+                                [
+                                  ["EmptyListPattern", {}],
+                                  ["Unit", {}]
+                                ],
+                                [
+                                  [
+                                    "HeadTailPattern",
+                                    {},
+                                    ["WildcardPattern", {}],
+                                    ["EmptyListPattern", {}]
+                                  ],
+                                  ["Unit", {}]
+                                ],
+                                [
+                                  ["LiteralPattern", {}, ["WholeNumberLiteral", 1]],
+                                  ["Unit", {}]
+                                ],
+                                [
+                                  ["UnitPattern", {}],
+                                  ["Unit", {}]
+                                ]
+                              ]
+                            ],
+                            [
+                              "UpdateRecord",
+                              {},
+                              ["Variable", {}, ["record"]],
+                              [[["field"], ["Unit", {}]]]
+                            ],
+                            ["Unit", {}],
+                            [
+                              "FutureExpression",
+                              {},
+                              {
+                                "feature": "unrecognized"
+                              }
+                            ]
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                ]
+              ]
+            }
+          }
+        ]
+      ]
+    }
+  ]
+}
