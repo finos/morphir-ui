@@ -160,6 +160,29 @@ describe('decodeValueExpr against unit snippets', () => {
     }
   })
 
+  test('degrades non-finite tagged v4 literal payloads', () => {
+    const cases = [
+      { Literal: { FloatLiteral: Number.NaN } },
+      { Literal: { FloatLiteral: { value: Number.POSITIVE_INFINITY } } },
+      { Literal: { IntegerLiteral: Number.NEGATIVE_INFINITY } },
+      { Literal: { IntegerLiteral: { value: Number.NaN } } },
+      { Literal: { WholeNumberLiteral: Number.POSITIVE_INFINITY } },
+      { Literal: { WholeNumberLiteral: { value: Number.NEGATIVE_INFINITY } } },
+      {
+        Literal: {
+          attributes: { source: 'expanded' },
+          literal: { FloatLiteral: { value: Number.NaN } },
+        },
+      },
+    ]
+
+    for (const raw of cases) {
+      const decoded = decodeValueExpr(raw)
+      expect(decoded.kind).toBe('literal')
+      if (decoded.kind === 'literal') expect(decoded.literal.kind).toBe('unknown')
+    }
+  })
+
   test('preserves attributes and expanded v4 wrapper compatibility', () => {
     const attributes = { source: 'expanded' }
     const fqn = { pkg: [['pkg']], module: [['module']], local: ['name'] }
@@ -232,6 +255,114 @@ describe('decodeValueExpr against unit snippets', () => {
       attr: { source: 'fallback' },
       name: ['x'],
     })
+  })
+
+  test('reads expanded v4 fields only from own data properties', () => {
+    const inherited = (properties: Record<string, unknown>): Record<string, unknown> =>
+      Object.create(properties) as Record<string, unknown>
+
+    expect(decodeValueExpr({ Variable: inherited({ name: 'x' }) }).kind).toBe('unknown')
+    expect(decodeValueExpr({ Reference: inherited({ fqname: 'pkg:module#name' }) }).kind).toBe(
+      'unknown',
+    )
+    expect(decodeValueExpr({ Constructor: inherited({ fqname: 'pkg:module#name' }) }).kind).toBe(
+      'unknown',
+    )
+    expect(decodeValueExpr({ Tuple: inherited({ elements: [] }) }).kind).toBe('unknown')
+    expect(decodeValueExpr({ List: inherited({ items: [] }) }).kind).toBe('unknown')
+
+    const inheritedApply = decodeValueExpr({
+      Apply: inherited({ function: { Variable: 'f' }, argument: { Variable: 'x' } }),
+    })
+    expect(inheritedApply.kind).toBe('apply')
+    if (inheritedApply.kind === 'apply') {
+      expect(inheritedApply.fn.kind).toBe('unknown')
+      expect(inheritedApply.arg.kind).toBe('unknown')
+    }
+
+    const attributedVariable = inherited({
+      attributes: { source: 'inherited-attributes' },
+      attrs: { source: 'inherited-attrs' },
+    })
+    Object.defineProperty(attributedVariable, 'name', { enumerable: true, value: 'x' })
+    expect(decodeValueExpr({ Variable: attributedVariable })).toEqual({
+      kind: 'variable',
+      attr: {},
+      name: ['x'],
+    })
+
+    const fallbackVariable = inherited({ attributes: { source: 'inherited' } })
+    Object.defineProperties(fallbackVariable, {
+      attrs: { enumerable: true, value: { source: 'own-fallback' } },
+      name: { enumerable: true, value: 'x' },
+    })
+    expect(decodeValueExpr({ Variable: fallbackVariable })).toEqual({
+      kind: 'variable',
+      attr: { source: 'own-fallback' },
+      name: ['x'],
+    })
+
+    const getterCases = [
+      ['Variable', 'name', 'x'],
+      ['Reference', 'fqname', 'pkg:module#name'],
+      ['Constructor', 'fqname', 'pkg:module#name'],
+      ['Tuple', 'elements', []],
+      ['List', 'items', []],
+      ['Apply', 'function', { Variable: 'f' }],
+      ['Apply', 'argument', { Variable: 'x' }],
+      ['Literal', 'literal', 42],
+      ['Variable', 'attributes', { source: 'getter' }],
+      ['Variable', 'attrs', { source: 'getter' }],
+    ] as const
+
+    for (const [tag, field, value] of getterCases) {
+      let getterCalls = 0
+      const content: Record<string, unknown> = {}
+      if (tag === 'Variable' && field !== 'name') content['name'] = 'x'
+      Object.defineProperty(content, field, {
+        enumerable: true,
+        get: () => {
+          getterCalls += 1
+          return value
+        },
+      })
+      decodeValueExpr({ [tag]: content })
+      expect(getterCalls, `${tag}.${field}`).toBe(0)
+    }
+
+    let inheritedGetterCalls = 0
+    const getterPrototype: Record<string, unknown> = {}
+    for (const field of [
+      'attributes',
+      'attrs',
+      'name',
+      'fqname',
+      'elements',
+      'items',
+      'function',
+      'argument',
+      'literal',
+    ]) {
+      Object.defineProperty(getterPrototype, field, {
+        get: () => {
+          inheritedGetterCalls += 1
+          return undefined
+        },
+      })
+    }
+    for (const tag of [
+      'Variable',
+      'Reference',
+      'Constructor',
+      'Tuple',
+      'List',
+      'Apply',
+      'Literal',
+      'Unit',
+    ]) {
+      decodeValueExpr({ [tag]: inherited(getterPrototype) })
+    }
+    expect(inheritedGetterCalls).toBe(0)
   })
 
   test('v4 expression bodies decode through literals, constructors, and apply', () => {

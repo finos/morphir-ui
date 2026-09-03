@@ -271,24 +271,39 @@ const decodeV4Literal = (u: unknown): Literal => {
       ? { kind: Number.isInteger(u) ? 'whole-number' : 'float', value: u }
       : unknown(u)
   if (typeof u === 'string') return { kind: 'string', value: u }
-  return decodeLiteral(u)
+  const literal = decodeLiteral(u)
+  return (literal.kind === 'whole-number' || literal.kind === 'float') &&
+    !Number.isFinite(literal.value)
+    ? unknown(u)
+    : literal
+}
+
+const ownDataProperty = (record: Record<string, unknown>, key: string): unknown => {
+  if (!Object.hasOwn(record, key)) return undefined
+  const descriptor = Object.getOwnPropertyDescriptor(record, key)
+  return descriptor && 'value' in descriptor ? descriptor.value : undefined
 }
 
 export const decodeValueExpr = (u: unknown): ValueExpr => {
   if (isRecord(u) && Object.keys(u).length === 1) {
     const [tag, content] = Object.entries(u)[0]!
     const expandedContent = isRecord(content) && !Array.isArray(content) ? content : null
-    const attr = expandedContent?.['attributes'] ?? expandedContent?.['attrs'] ?? {}
+    const attr =
+      (expandedContent && ownDataProperty(expandedContent, 'attributes')) ??
+      (expandedContent && ownDataProperty(expandedContent, 'attrs')) ??
+      {}
     switch (tag) {
       case 'Literal': {
         const literal =
           expandedContent !== null && Object.hasOwn(expandedContent, 'literal')
-            ? expandedContent['literal']
+            ? ownDataProperty(expandedContent, 'literal')
             : content
         return { kind: 'literal', attr, literal: decodeV4Literal(literal) }
       }
       case 'Constructor': {
-        const fqn = fqNameFromCanonical(expandedContent?.['fqname'] ?? content)
+        const fqn = fqNameFromCanonical(
+          expandedContent ? ownDataProperty(expandedContent, 'fqname') : content,
+        )
         return fqn ? { kind: 'constructor', attr, fqn } : unknown(u)
       }
       case 'Apply':
@@ -297,27 +312,35 @@ export const decodeValueExpr = (u: unknown): ValueExpr => {
           : {
               kind: 'apply',
               attr,
-              fn: decodeValueExpr(expandedContent['function']),
-              arg: decodeValueExpr(expandedContent['argument']),
+              fn: decodeValueExpr(ownDataProperty(expandedContent, 'function')),
+              arg: decodeValueExpr(ownDataProperty(expandedContent, 'argument')),
             }
       case 'Tuple': {
-        const elements = Array.isArray(content) ? content : expandedContent?.['elements']
+        const elements = Array.isArray(content)
+          ? content
+          : expandedContent && ownDataProperty(expandedContent, 'elements')
         return Array.isArray(elements)
           ? { kind: 'value-tuple', attr, elements: elements.map(decodeValueExpr) }
           : unknown(u)
       }
       case 'List': {
-        const items = Array.isArray(content) ? content : expandedContent?.['items']
+        const items = Array.isArray(content)
+          ? content
+          : expandedContent && ownDataProperty(expandedContent, 'items')
         return Array.isArray(items)
           ? { kind: 'value-list', attr, items: items.map(decodeValueExpr) }
           : unknown(u)
       }
       case 'Variable': {
-        const name = nameFromCanonical(expandedContent?.['name'] ?? content)
+        const name = nameFromCanonical(
+          expandedContent ? ownDataProperty(expandedContent, 'name') : content,
+        )
         return name ? { kind: 'variable', attr, name } : unknown(u)
       }
       case 'Reference': {
-        const fqn = fqNameFromCanonical(expandedContent?.['fqname'] ?? content)
+        const fqn = fqNameFromCanonical(
+          expandedContent ? ownDataProperty(expandedContent, 'fqname') : content,
+        )
         return fqn ? { kind: 'value-reference', attr, fqn } : unknown(u)
       }
       case 'Unit':
