@@ -1,7 +1,12 @@
 /* Design tokens — values ported verbatim from morphir-scala Tokens.scala. */
 :root {
   color-scheme: dark;
+}
 
+:root,
+.theme-dark,
+.theme-light,
+.theme-system {
   --bg: light-dark(#f6f4fa, #0f0d14);
   --surface: light-dark(#ffffff, #16131d);
   --panel: light-dark(#ffffff, #1a1622);
