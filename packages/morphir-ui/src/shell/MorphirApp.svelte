@@ -56,10 +56,25 @@
   let inspectedWorkbenchId: string | null = null
   let detailWarning = $state<string | null>(null)
   let ignoredResolvedLocation: string | null = null
+  let detailContextKey = $state<string | null>(null)
+
+  const activeDetailContextKey = $derived.by((): string | null => {
+    const active = workbenches.active
+    if (!active) return null
+    if (active.descriptor.kind === 'model') return `model:${active.descriptor.id}`
+    if (
+      (active.status !== 'ready' && active.status !== 'unavailable') ||
+      active.data.kind !== 'development'
+    )
+      return null
+    const activeProjectId = workbenches.developmentNavigation(active.descriptor.id).activeProjectId
+    return activeProjectId ? `development:${active.descriptor.id}:${activeProjectId}` : null
+  })
 
   const detailLocation = $derived.by((): DetailLocation | undefined => {
     const route = shell.route
     if (route.kind !== 'workspace' || route.definition === undefined) return undefined
+    if (detailContextKey !== null && detailContextKey !== activeDetailContextKey) return undefined
     return {
       definition: route.definition,
       ...(route.view ? { view: route.view } : {}),
@@ -92,6 +107,7 @@
       ...(location.node ? { node: location.node } : {}),
     }
     if (sameRoute(shell.route, route)) return
+    detailContextKey = activeDetailContextKey
     ignoredResolvedLocation = null
     detailWarning = null
     pushRouteToLocation(route)
@@ -169,14 +185,31 @@
       const changedWorkbench = inspectedWorkbenchId !== null
       inspectedWorkbenchId = activeId
       inspected = null
-      if (
-        changedWorkbench &&
-        shell.route.kind === 'workspace' &&
-        shell.route.definition !== undefined
-      ) {
+      if (changedWorkbench) {
+        detailContextKey = activeDetailContextKey
         detailWarning = null
-        normalizeDetailRoute({ kind: 'workspace' })
+        ignoredResolvedLocation = null
+        if (shell.route.kind === 'workspace' && shell.route.definition !== undefined) {
+          normalizeDetailRoute({ kind: 'workspace' })
+        }
       }
+    }
+  })
+
+  $effect(() => {
+    const activeContext = activeDetailContextKey
+    if (activeContext === null) return
+    if (detailContextKey === null) {
+      detailContextKey = activeContext
+      return
+    }
+    if (detailContextKey === activeContext) return
+
+    detailContextKey = activeContext
+    detailWarning = null
+    ignoredResolvedLocation = null
+    if (shell.route.kind === 'workspace' && shell.route.definition !== undefined) {
+      normalizeDetailRoute({ kind: 'workspace' })
     }
   })
 
@@ -214,9 +247,6 @@
   {macChrome}
 >
   {#snippet center()}
-    {#if detailWarning}
-      <div class="detail-warning" role="status" aria-live="polite">{detailWarning}</div>
-    {/if}
     {#if shell.isSettings}
       <SettingsView {services} {shell} store={workbenches} {version} />
     {:else if shell.isPlayground}
@@ -227,6 +257,9 @@
       />
     {:else if workbenches.active}
       <div class="workbench-content">
+        {#if detailWarning}
+          <div class="detail-warning" role="status" aria-live="polite">{detailWarning}</div>
+        {/if}
         <WorkbenchTabs entry={workbenches.active} store={workbenches} />
         <div class="workbench-view" class:workbench-view-explorer={explorerActive}>
           <WorkbenchView
@@ -277,11 +310,8 @@
     margin: -22px;
   }
   .detail-warning {
-    position: absolute;
-    z-index: 2;
-    top: 12px;
-    right: 18px;
-    max-width: min(520px, calc(100% - 36px));
+    flex: 0 0 auto;
+    margin: 8px 12px 0;
     padding: 8px 12px;
     border: 1px solid var(--panel-edge);
     border-radius: 8px;

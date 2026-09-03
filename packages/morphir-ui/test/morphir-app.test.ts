@@ -133,6 +133,35 @@ describe('MorphirApp', () => {
     )
   })
 
+  test('browser back and forward restore routed XRay selections', async () => {
+    await renderDeepLinkedApp(
+      '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray&node=%2Fbody',
+    )
+    const xrayTree = await screen.findByRole('tree', { name: 'XRay structure' })
+    await userEvent.click(within(xrayTree).getByRole('treeitem', { name: /output/ }))
+    expect(location.hash).toContain('node=%2Foutput')
+
+    history.back()
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('tree', { name: 'XRay structure' }))
+          .getByRole('treeitem', { selected: true })
+          .getAttribute('data-path'),
+      ).toBe('/body'),
+    )
+
+    history.forward()
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('tree', { name: 'XRay structure' }))
+          .getByRole('treeitem', { selected: true })
+          .getAttribute('data-path'),
+      ).toBe('/output'),
+    )
+  })
+
   test('visiting Insight preserves the selected XRay path for the return trip', async () => {
     await renderDeepLinkedApp(
       '#/?definition=Morphir.Ui.Fixtures.Insight.chainedArithmetic&view=xray&node=%2Fbody',
@@ -362,6 +391,99 @@ describe('MorphirApp', () => {
     expect(await screen.findByRole('tree', { name: 'Model hierarchy' })).toBeTruthy()
     expect(screen.getByRole('searchbox', { name: 'Search model' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Projects, workspace open, 1 project' })).toBeTruthy()
+  })
+
+  test('clears routed detail state when switching between loaded Development projects', async () => {
+    const source = legacySourceRef('/dev')
+    const pricingId = projectKey(source, 'packages/pricing')
+    const riskId = projectKey(source, 'packages/risk')
+    const snapshot: WorkspaceSnapshot = {
+      id: sourceKey(source),
+      root: source,
+      name: 'Development',
+      configAnchor: '/dev/morphir.toml',
+      state: 'open',
+      projects: [
+        {
+          id: pricingId,
+          name: 'Pricing',
+          version: '1.0.0',
+          relativePath: 'packages/pricing',
+          configAnchor: 'packages/pricing/morphir.toml',
+          sourceDirectory: 'src',
+          state: 'unloaded',
+          modelSources: [],
+          knowledgeBaseSources: [],
+          diagnostics: [],
+        },
+        {
+          id: riskId,
+          name: 'Risk',
+          version: '1.0.0',
+          relativePath: 'packages/risk',
+          configAnchor: 'packages/risk/morphir.toml',
+          sourceDirectory: 'src',
+          state: 'unloaded',
+          modelSources: [],
+          knowledgeBaseSources: [],
+          diagnostics: [],
+        },
+      ],
+      modelSources: [],
+      knowledgeBaseSources: [],
+      diagnostics: [],
+    }
+    const { core } = makeFakeCore({
+      workspaceContent: insightFixture,
+      development: { snapshot },
+    })
+    const services = await makeAppServices({ core })
+    history.replaceState(null, '', '#/')
+    render(MorphirApp, {
+      props: {
+        services,
+        badge: 'WEB',
+        version: '0.0.1',
+        initialConfig: defaultUiConfig,
+        initialSources: [source],
+      },
+    })
+
+    const pricing = () =>
+      screen.getByRole('button', {
+        name: 'Project Pricing, packages/pricing, unloaded',
+      })
+    const risk = () =>
+      screen.getByRole('button', {
+        name: 'Project Risk, packages/risk, unloaded',
+      })
+    await screen.findByRole('button', {
+      name: 'Project Pricing, packages/pricing, unloaded',
+    })
+    await userEvent.click(pricing())
+    await screen.findByRole('tree', { name: 'Model hierarchy' })
+    await userEvent.click(risk())
+    await waitFor(() => expect(risk().getAttribute('aria-current')).toBe('page'))
+    await screen.findByRole('tree', { name: 'Model hierarchy' })
+    await userEvent.click(pricing())
+    await waitFor(() => expect(pricing().getAttribute('aria-current')).toBe('page'))
+
+    await userEvent.click(screen.getByRole('treeitem', { name: 'chainedArithmetic' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'XRay' }))
+    await userEvent.click(
+      within(screen.getByRole('tree', { name: 'XRay structure' })).getByRole('treeitem', {
+        name: /body/,
+      }),
+    )
+    expect(location.hash).toContain('node=%2Fbody')
+    const before = history.length
+
+    await userEvent.click(risk())
+
+    await waitFor(() => expect(location.hash).toBe('#/'))
+    expect(history.length).toBe(before)
+    expect(await screen.findByText('Select a definition')).toBeTruthy()
+    expect(screen.queryByText(/unavailable/i)).toBeNull()
   })
 
   test('offers access recovery when the initial Development load loses permission', async () => {
