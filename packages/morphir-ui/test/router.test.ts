@@ -1,7 +1,20 @@
 import { describe, expect, test } from 'vitest'
 import { flushSync } from 'svelte'
-import { bindRouteToLocation, hashToRoute, routeToHash } from '../src/state/router.ts'
+import {
+  bindRouteToLocation,
+  hashToRoute,
+  pushRouteToLocation,
+  replaceRouteInLocation,
+  routeToHash,
+} from '../src/state/router.ts'
 import { SETTINGS_SECTIONS, ShellState, type Route } from '../src/state/shell-state.svelte.ts'
+
+const xrayRoute: Route = {
+  kind: 'workspace',
+  definition: 'Morphir.Ui.Fixtures.Insight.mixedPrecedence',
+  view: 'xray',
+  node: '/body/fn/arg',
+}
 
 describe('route parsing', () => {
   test('an empty hash is the workspace', () => {
@@ -55,6 +68,89 @@ describe('route parsing', () => {
 
   test('parsing tolerates a leading slash either way', () => {
     expect(hashToRoute('#settings/about')).toEqual({ kind: 'settings', section: 'about' })
+  })
+
+  test('round-trips an XRay deep link in stable field order', () => {
+    expect(routeToHash(xrayRoute)).toBe(
+      '#/?definition=Morphir.Ui.Fixtures.Insight.mixedPrecedence&view=xray&node=%2Fbody%2Ffn%2Farg',
+    )
+    expect(hashToRoute(routeToHash(xrayRoute))).toEqual(xrayRoute)
+  })
+
+  test('round-trips Unicode definitions and escaped JSON pointer segments', () => {
+    const route: Route = {
+      kind: 'workspace',
+      definition: '资料.雪.値',
+      view: 'xray',
+      node: '/body/a~1b/~0tilde/雪',
+    }
+
+    expect(hashToRoute(routeToHash(route))).toEqual(route)
+  })
+
+  test('keeps an XRay node path while another definition tab is active', () => {
+    const route: Route = {
+      kind: 'workspace',
+      definition: 'A.B.c',
+      view: 'insight',
+      node: '/body',
+    }
+
+    expect(hashToRoute(routeToHash(route))).toEqual(route)
+  })
+
+  test.each([
+    '#/?definition=',
+    '#/?view=xray',
+    '#/?node=%2Fbody',
+    '#/?definition=A.B.c&view=unknown',
+    '#/?definition=A.B.c&node=body',
+    '#/?definition=A.B.c&node=',
+  ])('rejects the invalid workspace location %s', (hash) => {
+    expect(hashToRoute(hash)).toBeNull()
+  })
+
+  test('ignores unrelated workspace query keys', () => {
+    expect(hashToRoute('#/?future=enabled&definition=A.B.c&another=value')).toEqual({
+      kind: 'workspace',
+      definition: 'A.B.c',
+    })
+  })
+})
+
+describe('route history helpers', () => {
+  test('pushRouteToLocation creates history for explicit selections', () => {
+    const before = history.length
+
+    pushRouteToLocation(xrayRoute)
+
+    expect(location.hash).toBe(routeToHash(xrayRoute))
+    expect(history.length).toBe(before + 1)
+  })
+
+  test('replaceRouteInLocation normalizes without creating history', () => {
+    const before = history.length
+
+    replaceRouteInLocation({ kind: 'workspace', definition: 'A.B.c', view: 'type' })
+
+    expect(location.hash).toBe('#/?definition=A.B.c&view=type')
+    expect(history.length).toBe(before)
+  })
+
+  test('binding does not duplicate an explicitly pushed route', () => {
+    replaceRouteInLocation({ kind: 'workspace' })
+    const shell = new ShellState()
+    const teardown = bindRouteToLocation(shell)
+    flushSync()
+    const before = history.length
+
+    pushRouteToLocation(xrayRoute)
+    shell.route = xrayRoute
+    flushSync()
+
+    expect(location.hash).toBe(routeToHash(xrayRoute))
+    expect(history.length).toBe(before + 1)
+    teardown()
   })
 })
 
@@ -147,11 +243,13 @@ describe('bindRouteToLocation', () => {
     location.hash = '#/settings/about'
     const teardown = bindRouteToLocation(shell)
     expect(shell.route).toEqual({ kind: 'settings', section: 'about' })
+    flushSync()
 
     location.hash = '#/nope'
     await new Promise((resolve) => setTimeout(resolve, 10))
 
     expect(shell.route).toEqual({ kind: 'settings', section: 'about' })
+    expect(location.hash).toBe('#/settings/about')
     teardown()
   })
 

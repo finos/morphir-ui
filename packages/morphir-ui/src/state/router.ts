@@ -1,15 +1,56 @@
-import { SETTINGS_SECTIONS, type Route, type SettingsSection } from './shell-constants.ts'
+import {
+  DETAIL_VIEWS,
+  SETTINGS_SECTIONS,
+  type DetailView,
+  type Route,
+  type SettingsSection,
+  type WorkspaceRoute,
+} from './shell-constants.ts'
 import type { ShellState } from './shell-state.svelte.ts'
 
 const KNOWN_SECTIONS: ReadonlySet<string> = new Set(SETTINGS_SECTIONS)
+const KNOWN_DETAIL_VIEWS: ReadonlySet<string> = new Set(DETAIL_VIEWS)
 
 const isSettingsSection = (value: string): value is SettingsSection => KNOWN_SECTIONS.has(value)
+const isDetailView = (value: string): value is DetailView => KNOWN_DETAIL_VIEWS.has(value)
+
+const parseWorkspaceRoute = (search: string): WorkspaceRoute | null => {
+  const params = new URLSearchParams(search)
+  const hasDefinition = params.has('definition')
+  const hasView = params.has('view')
+  const hasNode = params.has('node')
+
+  if (!hasDefinition) return hasView || hasNode ? null : { kind: 'workspace' }
+
+  const definition = params.get('definition') ?? ''
+  if (definition.length === 0) return null
+
+  const viewValue = params.get('view')
+  if (hasView && (viewValue === null || !isDetailView(viewValue))) return null
+
+  const nodeValue = params.get('node')
+  if (hasNode && (nodeValue === null || !nodeValue.startsWith('/'))) return null
+
+  return {
+    kind: 'workspace',
+    definition,
+    ...(viewValue === null ? {} : { view: viewValue }),
+    ...(nodeValue === null ? {} : { node: nodeValue }),
+  }
+}
 
 /** The canonical hash for a route. The inverse of {@link hashToRoute}. */
 export const routeToHash = (route: Route): string => {
   switch (route.kind) {
-    case 'workspace':
-      return '#/'
+    case 'workspace': {
+      if (!('definition' in route)) return '#/'
+
+      const params = new URLSearchParams()
+      params.set('definition', route.definition)
+      if (route.view !== undefined) params.set('view', route.view)
+      if (route.node !== undefined) params.set('node', route.node)
+      return `#/?${params.toString()}`
+    }
     case 'playground':
       return '#/playground'
     case 'settings':
@@ -23,8 +64,11 @@ export const routeToHash = (route: Route): string => {
  * current route in place rather than guess.
  */
 export const hashToRoute = (hash: string): Route | null => {
-  const path = hash.replace(/^#\/?/, '')
-  if (path === '') return { kind: 'workspace' }
+  const fragment = hash.replace(/^#\/?/, '')
+  const queryStart = fragment.indexOf('?')
+  const path = queryStart === -1 ? fragment : fragment.slice(0, queryStart)
+  const search = queryStart === -1 ? '' : fragment.slice(queryStart + 1)
+  if (path === '') return parseWorkspaceRoute(search)
 
   const [first, section] = path.split('/')
   if (first === 'playground') {
@@ -35,6 +79,16 @@ export const hashToRoute = (hash: string): Route | null => {
   if (first !== 'settings') return null
   if (section === undefined) return { kind: 'settings', section: 'general' }
   return isSettingsSection(section) ? { kind: 'settings', section } : null
+}
+
+/** Pushes a user-selected route so browser back and forward can revisit it. */
+export const pushRouteToLocation = (route: Route): void => {
+  history.pushState(null, '', routeToHash(route))
+}
+
+/** Replaces the current location for normalization and invalid-state recovery. */
+export const replaceRouteInLocation = (route: Route): void => {
+  history.replaceState(null, '', routeToHash(route))
 }
 
 /**
@@ -51,7 +105,11 @@ export const hashToRoute = (hash: string): Route | null => {
 export const bindRouteToLocation = (shell: ShellState): (() => void) => {
   const applyHash = (hash: string) => {
     const route = hashToRoute(hash)
-    if (route) shell.route = route
+    if (route) {
+      shell.route = route
+    } else {
+      replaceRouteInLocation(shell.route)
+    }
   }
 
   applyHash(location.hash)
@@ -64,7 +122,7 @@ export const bindRouteToLocation = (shell: ShellState): (() => void) => {
   // history entry for every click.
   const unsubscribe = shell.onRouteChange((route) => {
     const hash = routeToHash(route)
-    if (location.hash !== hash) history.replaceState(null, '', hash)
+    if (location.hash !== hash) replaceRouteInLocation(route)
   })
 
   return () => {

@@ -1,10 +1,20 @@
 export type ColorScheme = 'system' | 'light' | 'dark'
 export const SETTINGS_SECTIONS = ['general', 'appearance', 'github', 'about'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
+export const DETAIL_VIEWS = ['insight', 'type', 'xray'] as const
+export type DetailView = (typeof DETAIL_VIEWS)[number]
+export type WorkspaceRoute =
+  | { readonly kind: 'workspace' }
+  | {
+      readonly kind: 'workspace'
+      readonly definition: string
+      readonly view?: DetailView
+      readonly node?: string
+    }
 export type Route =
-  | { kind: 'workspace' }
-  | { kind: 'settings'; section: SettingsSection }
-  | { kind: 'playground' }
+  | WorkspaceRoute
+  | { readonly kind: 'settings'; readonly section: SettingsSection }
+  | { readonly kind: 'playground' }
 
 export const SCHEME_CLASSES: Record<ColorScheme, string> = {
   system: 'theme-system',
