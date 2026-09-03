@@ -1,6 +1,6 @@
 import { render, screen, cleanup, within } from '@testing-library/svelte'
 import { userEvent } from '@testing-library/user-event'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -246,6 +246,158 @@ describe('XRayView', () => {
 
     const body = branch('/body')
     expect(body.getAttribute('aria-label')).toBeNull()
-    expect(screen.getByRole('button', { name: /body.*apply.*Int/ })).toBe(body)
+    expect(screen.getByRole('treeitem', { name: /body.*apply.*Int/ })).toBe(body)
+  })
+
+  test('exposes a named tree with selectable rows and one roving tab stop', async () => {
+    const { container } = render(XRayView, {
+      props: { def: await defByName('chainedArithmetic'), selectedPath: '/body' },
+    })
+
+    const tree = screen.getByRole('tree', { name: 'XRay structure' })
+    const body = within(tree).getByRole('treeitem', { name: /body.*apply/ })
+    const rows = within(tree).getAllByRole('treeitem')
+
+    expect(body.getAttribute('aria-level')).toBe('1')
+    expect(body.getAttribute('aria-expanded')).toBe('true')
+    expect(body.getAttribute('aria-selected')).toBe('true')
+    expect(rows.every((row) => row instanceof HTMLButtonElement)).toBe(true)
+    expect(container.querySelectorAll('[role="treeitem"][tabindex="0"]')).toHaveLength(1)
+    expect(container.querySelectorAll('[role="treeitem"]:not([tabindex="-1"])')).toHaveLength(1)
+  })
+
+  test('supports visible-order arrow navigation and keyboard selection', async () => {
+    const onSelectedPath = vi.fn()
+    render(XRayView, {
+      props: { def: await defByName('chainedArithmetic'), onSelectedPath },
+    })
+    const tree = screen.getByRole('tree', { name: 'XRay structure' })
+    const body = within(tree).getByRole('treeitem', { name: /body.*apply/ })
+    body.focus()
+
+    await userEvent.keyboard('{ArrowRight}')
+    expect((document.activeElement as HTMLElement).dataset.path).toMatch(/^\/body\//)
+
+    await userEvent.keyboard('{ArrowDown}{Enter}')
+    expect(onSelectedPath).toHaveBeenCalledWith(
+      (document.activeElement as HTMLElement).dataset.path,
+    )
+  })
+
+  test('Left collapses an open branch before moving to its parent', async () => {
+    render(XRayView, { props: { def: await defByName('chainedArithmetic') } })
+    const body = branch('/body')
+    body.focus()
+
+    await userEvent.keyboard('{ArrowLeft}')
+    expect(body.getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(body)
+
+    await userEvent.keyboard('{ArrowRight}{ArrowRight}')
+    const child = document.activeElement as HTMLElement
+    expect(child.dataset.path).toMatch(/^\/body\//)
+    await userEvent.keyboard('{ArrowLeft}')
+    expect(child.getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(child)
+    await userEvent.keyboard('{ArrowLeft}')
+    expect(document.activeElement).toBe(body)
+  })
+
+  test('Space selects a row and prevents page scrolling', async () => {
+    const onSelectedPath = vi.fn()
+    render(XRayView, { props: { def: await defByName('gradeIf'), onSelectedPath } })
+    const body = branch('/body')
+    body.focus()
+    const event = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })
+
+    body.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(onSelectedPath).toHaveBeenCalledWith('/body')
+  })
+
+  test('Home and End move focus across the visible tree', async () => {
+    render(XRayView, { props: { def: await defByName('gradeIf') } })
+    const body = branch('/body')
+    body.focus()
+
+    await userEvent.keyboard('{Home}')
+    expect((document.activeElement as HTMLElement).dataset.path).toBe('/inputs')
+
+    await userEvent.keyboard('{End}')
+    expect((document.activeElement as HTMLElement).dataset.path).toMatch(/^\/body/)
+  })
+
+  test('click selects rows in uncontrolled mode and reports selection in controlled mode', async () => {
+    const def = await defByName('chainedArithmetic')
+    const uncontrolled = render(XRayView, { props: { def } })
+    const outputLeaf = document.querySelector<HTMLButtonElement>('[data-xray-path="/output/args"]')!
+
+    await userEvent.click(outputLeaf)
+    expect(outputLeaf.getAttribute('aria-selected')).toBe('true')
+
+    uncontrolled.unmount()
+    const onSelectedPath = vi.fn()
+    render(XRayView, { props: { def, selectedPath: '/body', onSelectedPath } })
+    const controlledOutput = branch('/output')
+    expect(controlledOutput.getAttribute('aria-expanded')).toBe('true')
+    await userEvent.click(controlledOutput)
+
+    expect(onSelectedPath).toHaveBeenCalledWith('/output')
+    expect(branch('/body').getAttribute('aria-selected')).toBe('true')
+    expect(controlledOutput.getAttribute('aria-selected')).toBe('false')
+    expect(controlledOutput.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  test('controlled selection expands ancestors and moves focus only when the path changes', async () => {
+    const def = await defByName('chainedArithmetic')
+    const view = render(XRayView, { props: { def, selectedPath: null } })
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all' }))
+    const search = screen.getByRole('searchbox', { name: 'Search XRay' })
+    search.focus()
+    await userEvent.type(search, 'apply')
+    expect(document.activeElement).toBe(search)
+
+    await view.rerender({ def, selectedPath: '/body/fn' })
+
+    await vi.waitFor(() => {
+      expect(branch('/body').getAttribute('aria-expanded')).toBe('true')
+      expect((document.activeElement as HTMLElement).dataset.path).toBe('/body/fn')
+    })
+
+    search.focus()
+    await userEvent.clear(search)
+    await userEvent.type(search, 'Basics.add')
+    expect(document.activeElement).toBe(search)
+  })
+
+  test('keeps a filtered-out selection and clears filters from its notice', async () => {
+    render(XRayView, {
+      props: { def: await defByName('chainedArithmetic'), selectedPath: '/inputs' },
+    })
+
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search XRay' }), 'Basics.add')
+
+    expect(screen.getByRole('status', { name: 'Selected XRay node hidden' }).textContent).toContain(
+      'The selected node is hidden by the current filters.',
+    )
+    expect(document.querySelector('[data-path="/inputs"]')).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+
+    expect((screen.getByRole('searchbox', { name: 'Search XRay' }) as HTMLInputElement).value).toBe(
+      '',
+    )
+    expect(branch('/inputs').getAttribute('aria-selected')).toBe('true')
+  })
+
+  test('does not describe a selected descendant as filtered out when its branch is collapsed', async () => {
+    render(XRayView, {
+      props: { def: await defByName('chainedArithmetic'), selectedPath: '/body/fn' },
+    })
+
+    await userEvent.click(branch('/body'))
+
+    expect(screen.queryByRole('status', { name: 'Selected XRay node hidden' })).toBeNull()
   })
 })
