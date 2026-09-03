@@ -33,7 +33,9 @@ export class XRayState {
   }
 
   expandedWith(searchExpanded: ReadonlySet<string>): ReadonlySet<string> {
-    return new SvelteSet([...this.manualExpanded, ...searchExpanded])
+    // Consumers receive a stable, non-reactive snapshot rather than a Svelte-owned collection.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    return new Set([...this.manualExpanded, ...searchExpanded])
   }
 
   expandAll(paths: Iterable<string>): void {

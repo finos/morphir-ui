@@ -23,7 +23,9 @@ describe('XRayState', () => {
     const state = new XRayState(['/body', '/body/fn'])
     const searchExpanded = new Set(['/body/fn/arg'])
 
-    expect([...state.expandedWith(searchExpanded)]).toEqual(['/body', '/body/fn', '/body/fn/arg'])
+    const expanded = state.expandedWith(searchExpanded)
+    expect(expanded.constructor).toBe(Set)
+    expect([...expanded]).toEqual(['/body', '/body/fn', '/body/fn/arg'])
 
     state.query = ''
     expect([...state.expandedWith(new Set())]).toEqual(['/body', '/body/fn'])

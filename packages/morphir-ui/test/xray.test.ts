@@ -1,4 +1,5 @@
 import { render, screen, cleanup } from '@testing-library/svelte'
+import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, test } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -46,11 +47,23 @@ describe('XRayView', () => {
       },
     })
     expect(screen.getByText(/Mystery/)).toBeTruthy()
+    expect(screen.getByText(/raw unavailable in xray/)).toBeTruthy()
   })
 
   test('null def renders an empty state', () => {
     render(XRayView, { props: { def: null } })
     expect(screen.getByText(/could not be decoded/i)).toBeTruthy()
+  })
+
+  test('typeRaw renders a projected standalone type root', () => {
+    render(XRayView, {
+      props: {
+        typeRaw: ['Reference', {}, [[['morphir']], [['sdk'], ['basics']], ['int']], []],
+      },
+    })
+
+    expect(screen.getByText('type-reference')).toBeTruthy()
+    expect(screen.getByText('["int"]')).toBeTruthy()
   })
 
   // Regression for the pair-wrapper blind spot: pattern-match cases (`{pattern, body}`) have
@@ -81,5 +94,142 @@ describe('XRayView', () => {
     const { container } = render(XRayView, { props: { def: await defByName('letBound') } })
     expect(screen.getAllByText('let-definition').length).toBeGreaterThan(0)
     expect(container.textContent).not.toMatch(/\{"kind":/)
+  })
+
+  test('values search retains the matching Basics.add reference and its apply ancestors', async () => {
+    render(XRayView, { props: { def: await defByName('chainedArithmetic') } })
+
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search XRay' }), 'Basics.add')
+
+    expect(screen.getByRole('status').textContent).toBe('2 matches')
+    expect(screen.getAllByText('value-reference')).toHaveLength(2)
+    expect(screen.getAllByText('apply').length).toBeGreaterThan(0)
+    expect(screen.queryByText('inputs')).toBeNull()
+  })
+
+  test('type-scoped search exposes readable Int type chips', async () => {
+    const { container } = render(XRayView, {
+      props: { def: await defByName('chainedArithmetic') },
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Types' }))
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search XRay' }), 'Int')
+
+    expect(
+      Array.from(container.querySelectorAll('.xray-type')).map((chip) => chip.textContent),
+    ).toContain('Int')
+  })
+
+  test('null and opaque attrs omit type chips without hiding their rows', () => {
+    const { container, unmount } = render(XRayView, {
+      props: {
+        def: {
+          inputs: [],
+          output: { kind: 'type-unit' },
+          body: {
+            kind: 'literal',
+            attr: null,
+            literal: { kind: 'whole-number', value: 1 },
+          },
+        },
+      },
+    })
+
+    expect(screen.getAllByText('literal').length).toBeGreaterThan(0)
+    expect(container.querySelector('.xray-type')).toBeNull()
+
+    unmount()
+    const opaque = render(XRayView, {
+      props: {
+        def: {
+          inputs: [],
+          output: { kind: 'type-unit' },
+          body: {
+            kind: 'literal',
+            attr: { opaque: true },
+            literal: { kind: 'whole-number', value: 1 },
+          },
+        },
+      },
+    })
+    expect(screen.getAllByText('literal').length).toBeGreaterThan(0)
+    expect(opaque.container.querySelector('.xray-type')).toBeNull()
+  })
+
+  test('a no-result query keeps the toolbar and clear search restores the tree', async () => {
+    render(XRayView, { props: { def: await defByName('chainedArithmetic') } })
+    const search = screen.getByRole('searchbox', { name: 'Search XRay' })
+
+    await userEvent.type(search, 'not-present-in-this-definition')
+
+    expect(screen.getByRole('button', { name: 'Collapse all' })).toBeTruthy()
+    expect(screen.getByText('No matching nodes')).toBeTruthy()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+
+    expect((search as HTMLInputElement).value).toBe('')
+    expect(screen.getAllByText('apply').length).toBeGreaterThan(0)
+  })
+
+  test('search scope controls accurately report pressed state', async () => {
+    render(XRayView, { props: { def: await defByName('chainedArithmetic') } })
+    const all = screen.getByRole('button', { name: 'All' })
+    const kinds = screen.getByRole('button', { name: 'Kinds' })
+    const fields = screen.getByRole('button', { name: 'Fields' })
+    const values = screen.getByRole('button', { name: 'Values' })
+    const types = screen.getByRole('button', { name: 'Types' })
+
+    expect(all.getAttribute('aria-pressed')).toBe('true')
+    expect(kinds.getAttribute('aria-pressed')).toBe('false')
+    expect(fields.getAttribute('aria-pressed')).toBe('false')
+    expect(values.getAttribute('aria-pressed')).toBe('false')
+    expect(types.getAttribute('aria-pressed')).toBe('false')
+
+    await userEvent.click(kinds)
+    await userEvent.click(values)
+    expect(all.getAttribute('aria-pressed')).toBe('false')
+    expect(kinds.getAttribute('aria-pressed')).toBe('true')
+    expect(values.getAttribute('aria-pressed')).toBe('true')
+
+    await userEvent.click(kinds)
+    await userEvent.click(values)
+    expect(all.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  test('changing the represented definition resets filters and expansion for the new tree', async () => {
+    const view = render(XRayView, { props: { def: await defByName('chainedArithmetic') } })
+    const search = screen.getByRole('searchbox', { name: 'Search XRay' })
+
+    await userEvent.type(search, 'Basics.add')
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all' }))
+    await view.rerender({ def: await defByName('gradeIf') })
+
+    expect((search as HTMLInputElement).value).toBe('')
+    expect(screen.getByRole('button', { name: 'All' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'body' }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getAllByText('if-then-else').length).toBeGreaterThan(0)
+  })
+
+  test('expand and collapse controls preserve manual expansion across a search', async () => {
+    render(XRayView, { props: { def: await defByName('chainedArithmetic') } })
+    const body = screen.getByRole('button', { name: 'body' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse all' }))
+    expect(body.getAttribute('aria-expanded')).toBe('false')
+    expect(body.parentElement?.querySelector('.children')).toBeNull()
+
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search XRay' }), 'Basics.add')
+    expect(screen.getByRole('button', { name: 'body' }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getAllByText('apply').length).toBeGreaterThan(0)
+
+    await userEvent.clear(screen.getByRole('searchbox', { name: 'Search XRay' }))
+    expect(screen.getByRole('button', { name: 'body' }).getAttribute('aria-expanded')).toBe('false')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Expand all' }))
+    expect(screen.getByRole('button', { name: 'body' }).getAttribute('aria-expanded')).toBe('true')
+    expect(
+      screen.getByRole('button', { name: 'body' }).parentElement?.querySelector('.children'),
+    ).toBeTruthy()
+    expect(screen.getAllByText('apply').length).toBeGreaterThan(0)
   })
 })
