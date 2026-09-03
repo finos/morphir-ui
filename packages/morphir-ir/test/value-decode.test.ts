@@ -79,6 +79,161 @@ describe('decodeValueExpr against unit snippets', () => {
     expect(decodeValueExpr(['Mystery', {}, 1]).kind).toBe('unknown')
   })
 
+  test('decodes compact v4 wrapper payloads', () => {
+    const fqn = { pkg: [['pkg']], module: [['module']], local: ['name'] }
+    const cases = [
+      {
+        label: 'variable',
+        raw: { Variable: 'x' },
+        expected: { kind: 'variable', attr: {}, name: ['x'] },
+      },
+      {
+        label: 'reference',
+        raw: { Reference: 'pkg:module#name' },
+        expected: { kind: 'value-reference', attr: {}, fqn },
+      },
+      {
+        label: 'constructor',
+        raw: { Constructor: 'pkg:module#name' },
+        expected: { kind: 'constructor', attr: {}, fqn },
+      },
+      {
+        label: 'tuple',
+        raw: { Tuple: [{ Variable: 'x' }] },
+        expected: {
+          kind: 'value-tuple',
+          attr: {},
+          elements: [{ kind: 'variable', attr: {}, name: ['x'] }],
+        },
+      },
+      {
+        label: 'list',
+        raw: { List: [{ Literal: 42 }] },
+        expected: {
+          kind: 'value-list',
+          attr: {},
+          items: [
+            {
+              kind: 'literal',
+              attr: {},
+              literal: { kind: 'whole-number', value: 42 },
+            },
+          ],
+        },
+      },
+      {
+        label: 'literal',
+        raw: { Literal: 42 },
+        expected: {
+          kind: 'literal',
+          attr: {},
+          literal: { kind: 'whole-number', value: 42 },
+        },
+      },
+    ] as const
+
+    for (const { label, raw, expected } of cases) {
+      expect(decodeValueExpr(raw), label).toEqual(expected)
+    }
+  })
+
+  test('infers compact v4 literal scalar kinds', () => {
+    for (const [raw, expected] of [
+      [true, { kind: 'bool', value: true }],
+      [42, { kind: 'whole-number', value: 42 }],
+      [3.5, { kind: 'float', value: 3.5 }],
+      ['hello', { kind: 'string', value: 'hello' }],
+    ] as const) {
+      const decoded = decodeValueExpr({ Literal: raw })
+      expect(decoded.kind, String(raw)).toBe('literal')
+      if (decoded.kind === 'literal') expect(decoded.literal, String(raw)).toEqual(expected)
+    }
+  })
+
+  test('degrades non-finite compact v4 literal payloads', () => {
+    for (const raw of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      const decoded = decodeValueExpr({ Literal: raw })
+      expect(decoded.kind, String(raw)).toBe('literal')
+      if (decoded.kind === 'literal') {
+        expect(decoded.literal.kind, String(raw)).toBe('unknown')
+      }
+    }
+  })
+
+  test('preserves attributes and expanded v4 wrapper compatibility', () => {
+    const attributes = { source: 'expanded' }
+    const fqn = { pkg: [['pkg']], module: [['module']], local: ['name'] }
+    const cases = [
+      {
+        label: 'variable',
+        raw: { Variable: { attributes, name: 'x' } },
+        expected: { kind: 'variable', attr: attributes, name: ['x'] },
+      },
+      {
+        label: 'reference',
+        raw: { Reference: { attributes, fqname: 'pkg:module#name' } },
+        expected: { kind: 'value-reference', attr: attributes, fqn },
+      },
+      {
+        label: 'constructor',
+        raw: { Constructor: { attributes, fqname: 'pkg:module#name' } },
+        expected: { kind: 'constructor', attr: attributes, fqn },
+      },
+      {
+        label: 'tuple',
+        raw: { Tuple: { attributes, elements: [{ Variable: 'x' }] } },
+        expected: {
+          kind: 'value-tuple',
+          attr: attributes,
+          elements: [{ kind: 'variable', attr: {}, name: ['x'] }],
+        },
+      },
+      {
+        label: 'list',
+        raw: { List: { attributes, items: [{ Literal: 42 }] } },
+        expected: {
+          kind: 'value-list',
+          attr: attributes,
+          items: [
+            {
+              kind: 'literal',
+              attr: {},
+              literal: { kind: 'whole-number', value: 42 },
+            },
+          ],
+        },
+      },
+      {
+        label: 'literal',
+        raw: { Literal: { attributes, literal: 42 } },
+        expected: {
+          kind: 'literal',
+          attr: attributes,
+          literal: { kind: 'whole-number', value: 42 },
+        },
+      },
+    ] as const
+
+    for (const { label, raw, expected } of cases) {
+      expect(decodeValueExpr(raw), label).toEqual(expected)
+    }
+
+    expect(
+      decodeValueExpr({
+        Variable: {
+          attributes: { source: 'published' },
+          attrs: { source: 'fallback' },
+          name: 'x',
+        },
+      }),
+    ).toEqual({ kind: 'variable', attr: { source: 'published' }, name: ['x'] })
+    expect(decodeValueExpr({ Variable: { attrs: { source: 'fallback' }, name: 'x' } })).toEqual({
+      kind: 'variable',
+      attr: { source: 'fallback' },
+      name: ['x'],
+    })
+  })
+
   test('v4 expression bodies decode through literals, constructors, and apply', () => {
     const answer = decodeEntryValueDef({
       rawDefinition: {
