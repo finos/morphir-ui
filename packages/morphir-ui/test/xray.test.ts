@@ -1,4 +1,4 @@
-import { render, screen, cleanup } from '@testing-library/svelte'
+import { render, screen, cleanup, within } from '@testing-library/svelte'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, test } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -22,6 +22,12 @@ const defByName = async (name: string) => {
 }
 
 describe('XRayView', () => {
+  const branch = (path: string): HTMLButtonElement => {
+    const element = document.querySelector<HTMLButtonElement>(`[data-xray-path="${path}"]`)
+    if (!element) throw new Error(`Missing XRay branch ${path}`)
+    return element
+  }
+
   test('renders the node kinds of a simple arithmetic body', async () => {
     render(XRayView, { props: { def: await defByName('chainedArithmetic') } })
     expect(screen.getAllByText('apply').length).toBeGreaterThan(0)
@@ -160,6 +166,7 @@ describe('XRayView', () => {
     render(XRayView, { props: { def: await defByName('chainedArithmetic') } })
     const search = screen.getByRole('searchbox', { name: 'Search XRay' })
 
+    await userEvent.click(screen.getByRole('button', { name: 'Types' }))
     await userEvent.type(search, 'not-present-in-this-definition')
 
     expect(screen.getByRole('button', { name: 'Collapse all' })).toBeTruthy()
@@ -168,16 +175,19 @@ describe('XRayView', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Clear search' }))
 
     expect((search as HTMLInputElement).value).toBe('')
+    expect(screen.getByRole('button', { name: 'Types' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'All' }).getAttribute('aria-pressed')).toBe('false')
     expect(screen.getAllByText('apply').length).toBeGreaterThan(0)
   })
 
   test('search scope controls accurately report pressed state', async () => {
     render(XRayView, { props: { def: await defByName('chainedArithmetic') } })
-    const all = screen.getByRole('button', { name: 'All' })
-    const kinds = screen.getByRole('button', { name: 'Kinds' })
-    const fields = screen.getByRole('button', { name: 'Fields' })
-    const values = screen.getByRole('button', { name: 'Values' })
-    const types = screen.getByRole('button', { name: 'Types' })
+    const scopes = within(screen.getByRole('group', { name: 'XRay search scopes' }))
+    const all = scopes.getByRole('button', { name: 'All' })
+    const kinds = scopes.getByRole('button', { name: 'Kinds' })
+    const fields = scopes.getByRole('button', { name: 'Fields' })
+    const values = scopes.getByRole('button', { name: 'Values' })
+    const types = scopes.getByRole('button', { name: 'Types' })
 
     expect(all.getAttribute('aria-pressed')).toBe('true')
     expect(kinds.getAttribute('aria-pressed')).toBe('false')
@@ -206,30 +216,36 @@ describe('XRayView', () => {
 
     expect((search as HTMLInputElement).value).toBe('')
     expect(screen.getByRole('button', { name: 'All' }).getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByRole('button', { name: 'body' }).getAttribute('aria-expanded')).toBe('true')
+    expect(branch('/body').getAttribute('aria-expanded')).toBe('true')
     expect(screen.getAllByText('if-then-else').length).toBeGreaterThan(0)
   })
 
   test('expand and collapse controls preserve manual expansion across a search', async () => {
     render(XRayView, { props: { def: await defByName('chainedArithmetic') } })
-    const body = screen.getByRole('button', { name: 'body' })
+    const body = branch('/body')
 
     await userEvent.click(screen.getByRole('button', { name: 'Collapse all' }))
     expect(body.getAttribute('aria-expanded')).toBe('false')
     expect(body.parentElement?.querySelector('.children')).toBeNull()
 
     await userEvent.type(screen.getByRole('searchbox', { name: 'Search XRay' }), 'Basics.add')
-    expect(screen.getByRole('button', { name: 'body' }).getAttribute('aria-expanded')).toBe('true')
+    expect(branch('/body').getAttribute('aria-expanded')).toBe('true')
     expect(screen.getAllByText('apply').length).toBeGreaterThan(0)
 
     await userEvent.clear(screen.getByRole('searchbox', { name: 'Search XRay' }))
-    expect(screen.getByRole('button', { name: 'body' }).getAttribute('aria-expanded')).toBe('false')
+    expect(branch('/body').getAttribute('aria-expanded')).toBe('false')
 
     await userEvent.click(screen.getByRole('button', { name: 'Expand all' }))
-    expect(screen.getByRole('button', { name: 'body' }).getAttribute('aria-expanded')).toBe('true')
-    expect(
-      screen.getByRole('button', { name: 'body' }).parentElement?.querySelector('.children'),
-    ).toBeTruthy()
+    expect(branch('/body').getAttribute('aria-expanded')).toBe('true')
+    expect(branch('/body').parentElement?.querySelector('.children')).toBeTruthy()
     expect(screen.getAllByText('apply').length).toBeGreaterThan(0)
+  })
+
+  test('branch controls expose their visible label and kind to assistive technology', async () => {
+    render(XRayView, { props: { def: await defByName('chainedArithmetic') } })
+
+    const body = branch('/body')
+    expect(body.getAttribute('aria-label')).toBeNull()
+    expect(screen.getByRole('button', { name: /body.*apply.*Int/ })).toBe(body)
   })
 })

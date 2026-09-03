@@ -29,7 +29,7 @@
     />
   </label>
 
-  <div class="scopes" aria-label="XRay search scopes">
+  <div class="scopes" role="group" aria-label="XRay search scopes">
     <button type="button" aria-pressed={allScopes()} onclick={() => onScope('all')}>All</button>
     <button type="button" aria-pressed={selected('kinds')} onclick={() => onScope('kinds')}
       >Kinds</button

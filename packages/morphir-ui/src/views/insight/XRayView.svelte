@@ -60,7 +60,7 @@
     {#if hasQuery && filtered.tree.length === 0}
       <div class="no-matches">
         <p>No matching nodes</p>
-        <button type="button" onclick={() => xrayState.clearFilters()}>Clear search</button>
+        <button type="button" onclick={() => (xrayState.query = '')}>Clear search</button>
       </div>
     {:else}
       <div class="xray-tree">
@@ -76,12 +76,14 @@
 
 <style>
   .xray-canvas {
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
     border: 1px solid var(--panel-edge);
     border-radius: 6px;
     background: var(--surface);
   }
   .xray-tree {
+    min-width: max-content;
     padding: 6px;
   }
   .no-matches {

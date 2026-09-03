@@ -80,7 +80,11 @@ describe('IrExplorerView', () => {
       screen.getByText('WindDirection', { selector: '.local' }).closest('.fqn')?.textContent,
     ).toBe('Morphir.Example.App.Forecast.WindDirection')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Types' }))
+    await userEvent.click(
+      within(screen.getByRole('group', { name: 'Definition filters' })).getByRole('button', {
+        name: 'Types',
+      }),
+    )
 
     expect(screen.queryByRole('treeitem', { name: 'WindDirection' })).toBeNull()
     expect(

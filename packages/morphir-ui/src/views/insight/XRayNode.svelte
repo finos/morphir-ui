@@ -18,7 +18,7 @@
     <button
       type="button"
       class="xray-row"
-      aria-label={node.label}
+      data-xray-path={node.path}
       aria-expanded={open()}
       onclick={() => onToggle(node.path)}
     >
