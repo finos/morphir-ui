@@ -37,7 +37,10 @@ const decisionTable = (
       kind: 'pattern-match',
       attr: {},
       subject,
-      cases: patterns.map((pattern) => ({ pattern, body: { kind: 'value-unit' as const, attr: {} } })),
+      cases: patterns.map((pattern) => ({
+        pattern,
+        body: { kind: 'value-unit' as const, attr: {} },
+      })),
     },
   }
   return toViewTree(def, makeContext(emptyLib))

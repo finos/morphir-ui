@@ -57,27 +57,28 @@ const missingTupleSubject: ValueExpr = { kind: 'unknown', tag: 'Missing tuple su
 
 const columnLayout = (subject: ValueExpr, patterns: readonly Pattern[]): ColumnLayout => {
   const tuplePatterns = patterns.filter(
-    (pattern): pattern is Extract<Pattern, { kind: 'pattern-tuple' }> => pattern.kind === 'pattern-tuple'
+    (pattern): pattern is Extract<Pattern, { kind: 'pattern-tuple' }> =>
+      pattern.kind === 'pattern-tuple',
   )
-  if (subject.kind !== 'value-tuple' && tuplePatterns.length === 0) return { kind: 'column', subject }
+  if (subject.kind !== 'value-tuple' && tuplePatterns.length === 0)
+    return { kind: 'column', subject }
 
   const subjectElements = subject.kind === 'value-tuple' ? subject.elements : []
   const arity = tuplePatterns.reduce(
     (max, pattern) => Math.max(max, pattern.elements.length),
-    Math.max(subjectElements.length, 1)
+    Math.max(subjectElements.length, 1),
   )
   return {
     kind: 'tuple-columns',
     children: Array.from({ length: arity }, (_, index) => {
-      const childSubject = subject.kind === 'value-tuple'
-        ? subject.elements[index] ?? missingTupleSubject
-        : subject
+      const childSubject =
+        subject.kind === 'value-tuple' ? (subject.elements[index] ?? missingTupleSubject) : subject
       const childPatterns = tuplePatterns.flatMap((pattern): Pattern[] => {
         const childPattern = pattern.elements[index]
         return childPattern ? [childPattern] : []
       })
       return columnLayout(childSubject, childPatterns)
-    })
+    }),
   }
 }
 
@@ -85,7 +86,9 @@ const layoutSubjects = (layout: ColumnLayout): ValueExpr[] =>
   layout.kind === 'column' ? [layout.subject] : layout.children.flatMap(layoutSubjects)
 
 const layoutWidth = (layout: ColumnLayout): number =>
-  layout.kind === 'column' ? 1 : layout.children.reduce((width, child) => width + layoutWidth(child), 0)
+  layout.kind === 'column'
+    ? 1
+    : layout.children.reduce((width, child) => width + layoutWidth(child), 0)
 
 const missingCells = (layout: ColumnLayout): ViewCell[] =>
   Array.from({ length: layoutWidth(layout) }, () => ({ kind: 'cell-missing' as const }))
@@ -120,10 +123,16 @@ const rowCells = (pattern: Pattern, layout: ColumnLayout, nested = false): ViewC
 export const viewDecisionTable = (e: MatchExpr, ctx: InsightContext): ViewNode => {
   const special = maybeSpecial(e, ctx)
   if (special) return special
-  const layout = columnLayout(e.subject, e.cases.map((c) => c.pattern))
+  const layout = columnLayout(
+    e.subject,
+    e.cases.map((c) => c.pattern),
+  )
   return {
     kind: 'v-decision-table',
     columns: layoutSubjects(layout).map((subject) => viewExpr(subject, ctx)),
-    rows: e.cases.map((c) => ({ cells: rowCells(c.pattern, layout), result: viewExpr(c.body, ctx) }))
+    rows: e.cases.map((c) => ({
+      cells: rowCells(c.pattern, layout),
+      result: viewExpr(c.body, ctx),
+    })),
   }
 }
