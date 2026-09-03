@@ -1,4 +1,4 @@
-import { render, screen, cleanup, within } from '@testing-library/svelte'
+import { render, screen, cleanup, waitFor, within } from '@testing-library/svelte'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { Effect } from 'effect'
 import XRayView from '../src/views/insight/XRayView.svelte'
 import { decodeMorphirIr, decodeEntryValueDef, nameToCamel } from '@morphir/ir'
+import { XRAY_NODE_PRESENTATIONS } from '../src/views/insight/xray-presentation.ts'
 
 afterEach(() => cleanup())
 
@@ -15,10 +16,33 @@ const fixture = readFileSync(
   'utf8',
 )
 
+const xrayNodeSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '../src/views/insight/XRayNode.svelte'),
+  'utf8',
+)
+
+const allKindsFixture = readFileSync(
+  join(
+    dirname(fileURLToPath(import.meta.url)),
+    '../../morphir-ir/test/fixtures/xray-all-kinds-ir.json',
+  ),
+  'utf8',
+)
+
 const defByName = async (name: string) => {
   const lib = await Effect.runPromise(decodeMorphirIr(fixture))
   const entry = lib.modules[0]!.values.find((v) => nameToCamel(v.name) === name)!
   return decodeEntryValueDef(entry)!
+}
+
+const allKindsDefinition = async () => {
+  const library = await Effect.runPromise(decodeMorphirIr(allKindsFixture))
+  const entry = library.modules
+    .flatMap((module) => module.values)
+    .find((value) => nameToCamel(value.name) === 'allNodes')
+  const definition = entry === undefined ? null : decodeEntryValueDef(entry)
+  if (!definition) throw new Error('Missing allNodes definition from exhaustive XRay fixture')
+  return definition
 }
 
 describe('XRayView', () => {
@@ -33,6 +57,20 @@ describe('XRayView', () => {
     expect(screen.getAllByText('apply').length).toBeGreaterThan(0)
     expect(screen.getAllByText('value-reference').length).toBeGreaterThan(0)
     expect(screen.getAllByText('variable').length).toBeGreaterThan(0)
+  })
+
+  test('renders every projected kind through the presentation catalog', async () => {
+    const { container } = render(XRayView, { props: { def: await allKindsDefinition() } })
+
+    await waitFor(() => {
+      const renderedKinds = new Set(
+        Array.from(container.querySelectorAll<HTMLElement>('[data-xray-kind]')).map(
+          (element) => element.dataset.xrayKind!,
+        ),
+      )
+
+      expect([...renderedKinds].sort()).toEqual(Object.keys(XRAY_NODE_PRESENTATIONS).sort())
+    })
   })
 
   test('renders inputs and output sections', async () => {
@@ -124,6 +162,8 @@ describe('XRayView', () => {
     expect(
       Array.from(container.querySelectorAll('.xray-type')).map((chip) => chip.textContent),
     ).toContain('Int')
+    expect(container.querySelector('.xray-type')?.classList.contains('type-badge')).toBe(true)
+    expect(xrayNodeSource).toMatch(/\.type-badge\s*\{[^}]*color:\s*var\(--text\)/)
   })
 
   test('null and opaque attrs omit type chips without hiding their rows', () => {

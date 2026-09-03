@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { XRayTreeNode } from './xray-tree.ts'
+  import XRayKindBadge from './XRayKindBadge.svelte'
   import XRayNode from './XRayNode.svelte'
 
   type Props = {
@@ -66,9 +67,8 @@
       >{branch() ? (open() ? '⌄' : '›') : '·'}</span
     >
     <span class="label">{node.label}</span>
-    {#if node.kind}<span class:unknown={node.kind === 'unknown'} class="kind">{node.kind}</span
-      >{/if}
-    {#if node.typeText}<span class="xray-type">{node.typeText}</span>{/if}
+    {#if node.kind}<XRayKindBadge kind={node.kind} />{/if}
+    {#if node.typeText}<span class="xray-type type-badge">{node.typeText}</span>{/if}
     {#if node.scalar}<span class="value">{node.scalar}</span>{/if}
     {#if node.warning}<span class="warning">{node.warning}</span>{/if}
   </button>
@@ -130,20 +130,21 @@
   .label {
     color: var(--muted2);
   }
-  .kind {
-    color: var(--accent2);
-    font-weight: 600;
+  .type-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border: 1px solid color-mix(in srgb, var(--status-stale) 55%, var(--panel-edge));
+    border-radius: 999px;
+    color: var(--text);
+    background: color-mix(in srgb, var(--status-stale) 12%, var(--surface));
+    font-size: 10px;
+    font-weight: 650;
+    line-height: 1.4;
+    white-space: nowrap;
   }
-  .kind.unknown,
   .warning {
     color: var(--accent);
-  }
-  .xray-type {
-    padding: 1px 4px;
-    border: 1px solid var(--panel-edge);
-    border-radius: 3px;
-    color: var(--muted);
-    background: var(--panel);
   }
   .value {
     color: var(--text);

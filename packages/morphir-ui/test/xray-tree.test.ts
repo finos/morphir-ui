@@ -1,17 +1,43 @@
 import { describe, expect, test } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { Effect } from 'effect'
 import {
+  decodeEntryValueDef,
+  decodeMorphirIr,
   decodeTypeExpr,
+  nameToCamel,
   type FQName,
   type TypeExpr,
   type ValueDef,
   type ValueExpr,
 } from '@morphir/ir'
+import { expectedDecodedNodeKinds } from '../../morphir-ir/test/support/xray-all-kinds-v3.ts'
 import {
   findXRayNode,
   pointerSegment,
   projectXRayDefinition,
   projectXRayValue,
 } from '../src/views/insight/xray-tree.ts'
+
+const allKindsFixture = readFileSync(
+  join(
+    dirname(fileURLToPath(import.meta.url)),
+    '../../morphir-ir/test/fixtures/xray-all-kinds-ir.json',
+  ),
+  'utf8',
+)
+
+const allKindsDefinition = async (): Promise<ValueDef> => {
+  const library = await Effect.runPromise(decodeMorphirIr(allKindsFixture))
+  const entry = library.modules
+    .flatMap((module) => module.values)
+    .find((value) => nameToCamel(value.name) === 'allNodes')
+  const definition = entry === undefined ? null : decodeEntryValueDef(entry)
+  if (!definition) throw new Error('Missing allNodes definition from exhaustive XRay fixture')
+  return definition
+}
 
 const name = (...parts: string[]) => parts
 const fqn = (local: string): FQName => ({
@@ -185,6 +211,23 @@ describe('projectXRayValue', () => {
 })
 
 describe('projectXRayDefinition', () => {
+  test('characterizes every decoded node kind in the exhaustive fixture', async () => {
+    const roots = projectXRayDefinition(await allKindsDefinition())
+    const kinds = new Set<string>()
+    const pending = [...roots]
+
+    while (pending.length > 0) {
+      const node = pending.pop()
+      if (!node) continue
+      if (node.kind) kinds.add(node.kind)
+      pending.push(...node.children)
+    }
+
+    expect([...kinds].sort()).toEqual([...expectedDecodedNodeKinds].sort())
+    expect(findXRayNode(roots, '/body/items/22')?.kind).toBe('unknown')
+    expect(findXRayNode(roots, '/body/items/19/cases/5/pattern')?.kind).toBe('head-tail')
+  })
+
   test('creates inputs, output, and body section roots', () => {
     const def: ValueDef = {
       inputs: [{ name: name('input'), attr: {}, tpe: intType }],
