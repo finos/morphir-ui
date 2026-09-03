@@ -147,7 +147,7 @@
       previousResolutionKey = ''
       return
     }
-    const key = JSON.stringify(resolution)
+    const key = JSON.stringify([detailLocation, resolution])
     if (callback === previousResolutionCallback && key === previousResolutionKey) return
     previousResolutionCallback = callback
     previousResolutionKey = key

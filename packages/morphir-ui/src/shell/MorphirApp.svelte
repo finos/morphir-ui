@@ -6,11 +6,17 @@
   import SettingsView from '../views/settings/SettingsView.svelte'
   import PlaygroundView from '../views/playground/PlaygroundView.svelte'
   import { ShellState, type SettingsSection } from '../state/shell-state.svelte.ts'
-  import { bindRouteToLocation } from '../state/router.ts'
+  import {
+    bindRouteToLocation,
+    pushRouteToLocation,
+    replaceRouteInLocation,
+  } from '../state/router.ts'
   import { WorkbenchStore } from '../workbench/workbench-store.svelte.ts'
   import { configToSnapshot, withSnapshot, type UiConfig } from '../services/config.ts'
   import type { AppServices } from '../services/services.ts'
   import type { InspectMeta } from '../views/insight/insight-context.ts'
+  import type { DetailLocation, DetailResolution } from '../views/insight/detail-location.ts'
+  import type { Route } from '../state/shell-constants.ts'
   import type { WorkbenchSourceRef } from '@morphir/workspace'
 
   let {
@@ -48,6 +54,18 @@
   const workbenches = untrack(() => new WorkbenchStore(services, initialConfig.workbenches))
   let inspected = $state<InspectMeta | null>(null)
   let inspectedWorkbenchId: string | null = null
+  let detailWarning = $state<string | null>(null)
+  let ignoredResolvedLocation: string | null = null
+
+  const detailLocation = $derived.by((): DetailLocation | undefined => {
+    const route = shell.route
+    if (route.kind !== 'workspace' || route.definition === undefined) return undefined
+    return {
+      definition: route.definition,
+      ...(route.view ? { view: route.view } : {}),
+      ...(route.node ? { node: route.node } : {}),
+    }
+  })
 
   const crumbTitle = $derived.by(() => {
     if (shell.route.kind === 'settings') return SECTION_LABELS[shell.route.section]
@@ -66,6 +84,74 @@
     )
   })
 
+  const navigateToDetail = (location: DetailLocation): void => {
+    const route: Route = {
+      kind: 'workspace',
+      definition: location.definition,
+      ...(location.view ? { view: location.view } : {}),
+      ...(location.node ? { node: location.node } : {}),
+    }
+    if (sameRoute(shell.route, route)) return
+    ignoredResolvedLocation = null
+    detailWarning = null
+    pushRouteToLocation(route)
+    shell.route = route
+  }
+
+  const resolveDetail = (resolution: DetailResolution): void => {
+    const route = shell.route
+    if (route.kind !== 'workspace' || route.definition === undefined) return
+
+    switch (resolution.kind) {
+      case 'pending':
+        return
+      case 'resolved':
+        if (ignoredResolvedLocation === detailLocationKey(route)) {
+          ignoredResolvedLocation = null
+          return
+        }
+        detailWarning = null
+        return
+      case 'invalid-definition':
+        if (route.definition !== resolution.definition) return
+        detailWarning = `Definition ${resolution.definition} is unavailable.`
+        ignoredResolvedLocation = null
+        normalizeDetailRoute({ kind: 'workspace' })
+        return
+      case 'invalid-node': {
+        if (route.definition !== resolution.definition || route.node !== resolution.node) return
+        detailWarning = `Node ${resolution.node} is unavailable.`
+        const normalized: Route = {
+          kind: 'workspace',
+          definition: route.definition,
+          ...(route.view ? { view: route.view } : {}),
+        }
+        ignoredResolvedLocation = detailLocationKey(normalized)
+        normalizeDetailRoute(normalized)
+      }
+    }
+  }
+
+  const normalizeDetailRoute = (route: Route): void => {
+    replaceRouteInLocation(route)
+    shell.route = route
+  }
+
+  const detailLocationKey = (route: Route): string | null =>
+    route.kind === 'workspace' && route.definition !== undefined
+      ? `${route.definition}\u0000${route.view ?? ''}\u0000${route.node ?? ''}`
+      : null
+
+  const sameRoute = (left: Route, right: Route): boolean => {
+    if (left.kind !== right.kind) return false
+    if (left.kind === 'settings' && right.kind === 'settings') return left.section === right.section
+    if (left.kind === 'playground' && right.kind === 'playground') return true
+    if (left.kind !== 'workspace' || right.kind !== 'workspace') return false
+    return (
+      left.definition === right.definition && left.view === right.view && left.node === right.node
+    )
+  }
+
   let saveTimer: ReturnType<typeof setTimeout> | undefined
   $effect(() => {
     const snap = shell.snapshot()
@@ -80,8 +166,17 @@
   $effect(() => {
     const activeId = workbenches.activeId
     if (inspectedWorkbenchId !== activeId) {
+      const changedWorkbench = inspectedWorkbenchId !== null
       inspectedWorkbenchId = activeId
       inspected = null
+      if (
+        changedWorkbench &&
+        shell.route.kind === 'workspace' &&
+        shell.route.definition !== undefined
+      ) {
+        detailWarning = null
+        normalizeDetailRoute({ kind: 'workspace' })
+      }
     }
   })
 
@@ -119,6 +214,9 @@
   {macChrome}
 >
   {#snippet center()}
+    {#if detailWarning}
+      <div class="detail-warning" role="status" aria-live="polite">{detailWarning}</div>
+    {/if}
     {#if shell.isSettings}
       <SettingsView {services} {shell} store={workbenches} {version} />
     {:else if shell.isPlayground}
@@ -135,6 +233,9 @@
             entry={workbenches.active}
             store={workbenches}
             onInspect={(meta) => (inspected = meta)}
+            {detailLocation}
+            onDetailLocation={navigateToDetail}
+            onDetailResolution={resolveDetail}
           />
         </div>
       </div>
@@ -174,6 +275,19 @@
     min-width: 0;
     min-height: 0;
     margin: -22px;
+  }
+  .detail-warning {
+    position: absolute;
+    z-index: 2;
+    top: 12px;
+    right: 18px;
+    max-width: min(520px, calc(100% - 36px));
+    padding: 8px 12px;
+    border: 1px solid var(--panel-edge);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 12.5px;
   }
   .workbench-view {
     flex: 1;
