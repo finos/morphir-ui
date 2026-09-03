@@ -48,58 +48,82 @@ const maybeSpecial = (e: MatchExpr, ctx: InsightContext): ViewNode | null => {
   }
 }
 
-const patternLeaves = (pattern: Pattern): Pattern[] =>
-  pattern.kind === 'pattern-tuple' ? pattern.elements.flatMap(patternLeaves) : [pattern]
+type ColumnLayout =
+  | { readonly kind: 'column'; readonly subject: ValueExpr }
+  | { readonly kind: 'tuple-columns'; readonly children: readonly ColumnLayout[] }
 
-const patternArity = (pattern: Pattern): number => patternLeaves(pattern).length
+// Lenient malformed tuples retain extra pattern positions as visible unknown headers.
+const missingTupleSubject: ValueExpr = { kind: 'unknown', tag: 'Missing tuple subject', raw: null }
 
-const columnSubjects = (subject: ValueExpr, patterns: readonly Pattern[]): ValueExpr[] => {
-  if (subject.kind !== 'value-tuple') {
-    const columnCount = patterns.reduce((max, pattern) => Math.max(max, patternArity(pattern)), 1)
-    return Array.from({ length: columnCount }, () => subject)
-  }
+const columnLayout = (subject: ValueExpr, patterns: readonly Pattern[]): ColumnLayout => {
+  const tuplePatterns = patterns.filter(
+    (pattern): pattern is Extract<Pattern, { kind: 'pattern-tuple' }> => pattern.kind === 'pattern-tuple'
+  )
+  if (subject.kind !== 'value-tuple' && tuplePatterns.length === 0) return { kind: 'column', subject }
 
-  return subject.elements.flatMap((element, index) => {
-    const elementPatterns = patterns.flatMap((pattern): Pattern[] => {
-      if (pattern.kind !== 'pattern-tuple') return []
-      const elementPattern = pattern.elements[index]
-      return elementPattern ? [elementPattern] : []
+  const subjectElements = subject.kind === 'value-tuple' ? subject.elements : []
+  const arity = tuplePatterns.reduce(
+    (max, pattern) => Math.max(max, pattern.elements.length),
+    Math.max(subjectElements.length, 1)
+  )
+  return {
+    kind: 'tuple-columns',
+    children: Array.from({ length: arity }, (_, index) => {
+      const childSubject = subject.kind === 'value-tuple'
+        ? subject.elements[index] ?? missingTupleSubject
+        : subject
+      const childPatterns = tuplePatterns.flatMap((pattern): Pattern[] => {
+        const childPattern = pattern.elements[index]
+        return childPattern ? [childPattern] : []
+      })
+      return columnLayout(childSubject, childPatterns)
     })
-    return columnSubjects(element, elementPatterns)
-  })
+  }
 }
 
-const rowCells = (pattern: Pattern, columnCount: number): ViewCell[] => {
-  const pad = (cells: ViewCell[]): ViewCell[] => {
-    while (cells.length < columnCount) cells.push({ kind: 'cell-missing' })
-    return cells
-  }
+const layoutSubjects = (layout: ColumnLayout): ValueExpr[] =>
+  layout.kind === 'column' ? [layout.subject] : layout.children.flatMap(layoutSubjects)
+
+const layoutWidth = (layout: ColumnLayout): number =>
+  layout.kind === 'column' ? 1 : layout.children.reduce((width, child) => width + layoutWidth(child), 0)
+
+const missingCells = (layout: ColumnLayout): ViewCell[] =>
+  Array.from({ length: layoutWidth(layout) }, () => ({ kind: 'cell-missing' as const }))
+
+const patternCell = (pattern: Pattern, nested: boolean): ViewCell => {
+  if (pattern.kind === 'wildcard') return { kind: 'cell-wildcard' }
+  if (nested) return { kind: 'cell-pattern', text: patternToText(pattern) }
   switch (pattern.kind) {
-    case 'wildcard': return Array.from({ length: columnCount }, () => ({ kind: 'cell-wildcard' as const }))
-    case 'pattern-tuple':
-      return pad(
-        patternLeaves(pattern).map((p): ViewCell =>
-          p.kind === 'wildcard' ? { kind: 'cell-wildcard' } : { kind: 'cell-pattern', text: patternToText(p) }
-        )
-      )
     case 'literal-pattern':
     case 'constructor-pattern':
     case 'as':
-      return pad([{ kind: 'cell-pattern', text: patternToText(pattern) }])
+      return { kind: 'cell-pattern', text: patternToText(pattern) }
     default:
       // divergence #3: elm silently drops these rows; we render an explicit fallback cell
-      return pad([{ kind: 'cell-unsupported', patternKind: pattern.kind }])
+      return { kind: 'cell-unsupported', patternKind: pattern.kind }
   }
+}
+
+const rowCells = (pattern: Pattern, layout: ColumnLayout, nested = false): ViewCell[] => {
+  if (!nested && pattern.kind === 'wildcard') {
+    return Array.from({ length: layoutWidth(layout) }, () => ({ kind: 'cell-wildcard' as const }))
+  }
+  if (layout.kind === 'tuple-columns' && pattern.kind === 'pattern-tuple') {
+    return layout.children.flatMap((child, index) => {
+      const childPattern = pattern.elements[index]
+      return childPattern ? rowCells(childPattern, child, true) : missingCells(child)
+    })
+  }
+  return [patternCell(pattern, nested), ...missingCells(layout).slice(1)]
 }
 
 export const viewDecisionTable = (e: MatchExpr, ctx: InsightContext): ViewNode => {
   const special = maybeSpecial(e, ctx)
   if (special) return special
-  const subjects = columnSubjects(e.subject, e.cases.map((c) => c.pattern))
-  const columnCount = subjects.length
+  const layout = columnLayout(e.subject, e.cases.map((c) => c.pattern))
   return {
     kind: 'v-decision-table',
-    columns: subjects.map((subject) => viewExpr(subject, ctx)),
-    rows: e.cases.map((c) => ({ cells: rowCells(c.pattern, columnCount), result: viewExpr(c.body, ctx) }))
+    columns: layoutSubjects(layout).map((subject) => viewExpr(subject, ctx)),
+    rows: e.cases.map((c) => ({ cells: rowCells(c.pattern, layout), result: viewExpr(c.body, ctx) }))
   }
 }

@@ -26,7 +26,10 @@ const nestedTuplePattern: Pattern = {
     },
   ],
 }
-const decisionTable = (subject: ValueExpr, pattern: Pattern = nestedTuplePattern): ViewNode => {
+const decisionTable = (
+  subject: ValueExpr,
+  patterns: readonly Pattern[] = [nestedTuplePattern],
+): ViewNode => {
   const def: ValueDef = {
     inputs: [],
     output: { kind: 'type-unit' },
@@ -34,7 +37,7 @@ const decisionTable = (subject: ValueExpr, pattern: Pattern = nestedTuplePattern
       kind: 'pattern-match',
       attr: {},
       subject,
-      cases: [{ pattern, body: { kind: 'value-unit', attr: {} } }],
+      cases: patterns.map((pattern) => ({ pattern, body: { kind: 'value-unit' as const, attr: {} } })),
     },
   }
   return toViewTree(def, makeContext(emptyLib))
@@ -152,7 +155,7 @@ describe('decision tables', () => {
           { kind: 'variable', attr: {}, name: ['c'] },
         ],
       },
-      pattern,
+      [pattern],
     )
 
     expect(node.kind).toBe('v-decision-table')
@@ -161,6 +164,93 @@ describe('decision tables', () => {
         { kind: 'v-variable', name: 'pair' },
         { kind: 'v-variable', name: 'pair' },
         { kind: 'v-variable', name: 'c' },
+      ])
+      expect(node.rows[0]!.cells).toEqual([
+        { kind: 'cell-pattern', text: 'x' },
+        { kind: 'cell-pattern', text: 'y' },
+        { kind: 'cell-pattern', text: 'z' },
+      ])
+      for (const row of node.rows) expect(row.cells).toHaveLength(node.columns.length)
+    }
+  })
+
+  test('opposing nested cases keep missing cells within their subject positions', () => {
+    const opposingPattern: Pattern = {
+      kind: 'pattern-tuple',
+      elements: [
+        {
+          kind: 'pattern-tuple',
+          elements: [
+            { kind: 'as', inner: { kind: 'wildcard' }, name: ['u'] },
+            { kind: 'as', inner: { kind: 'wildcard' }, name: ['v'] },
+          ],
+        },
+        { kind: 'as', inner: { kind: 'wildcard' }, name: ['w'] },
+      ],
+    }
+    const node = decisionTable(
+      {
+        kind: 'value-tuple',
+        attr: {},
+        elements: [
+          { kind: 'variable', attr: {}, name: ['a'] },
+          { kind: 'variable', attr: {}, name: ['pair'] },
+        ],
+      },
+      [nestedTuplePattern, opposingPattern],
+    )
+
+    expect(node.kind).toBe('v-decision-table')
+    if (node.kind === 'v-decision-table') {
+      expect(node.columns).toEqual([
+        { kind: 'v-variable', name: 'a' },
+        { kind: 'v-variable', name: 'a' },
+        { kind: 'v-variable', name: 'pair' },
+        { kind: 'v-variable', name: 'pair' },
+      ])
+      expect(node.rows[0]!.cells).toEqual([
+        { kind: 'cell-pattern', text: 'x' },
+        { kind: 'cell-missing' },
+        { kind: 'cell-pattern', text: 'y' },
+        { kind: 'cell-pattern', text: 'z' },
+      ])
+      expect(node.rows[1]!.cells).toEqual([
+        { kind: 'cell-pattern', text: 'u' },
+        { kind: 'cell-pattern', text: 'v' },
+        { kind: 'cell-pattern', text: 'w' },
+        { kind: 'cell-missing' },
+      ])
+      for (const row of node.rows) expect(row.cells).toHaveLength(node.columns.length)
+    }
+  })
+
+  test('extra pattern position gets a visible fallback header without dropping cells', () => {
+    const pattern: Pattern = {
+      kind: 'pattern-tuple',
+      elements: [
+        { kind: 'as', inner: { kind: 'wildcard' }, name: ['x'] },
+        { kind: 'as', inner: { kind: 'wildcard' }, name: ['y'] },
+        { kind: 'as', inner: { kind: 'wildcard' }, name: ['z'] },
+      ],
+    }
+    const node = decisionTable(
+      {
+        kind: 'value-tuple',
+        attr: {},
+        elements: [
+          { kind: 'variable', attr: {}, name: ['a'] },
+          { kind: 'variable', attr: {}, name: ['b'] },
+        ],
+      },
+      [pattern],
+    )
+
+    expect(node.kind).toBe('v-decision-table')
+    if (node.kind === 'v-decision-table') {
+      expect(node.columns).toEqual([
+        { kind: 'v-variable', name: 'a' },
+        { kind: 'v-variable', name: 'b' },
+        { kind: 'v-unknown', tag: 'Missing tuple subject' },
       ])
       expect(node.rows[0]!.cells).toEqual([
         { kind: 'cell-pattern', text: 'x' },
