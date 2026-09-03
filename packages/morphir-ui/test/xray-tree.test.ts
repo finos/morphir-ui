@@ -114,6 +114,7 @@ describe('projectXRayValue', () => {
     )
 
     expect(root.tokens.values).toContain('Morphir.SDK.Basics.add')
+    expect(root.scalar).toBe('Morphir.SDK.Basics.add')
     expect(findXRayNode([root], '/reference/fqn/pkg')?.scalar).toBe('[["morphir"],["s","d","k"]]')
   })
 

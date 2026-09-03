@@ -133,6 +133,7 @@ const makeNode = (
     path,
     label,
     ...(kind ? { kind } : {}),
+    ...(fqn ? { scalar: fqn } : {}),
     ...(typeText ? { typeText } : {}),
     ...(warning ? { warning } : {}),
     tokens: {

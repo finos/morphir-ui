@@ -232,6 +232,25 @@ describe('XRayView', () => {
     )
   })
 
+  test('renders a matching value reference name inline as readable row text', async () => {
+    const { container } = render(XRayView, {
+      props: { def: await defByName('chainedArithmetic') },
+    })
+
+    await userEvent.type(
+      within(container).getByRole('searchbox', { name: 'Search XRay' }),
+      'Basics.add',
+    )
+
+    const matchingRows = container.querySelectorAll<HTMLButtonElement>('[data-direct-match="true"]')
+    expect(matchingRows).toHaveLength(2)
+    for (const row of matchingRows) {
+      expect(within(row).getByText('Morphir.SDK.Basics.add')).toBeTruthy()
+      expect(row.querySelector('.value')?.textContent).toBe('Morphir.SDK.Basics.add')
+    }
+    expect(xrayNodeSource).toMatch(/\.value\s*\{[^}]*color:\s*var\(--text\)/)
+  })
+
   test('type-scoped search exposes readable Int type chips', async () => {
     const { container } = render(XRayView, {
       props: { def: await defByName('chainedArithmetic') },
