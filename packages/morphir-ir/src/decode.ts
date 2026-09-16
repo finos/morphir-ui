@@ -8,6 +8,7 @@ import {
 } from './errors.ts'
 import { nameFromCanonical, pathFromCanonical } from './names.ts'
 import {
+  MAX_FORMAT_VERSION_COMPONENT,
   SUPPORTED_IR_FORMAT_VERSIONS,
   parseCanonicalSupportTable,
   parseRelease,
@@ -256,8 +257,6 @@ export const DECODABLE_FORMAT_VERSIONS: ReadonlyArray<number> = Object.freeze([
   ),
 ])
 
-const MAX_FORMAT_VERSION_COMPONENT = 4_294_967_295
-
 interface EnvelopeIrRelease {
   readonly release: string
   readonly found: number | string
@@ -269,13 +268,11 @@ const parseFormatVersionComponent = (component: string): number | null => {
   return parsed <= MAX_FORMAT_VERSION_COMPONENT ? parsed : null
 }
 
+/** One release grammar for the whole package: an envelope triplet is exactly what the
+ * support table calls a release, restricted to the majors this contract names. */
 const normalizeReleaseTriplet = (version: string): string | null => {
-  const parts = version.split('.')
-  if (parts.length !== 3) return null
-  const components = parts.map(parseFormatVersionComponent)
-  if (components.some((component) => component === null)) return null
-  const [major] = components
-  return typeof major === 'number' && major >= 3 ? version : null
+  const release = parseRelease(version)
+  return release !== null && release.major >= 3 ? version : null
 }
 
 const displayFormatVersion = (version: unknown): number | string =>

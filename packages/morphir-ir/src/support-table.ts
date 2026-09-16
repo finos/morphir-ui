@@ -28,14 +28,34 @@ export interface Interval {
 /** What this client reads: any patch of 3.0 or of 4.0. */
 export const SUPPORTED_IR_FORMAT_VERSIONS = '[3.0.0,3.1.0),[4.0.0,4.1.0)'
 
-const release = (s: string): Release => {
-  const [major, minor, patch] = s.split('.').map(Number) as [number, number, number]
+/** The largest value a release component may take: the contract bounds every component
+ * to an unsigned 32-bit integer, so a component stays an exact JavaScript number and
+ * comparisons never degrade to imprecise arithmetic or `Infinity`. */
+export const MAX_FORMAT_VERSION_COMPONENT = 4_294_967_295
+
+const RELEASE_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+
+/** A release is an exact triplet of decimal components without leading zeros, each
+ * within the contract's unsigned 32-bit domain. */
+export const parseRelease = (s: string): Release | null => {
+  const m = RELEASE_PATTERN.exec(s)
+  if (m === null) return null
+  const components = [m[1]!, m[2]!, m[3]!].map((component) =>
+    component.length > 10 ? null : Number(component),
+  )
+  if (components.some((c) => c === null || c > MAX_FORMAT_VERSION_COMPONENT)) return null
+  const [major, minor, patch] = components as [number, number, number]
   return { major, minor, patch }
 }
 
-/** A release is an exact triplet of decimal components without leading zeros. */
-export const parseRelease = (s: string): Release | null =>
-  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(s) ? release(s) : null
+const str = (r: Release) => `${r.major}.${r.minor}.${r.patch}`
+
+/**
+ * The smallest release the domain has. Release strings are valid only for major 3 and
+ * later, so an absent lower bound reaches down to here and no further: `(,4.1.0)` holds
+ * no 2.0.0, and a bound below it is not a release this contract can name.
+ */
+const DOMAIN_FLOOR: Release = { major: 3, minor: 0, patch: 0 }
 
 const INTERVAL_PATTERN = /([[(])([0-9.]*),([0-9.]*)([\])])/g
 
@@ -49,6 +69,10 @@ const parseBound = (component: string, text: string): Release | null => {
   if (component === '') return null
   const parsed = parseRelease(component)
   if (parsed === null) throw new Error(`not a canonical support table: ${text}`)
+  if (parsed.major < DOMAIN_FLOOR.major)
+    throw new Error(
+      `not a canonical support table: a bound below ${str(DOMAIN_FLOOR)} names no release: ${text}`,
+    )
   return parsed
 }
 
@@ -79,13 +103,6 @@ const compare = (a: Release, b: Release): number =>
       ? a.minor - b.minor
       : a.patch - b.patch
 
-/**
- * The smallest release the domain has. Release strings are valid only for major 3 and
- * later, so an absent lower bound reaches down to here and no further: `(,4.1.0)` holds
- * no 2.0.0.
- */
-const DOMAIN_FLOOR: Release = { major: 3, minor: 0, patch: 0 }
-
 export const supportsRelease = (table: ReadonlyArray<Interval>, r: Release): boolean =>
   compare(r, DOMAIN_FLOOR) < 0
     ? false
@@ -101,18 +118,18 @@ export const supportsRelease = (table: ReadonlyArray<Interval>, r: Release): boo
         return true
       })
 
-const str = (r: Release) => `${r.major}.${r.minor}.${r.patch}`
-
 /** The table in the words the contract uses when a person has to read the error.
- * The `!` assertions below are sound because parseCanonicalSupportTable guarantees
- * every interval keeps at least one bound. */
+ * Every case is spelled out: parseCanonicalSupportTable never yields an interval with
+ * both bounds absent, but a hand-built one says `every release` rather than throwing. */
 export const renderProse = (table: ReadonlyArray<Interval>): string =>
   table
     .map((i) => {
-      if (i.lower === null)
-        return i.upperInclusive ? `${str(i.upper!)} and earlier` : `earlier than ${str(i.upper!)}`
-      if (i.upper === null) return `${str(i.lower)} and later`
+      if (i.lower === null) {
+        if (i.upper === null) return 'every release'
+        return i.upperInclusive ? `${str(i.upper)} and earlier` : `earlier than ${str(i.upper)}`
+      }
       const start = i.lowerInclusive ? str(i.lower) : `after ${str(i.lower)}`
+      if (i.upper === null) return i.lowerInclusive ? `${start} and later` : start
       return i.upperInclusive
         ? `${start} through ${str(i.upper)}`
         : `${start} up to but not including ${str(i.upper)}`

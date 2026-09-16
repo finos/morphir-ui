@@ -62,6 +62,26 @@ describe('parseCanonicalSupportTable', () => {
     expect(() => parseCanonicalSupportTable('(,)')).toThrow()
   })
 
+  // A table written by another implementation must obey the same component domain as an
+  // envelope version: past 2^32-1 a component stops being an exact JavaScript number, so
+  // comparisons and rendered versions would quietly lie.
+  test('accepts a component at the domain ceiling and rejects one past it', () => {
+    expect(parseCanonicalSupportTable('[4.0.0,4.0.4294967295]')[0]!.upper).toEqual({
+      major: 4,
+      minor: 0,
+      patch: 4_294_967_295,
+    })
+    expect(() => parseCanonicalSupportTable('[4294967296.0.0,)')).toThrow()
+    expect(() => parseCanonicalSupportTable('[4.0.0,4.4294967296.0)')).toThrow()
+    expect(parseRelease('4.0.4294967295')).not.toBeNull()
+    expect(parseRelease('4.0.4294967296')).toBeNull()
+  })
+
+  // The release grammar has no major below 3, so a bound naming one names no release.
+  test('rejects a bound below the domain floor', () => {
+    expect(() => parseCanonicalSupportTable('[2.0.0,3.0.0)')).toThrow()
+  })
+
   test('still parses the reference table to two intervals', () => {
     expect(parseCanonicalSupportTable(SUPPORTED_IR_FORMAT_VERSIONS)).toHaveLength(2)
   })
@@ -90,6 +110,24 @@ describe('renderProse', () => {
     expect(renderProse(table)).toBe(
       '3.0.0 up to but not including 3.1.0, or 4.0.0 up to but not including 4.1.0',
     )
+  })
+
+  // An open-ended interval keeps whichever lower bound it was given: `and later` would
+  // include a boundary that membership excludes, so the diagnostic would contradict the
+  // table it is describing.
+  test('keeps an exclusive lower bound open-ended', () => {
+    const open = parseCanonicalSupportTable('(4.0.4294967295,)')
+    expect(renderProse(open)).toBe('after 4.0.4294967295')
+    expect(supportsRelease(open, at('4.0.4294967295'))).toBe(false)
+    expect(renderProse(parseCanonicalSupportTable('[4.0.0,)'))).toBe('4.0.0 and later')
+  })
+
+  // parseCanonicalSupportTable never yields an interval with both bounds absent, but the
+  // exported Interval type lets a caller build one; rendering it must not throw.
+  test('says every release for an interval with no bounds', () => {
+    expect(
+      renderProse([{ lower: null, lowerInclusive: false, upper: null, upperInclusive: false }]),
+    ).toBe('every release')
   })
 })
 
