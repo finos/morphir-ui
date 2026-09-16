@@ -1,4 +1,14 @@
 import { Data } from 'effect'
+import {
+  SUPPORTED_IR_FORMAT_VERSIONS,
+  parseCanonicalSupportTable,
+  renderProse,
+} from './support-table.ts'
+
+/** The client's support table, said the way a person reading the error needs it. */
+const SUPPORTED_VERSIONS_PROSE = renderProse(
+  parseCanonicalSupportTable(SUPPORTED_IR_FORMAT_VERSIONS),
+)
 
 export class InvalidJson extends Data.TaggedError('InvalidJson')<{ readonly message: string }> {}
 
@@ -22,7 +32,7 @@ export class UnsupportedFormatVersion extends Data.TaggedError('UnsupportedForma
       message:
         found === 1
           ? 'The IR is using format version 1, a legacy format that morphir-ui does not support yet. Please regenerate it with a current morphir-elm!'
-          : `The IR is using format version ${found} but this client supports versions 3 and 4. Please regenerate it!`,
+          : `The IR is using format version ${found} but this client supports ${SUPPORTED_VERSIONS_PROSE}. Please regenerate it!`,
     })
 }
 

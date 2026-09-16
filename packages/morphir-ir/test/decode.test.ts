@@ -224,6 +224,65 @@ describe('decodeMorphirIr', () => {
       expect(canonicalBody.attr).toEqual({ source: 'canonical' })
   })
 
+  // A patch of a supported minor adds nothing a reader must understand, so 4.0.1 is
+  // read by the same decoder and yields the same model as its baseline 4.0.0.
+  test('decodes a later patch of a supported minor exactly like its baseline', async () => {
+    const typeDefinition = {
+      TypeAliasDefinition: { typeParams: [], typeExp: { Unit: { attrs: {} } } },
+    }
+    const valueDefinition = {
+      ExpressionBody: {
+        inputTypes: {},
+        outputType: { Unit: { attrs: {} } },
+        body: {
+          Literal: {
+            literal: { IntegerLiteral: { value: 42 } },
+            attributes: { source: 'canonical' },
+          },
+        },
+      },
+    }
+    const body = {
+      distribution: {
+        Library: {
+          packageName: 'morphir/ui-smoke',
+          dependencies: {},
+          def: {
+            modules: {
+              main: {
+                Public: {
+                  types: { greeting: { Private: { doc: 'A greeting.', value: typeDefinition } } },
+                  values: { answer: { Public: valueDefinition } },
+                },
+              },
+            },
+          },
+        },
+      },
+    }
+
+    const lib = await Effect.runPromise(
+      decodeMorphirIr(JSON.stringify({ formatVersion: '4.0.1', ...body })),
+    )
+    const module = lib.modules[0]!
+    expect(module.access).toBe('Public')
+    expect(module.types[0]).toEqual({
+      name: ['greeting'],
+      access: 'Private',
+      doc: 'A greeting.',
+      rawDefinition: typeDefinition,
+    })
+    expect(module.values[0]).toEqual({
+      name: ['answer'],
+      access: 'Public',
+      doc: null,
+      rawDefinition: valueDefinition,
+    })
+    expect(lib).toEqual(
+      await Effect.runPromise(decodeMorphirIr(JSON.stringify({ formatVersion: '4.0.0', ...body }))),
+    )
+  })
+
   test('normalizes every accepted canonical-key access spelling', async () => {
     const typeDefinition = {
       TypeAliasDefinition: { typeParams: [], typeExp: { Unit: { attrs: {} } } },
@@ -493,6 +552,7 @@ describe('decodeMorphirIr', () => {
     if (error._tag === 'UnsupportedFormatVersion') {
       expect(error.found).toBe('4.1.0')
       expect(error.message).toContain('format version 4.1.0')
+      expect(error.message).toContain('4.0.0 up to but not including 4.1.0')
       expect(error.message).not.toContain('NaN')
     }
   })
@@ -506,7 +566,9 @@ describe('decodeMorphirIr', () => {
     expect(Exit.isFailure(exit)).toBe(true)
     const message = Exit.isFailure(exit) ? String(exit.cause) : ''
     expect(message).toContain('format version 2')
-    expect(message).toContain('supports versions 3 and 4')
+    expect(message).toContain(
+      'supports 3.0.0 up to but not including 3.1.0, or 4.0.0 up to but not including 4.1.0',
+    )
   })
 
   // A release string must be an exact triplet. Coercible scalars and collections do not
@@ -565,15 +627,29 @@ describe('canDecodeIrVersion', () => {
     expect(canDecodeIrVersion('4.0.0')).toBe(false)
   })
 
-  // Support is per exact release, not per major family: the contract's own outcomes
-  // separate an unsupported revision from an unsupported major. A non-baseline release
-  // is written on the wire as the exact string '3.1.0' rather than the integer 3, which
-  // is precisely what decodeMorphirIr refuses — so admitting it here would steer a
-  // caller into requesting IR that then fails to decode.
-  test('a revision inside a decodable major is not itself decodable', () => {
+  // Support is per minor series, not per major family and not per exact release: a
+  // patch of a decodable minor carries the same vocabulary, so 3.0.4 is advertised and
+  // decodeMorphirIr accepts it. A later minor such as 3.1.0 is written on the wire as
+  // the exact string '3.1.0', which decodeMorphirIr refuses — so admitting it here
+  // would steer a caller into requesting IR that then fails to decode.
+  test('a later patch of a decodable minor is decodable; a later minor is not', () => {
+    expect(canDecodeIrVersion('3.0.1')).toBe(true)
+    expect(canDecodeIrVersion('3.0.4')).toBe(true)
     expect(canDecodeIrVersion('3.1.0')).toBe(false)
     expect(canDecodeIrVersion('3.1')).toBe(false)
-    expect(canDecodeIrVersion('3.0.1')).toBe(false)
+  })
+
+  // canDecodeIrVersion now consults two rules, not one: the catalog (DECODABLE_IR_RELEASES,
+  // which minor has complete semantic vocabulary) and the support table (SUPPORT_TABLE,
+  // which decodeMorphirIr actually enforces). They must agree, because narrowing the
+  // declared table without also consulting it here would let this predicate advertise a
+  // release that decodeMorphirIr then refuses — the exact bug this test pins. Under the
+  // current table the two rules already agree, so 3.0.4 (inside both) stays true and
+  // 3.1.0 (outside both — a later minor the table excludes, and a minor series the
+  // catalog never taught this decoder) stays false.
+  test('agrees with the support table as well as the catalog', () => {
+    expect(canDecodeIrVersion('3.0.4')).toBe(true)
+    expect(canDecodeIrVersion('3.1.0')).toBe(false)
   })
 
   // A version this decoder has never heard of is not decodable. Saying otherwise would

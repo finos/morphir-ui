@@ -19,7 +19,12 @@ jobs:
           fetch-depth: 0
       - uses: jdx/mise-action@v4
       - run: bun install --frozen-lockfile
-      - run: moon run :lint :typecheck :test :build
+      - name: Lint, typecheck, test, build
+        env:
+          # This checkout has no parent finos/morphir worktree, so the shared
+          # format-version corpus is absent; the tests that run it stand down here.
+          MORPHIR_FIXTURES_OPTIONAL: '1'
+        run: moon run :lint :typecheck :test :build
       - name: Install xvfb
         run: sudo apt-get update && sudo apt-get install -y xvfb
       - name: Allow unprivileged user namespaces (Electron sandbox)
