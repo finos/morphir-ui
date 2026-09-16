@@ -3,6 +3,7 @@ import {
   decodeLiteral,
   decodePattern,
   decodeTypeExpr,
+  decodeValueExpr,
   fqNameFromRaw,
   type DecodedNodeKind,
   type Literal,
@@ -94,6 +95,58 @@ describe('decodePattern', () => {
       kind: 'literal-pattern', literal: { kind: 'whole-number', value: 0 }
     })
     expect(decodePattern(['UnitPattern', {}])).toEqual({ kind: 'pattern-unit' })
+  })
+})
+
+describe('decodeTypeExpr reads the decided member spellings first (types-0007)', () => {
+  test('Function reads parameterType/returnType, then argumentType, then arg/result', () => {
+    const decided = { Function: { parameterType: 'morphir/sdk:basics#int', returnType: 'morphir/sdk:string#string' } }
+    const preDecision = { Function: { argumentType: 'morphir/sdk:basics#int', returnType: 'morphir/sdk:string#string' } }
+    const rustEncoder = { Function: { arg: 'morphir/sdk:basics#int', result: 'morphir/sdk:string#string' } }
+    const expected = decodeTypeExpr(decided)
+    expect(expected.kind).toBe('type-function')
+    expect(decodeTypeExpr(preDecision)).toEqual(expected)
+    expect(decodeTypeExpr(rustEncoder)).toEqual(expected)
+  })
+})
+
+describe('decodeValueExpr reads the decided member spellings first', () => {
+  test('IfThenElse reads then/else, and thenBranch/elseBranch decodes the same node (values-0005)', () => {
+    const decided = {
+      IfThenElse: { condition: { Literal: { BoolLiteral: true } }, then: { Literal: { IntegerLiteral: 1 } }, else: { Literal: { IntegerLiteral: 2 } } },
+    }
+    const legacy = {
+      IfThenElse: { condition: { Literal: { BoolLiteral: true } }, thenBranch: { Literal: { IntegerLiteral: 1 } }, elseBranch: { Literal: { IntegerLiteral: 2 } } },
+    }
+    expect(decodeValueExpr(legacy)).toEqual(decodeValueExpr(decided))
+    expect(decodeValueExpr(decided).kind).toBe('if-then-else')
+  })
+
+  test('Field reads target/name, and subject/fieldName decodes the same node (values-0006)', () => {
+    const decided = { Field: { target: { Variable: 'record' }, name: 'field-name' } }
+    const legacy = { Field: { subject: { Variable: 'record' }, fieldName: 'field-name' } }
+    expect(decodeValueExpr(legacy)).toEqual(decodeValueExpr(decided))
+    expect(decodeValueExpr(decided).kind).toBe('field')
+  })
+
+  test('LetDefinition reads name/definition/in, and valueName/valueDefinition/inValue decodes the same node (values-0017)', () => {
+    const definitionBody = {
+      ExpressionBody: {
+        inputTypes: {},
+        outputType: 'morphir/sdk:basics#int',
+        body: { Literal: { IntegerLiteral: 1 } },
+      },
+    }
+    const decided = { LetDefinition: { name: 'x', definition: definitionBody, in: { Variable: 'x' } } }
+    const legacy = { LetDefinition: { valueName: 'x', valueDefinition: definitionBody, inValue: { Variable: 'x' } } }
+    expect(decodeValueExpr(legacy)).toEqual(decodeValueExpr(decided))
+    expect(decodeValueExpr(decided).kind).toBe('let-definition')
+  })
+
+  test('attributes/attrs decode to the same attr (decision 0006 window, drops in 0.4.0-alpha.8)', () => {
+    const decided = { Variable: { attributes: { source: 1 }, name: 'x' } }
+    const legacy = { Variable: { attrs: { source: 1 }, name: 'x' } }
+    expect(decodeValueExpr(legacy)).toEqual(decodeValueExpr(decided))
   })
 })
 

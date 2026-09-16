@@ -87,6 +87,23 @@ export const decodeLiteral = (u: unknown): Literal => {
   }
 }
 
+const ownDataProperty = (record: Record<string, unknown>, key: string): unknown => {
+  if (!Object.hasOwn(record, key)) return undefined
+  const descriptor = Object.getOwnPropertyDescriptor(record, key)
+  return descriptor && 'value' in descriptor ? descriptor.value : undefined
+}
+
+// mck values-0004..0021 and types-0001..0009 (spec/ir/mck) pin the decided v4
+// member spellings; decision 0006 (kb) keeps the older spellings readable for
+// one release. Read the decided key first, the legacy key(s) second.
+const firstOf = (record: Record<string, unknown>, ...keys: readonly string[]): unknown => {
+  for (const key of keys) {
+    const value = ownDataProperty(record, key)
+    if (value !== undefined) return value
+  }
+  return undefined
+}
+
 const decodeTypeFields = (u: unknown): { name: Name; tpe: TypeExpr }[] | null => {
   if (!Array.isArray(u)) return null
   const fields: { name: Name; tpe: TypeExpr }[] = []
@@ -138,11 +155,14 @@ export const decodeTypeExpr = (u: unknown): TypeExpr => {
           : unknown(u)
       }
       case 'Function':
+        // types-0007 (spec/ir/mck/types.md): `parameterType`/`returnType` are decided;
+        // `argumentType` (pre-decision schema) and `arg`/`result` (Rust encoder) are
+        // accepted for decision 0006's one-release window.
         return isRecord(content)
           ? {
               kind: 'type-function',
-              argument: decodeTypeExpr(content['argumentType']),
-              result: decodeTypeExpr(content['returnType']),
+              argument: decodeTypeExpr(firstOf(content, 'parameterType', 'argumentType', 'arg')),
+              result: decodeTypeExpr(firstOf(content, 'returnType', 'result')),
             }
           : unknown(u)
       case 'Unit':
@@ -278,20 +298,15 @@ const decodeV4Literal = (u: unknown): Literal => {
     : literal
 }
 
-const ownDataProperty = (record: Record<string, unknown>, key: string): unknown => {
-  if (!Object.hasOwn(record, key)) return undefined
-  const descriptor = Object.getOwnPropertyDescriptor(record, key)
-  return descriptor && 'value' in descriptor ? descriptor.value : undefined
-}
-
 export const decodeValueExpr = (u: unknown): ValueExpr => {
   if (isRecord(u) && Object.keys(u).length === 1) {
     const [tag, content] = Object.entries(u)[0]!
     const expandedContent = isRecord(content) && !Array.isArray(content) ? content : null
+    // decision 0005 (kb) makes `attributes` the optional first member of every
+    // expanded payload; `attrs` is the Rust encoder's spelling, accepted for
+    // decision 0006's one-release window. Drop this fallback in 0.4.0-alpha.8.
     const attr =
-      (expandedContent && ownDataProperty(expandedContent, 'attributes')) ??
-      (expandedContent && ownDataProperty(expandedContent, 'attrs')) ??
-      {}
+      (expandedContent && firstOf(expandedContent, 'attributes', 'attrs')) ?? {}
     switch (tag) {
       case 'Literal': {
         const literal =
@@ -342,6 +357,43 @@ export const decodeValueExpr = (u: unknown): ValueExpr => {
           expandedContent ? ownDataProperty(expandedContent, 'fqname') : content,
         )
         return fqn ? { kind: 'value-reference', attr, fqn } : unknown(u)
+      }
+      case 'Field': {
+        // values-0006 (spec/ir/mck/values.md): `target`/`name` are decided;
+        // decision 0006 (kb) accepts the older `subject`/`fieldName` for one release.
+        if (expandedContent === null) return unknown(u)
+        const name = nameFromCanonical(firstOf(expandedContent, 'name', 'fieldName'))
+        return name
+          ? { kind: 'field', attr, subject: decodeValueExpr(firstOf(expandedContent, 'target', 'subject')), name }
+          : unknown(u)
+      }
+      case 'LetDefinition': {
+        // values-0017 (spec/ir/mck/values.md): `name`/`definition`/`in` are decided;
+        // decision 0006 (kb) accepts `valueName`/`valueDefinition`/`inValue` for one release.
+        if (expandedContent === null) return unknown(u)
+        const name = nameFromCanonical(firstOf(expandedContent, 'name', 'valueName'))
+        const definition = decodeValueDef(firstOf(expandedContent, 'definition', 'valueDefinition'))
+        return name && definition
+          ? {
+              kind: 'let-definition',
+              attr,
+              name,
+              definition,
+              inValue: decodeValueExpr(firstOf(expandedContent, 'in', 'inValue')),
+            }
+          : unknown(u)
+      }
+      case 'IfThenElse': {
+        // values-0005 (spec/ir/mck/values.md): `then`/`else` are decided;
+        // decision 0006 (kb) accepts the Rust encoder's `thenBranch`/`elseBranch` for one release.
+        if (expandedContent === null) return unknown(u)
+        return {
+          kind: 'if-then-else',
+          attr,
+          condition: decodeValueExpr(ownDataProperty(expandedContent, 'condition')),
+          thenBranch: decodeValueExpr(firstOf(expandedContent, 'then', 'thenBranch')),
+          elseBranch: decodeValueExpr(firstOf(expandedContent, 'else', 'elseBranch')),
+        }
       }
       case 'Unit':
         return expandedContent === null ? unknown(u) : { kind: 'value-unit', attr }
