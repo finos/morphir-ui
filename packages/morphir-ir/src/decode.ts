@@ -7,6 +7,12 @@ import {
   type IrError,
 } from './errors.ts'
 import { nameFromCanonical, pathFromCanonical } from './names.ts'
+import {
+  SUPPORTED_IR_FORMAT_VERSIONS,
+  parseCanonicalSupportTable,
+  parseRelease,
+  supportsRelease,
+} from './support-table.ts'
 
 export type Name = ReadonlyArray<string>
 export type Path = ReadonlyArray<Name>
@@ -216,9 +222,17 @@ function readV4Library(env: Record<string, unknown>): MorphirLibrary {
 
 type IrDecoder = (env: Record<string, unknown>) => MorphirLibrary
 
-const DECODER_BY_IR_RELEASE: Readonly<Record<string, IrDecoder | undefined>> = Object.freeze({
-  '3.0.0': readV3Library,
-  '4.0.0': readV4Library,
+/** What this client declares it reads, in the contract's interval notation. */
+const SUPPORT_TABLE = parseCanonicalSupportTable(SUPPORTED_IR_FORMAT_VERSIONS)
+
+/**
+ * A patch adds nothing a reader must understand, so the reader is chosen by major
+ * family once the support table has admitted the exact release. The table decides
+ * what is readable; this map only decides which shape the bytes are in.
+ */
+const DECODER_BY_IR_MAJOR: Readonly<Record<number, IrDecoder | undefined>> = Object.freeze({
+  3: readV3Library,
+  4: readV4Library,
 })
 
 /**
@@ -226,6 +240,9 @@ const DECODER_BY_IR_RELEASE: Readonly<Record<string, IrDecoder | undefined>> = O
  *
  * The V4 envelope/library reader remains available for direct inspection while the
  * sibling semantic decoder is completed, but callers must not prefer V4 over V3 yet.
+ *
+ * Each entry names a minor series by its baseline release: '3.0.0' stands for every
+ * patch of 3.0. {@link canDecodeIrVersion} compares major and minor, not the patch.
  */
 export const DECODABLE_IR_RELEASES: ReadonlyArray<string> = Object.freeze(['3.0.0'])
 
@@ -289,16 +306,22 @@ const normalizeCatalogIrRelease = (version: string): string | null => {
  *
  * Catalogs spell versions two ways at once — morphir-elm advertises '3', while
  * morphir-gleam-binding advertises '4.0.0' — so the comparison is on the normalized
- * release rather than on the text. It is the *exact* release that decides, not the
- * major family: support is defined per release (the contract separates an unsupported
- * revision from an unsupported major), and a non-baseline release such as 3.1.0 is
- * written into the envelope as the string '3.1.0', which this decoder refuses. Admitting
- * it on the strength of its major would steer a caller into requesting IR that then
- * fails to decode — the exact failure this predicate exists to prevent. Partial envelope
- * readers are deliberately absent from {@link DECODABLE_IR_RELEASES}. */
+ * release rather than on the text. It is the minor series that decides, not the exact
+ * release and not the major family: a patch adds nothing a reader must understand, so
+ * 3.0.4 is as decodable as 3.0.0, while 3.1.0 is a new minor whose vocabulary this
+ * client has not been taught and which decodeMorphirIr refuses. Advertising it would
+ * steer a caller into requesting IR that then fails to decode — the exact failure this
+ * predicate exists to prevent. Partial envelope readers are deliberately absent from
+ * {@link DECODABLE_IR_RELEASES}. */
 export const canDecodeIrVersion = (version: string): boolean => {
-  const release = normalizeCatalogIrRelease(version)
-  return release !== null && DECODABLE_IR_RELEASES.includes(release)
+  const normalized = normalizeCatalogIrRelease(version)
+  if (normalized === null) return false
+  const release = parseRelease(normalized)
+  if (release === null) return false
+  return DECODABLE_IR_RELEASES.some((decodable) => {
+    const series = parseRelease(decodable)
+    return series !== null && series.major === release.major && series.minor === release.minor
+  })
 }
 
 export const decodeMorphirIr = (input: string): Effect.Effect<MorphirLibrary, IrError> =>
@@ -316,7 +339,10 @@ export const decodeMorphirIr = (input: string): Effect.Effect<MorphirLibrary, Ir
           const normalized = normalizeEnvelopeIrRelease(formatVersion)
           if (normalized === null)
             throw UnsupportedFormatVersion.make(displayFormatVersion(formatVersion))
-          const decoder = DECODER_BY_IR_RELEASE[normalized.release]
+          const rel = parseRelease(normalized.release)
+          if (rel === null || !supportsRelease(SUPPORT_TABLE, rel))
+            throw UnsupportedFormatVersion.make(normalized.found)
+          const decoder = DECODER_BY_IR_MAJOR[rel.major]
           if (decoder === undefined) throw UnsupportedFormatVersion.make(normalized.found)
           return decoder(env)
         },

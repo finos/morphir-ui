@@ -1,3 +1,4 @@
+export * from './support-table.ts'
 export * from './decode.ts'
 export * from './errors.ts'
 export * from './names.ts'

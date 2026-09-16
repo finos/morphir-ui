@@ -6,6 +6,8 @@ Morphir UI is the FINOS repository for user-interface work in the [Morphir](http
 
 This repository is the single home for Morphir UI development: **morphir-desktop** (an Electron app) and **morphir-web** (a browser app), sharing one Svelte 5 + Effect application so the two experiences never diverge.
 
+Supported IR format versions: `[3.0.0,3.1.0),[4.0.0,4.1.0)` (interval notation; see the Morphir IR format-version contract).
+
 ## Layout
 
 ```
