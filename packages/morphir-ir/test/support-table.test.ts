@@ -3,6 +3,7 @@ import { Effect, Exit } from 'effect'
 import path from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { decodeMorphirIr } from '../src/index.ts'
+import type { Interval } from '../src/support-table.ts'
 import {
   SUPPORTED_IR_FORMAT_VERSIONS,
   parseCanonicalSupportTable,
@@ -18,12 +19,14 @@ describe('parseCanonicalSupportTable', () => {
   test('reads the reference table as two half-open intervals', () => {
     expect(table).toEqual([
       {
+        kind: 'between',
         lower: { major: 3, minor: 0, patch: 0 },
         lowerInclusive: true,
         upper: { major: 3, minor: 1, patch: 0 },
         upperInclusive: false,
       },
       {
+        kind: 'between',
         lower: { major: 4, minor: 0, patch: 0 },
         lowerInclusive: true,
         upper: { major: 4, minor: 1, patch: 0 },
@@ -32,9 +35,17 @@ describe('parseCanonicalSupportTable', () => {
     ])
   })
 
-  test('reads absent bounds as open ends', () => {
-    expect(parseCanonicalSupportTable('(,4.1.0)')[0]!.lower).toBeNull()
-    expect(parseCanonicalSupportTable('[4.0.0,)')[0]!.upper).toBeNull()
+  test('reads absent bounds as the open-ended variants', () => {
+    expect(parseCanonicalSupportTable('(,4.1.0)')[0]).toEqual({
+      kind: 'until',
+      upper: { major: 4, minor: 1, patch: 0 },
+      upperInclusive: false,
+    })
+    expect(parseCanonicalSupportTable('[4.0.0,)')[0]).toEqual({
+      kind: 'from',
+      lower: { major: 4, minor: 0, patch: 0 },
+      lowerInclusive: true,
+    })
   })
 
   test('rejects text that holds no interval', () => {
@@ -56,8 +67,9 @@ describe('parseCanonicalSupportTable', () => {
     expect(() => parseCanonicalSupportTable('[3.0.0,4.0.0)junk')).toThrow()
   })
 
-  // §2.2 declares an interval with both bounds absent invalid; the parser is the right
-  // place to reject it so that renderProse's non-null assertions stay sound.
+  // §2.2 declares an interval with both bounds absent invalid. The Interval union cannot
+  // express it at all, and the anchored grammar still needs a bound, so the text form is
+  // rejected where it arrives rather than surviving as a value nothing can render.
   test('rejects an interval with both bounds absent', () => {
     expect(() => parseCanonicalSupportTable('(,)')).toThrow()
   })
@@ -66,10 +78,12 @@ describe('parseCanonicalSupportTable', () => {
   // envelope version: past 2^32-1 a component stops being an exact JavaScript number, so
   // comparisons and rendered versions would quietly lie.
   test('accepts a component at the domain ceiling and rejects one past it', () => {
-    expect(parseCanonicalSupportTable('[4.0.0,4.0.4294967295]')[0]!.upper).toEqual({
-      major: 4,
-      minor: 0,
-      patch: 4_294_967_295,
+    expect(parseCanonicalSupportTable('[4.0.0,4.0.4294967295]')[0]).toEqual({
+      kind: 'between',
+      lower: { major: 4, minor: 0, patch: 0 },
+      lowerInclusive: true,
+      upper: { major: 4, minor: 0, patch: 4_294_967_295 },
+      upperInclusive: true,
     })
     expect(() => parseCanonicalSupportTable('[4294967296.0.0,)')).toThrow()
     expect(() => parseCanonicalSupportTable('[4.0.0,4.4294967296.0)')).toThrow()
@@ -122,12 +136,31 @@ describe('renderProse', () => {
     expect(renderProse(parseCanonicalSupportTable('[4.0.0,)'))).toBe('4.0.0 and later')
   })
 
-  // parseCanonicalSupportTable never yields an interval with both bounds absent, but the
-  // exported Interval type lets a caller build one; rendering it must not throw.
-  test('says every release for an interval with no bounds', () => {
-    expect(
-      renderProse([{ lower: null, lowerInclusive: false, upper: null, upperInclusive: false }]),
-    ).toBe('every release')
+  // There is no longer a test for an interval with both bounds absent: Interval is a
+  // union of the three shapes the grammar allows, so `(,)` is not constructible and
+  // renderProse has no such case to be total over.
+  test('renders each variant a caller can build', () => {
+    const between: Interval = {
+      kind: 'between',
+      lower: { major: 4, minor: 0, patch: 0 },
+      lowerInclusive: true,
+      upper: { major: 4, minor: 1, patch: 0 },
+      upperInclusive: true,
+    }
+    const until: Interval = {
+      kind: 'until',
+      upper: { major: 4, minor: 1, patch: 0 },
+      upperInclusive: false,
+    }
+    const from: Interval = {
+      kind: 'from',
+      lower: { major: 4, minor: 0, patch: 0 },
+      lowerInclusive: true,
+    }
+    expect(renderProse([between])).toBe('4.0.0 through 4.1.0')
+    expect(renderProse([until])).toBe('earlier than 4.1.0')
+    expect(renderProse([from])).toBe('4.0.0 and later')
+    expect(renderProse([from, until])).toBe('4.0.0 and later, or earlier than 4.1.0')
   })
 })
 

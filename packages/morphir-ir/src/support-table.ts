@@ -18,11 +18,36 @@ export interface Release {
   readonly patch: number
 }
 
-export interface Interval {
-  readonly lower: Release | null
+/**
+ * An interval over releases, in the three shapes the canonical grammar allows. The
+ * notation permits an absent lower bound, an absent upper bound, or neither absent —
+ * never both absent — so the type names those three shapes instead of carrying two
+ * independent nullable bounds. A caller cannot build `(,)`, and membership and prose
+ * need no non-null assertion to rule it out.
+ */
+export type Interval = BoundedInterval | UpperBoundedInterval | LowerBoundedInterval
+
+/** `[a,b]` and its exclusive variants: both ends named. */
+export interface BoundedInterval {
+  readonly kind: 'between'
+  readonly lower: Release
   readonly lowerInclusive: boolean
-  readonly upper: Release | null
+  readonly upper: Release
   readonly upperInclusive: boolean
+}
+
+/** `(,b)`: everything from the domain floor up to an upper bound. */
+export interface UpperBoundedInterval {
+  readonly kind: 'until'
+  readonly upper: Release
+  readonly upperInclusive: boolean
+}
+
+/** `[a,)`: everything from a lower bound onwards. */
+export interface LowerBoundedInterval {
+  readonly kind: 'from'
+  readonly lower: Release
+  readonly lowerInclusive: boolean
 }
 
 /** What this client reads: any patch of 3.0 or of 4.0. */
@@ -83,14 +108,21 @@ export const parseCanonicalSupportTable = (text: string): ReadonlyArray<Interval
   for (const m of text.matchAll(INTERVAL_PATTERN)) {
     const lower = parseBound(m[2]!, text)
     const upper = parseBound(m[3]!, text)
-    if (lower === null && upper === null)
-      throw new Error(`not a canonical support table: an interval needs at least one bound: ${text}`)
-    out.push({
-      lower,
-      lowerInclusive: m[1] === '[',
-      upper,
-      upperInclusive: m[4] === ']',
-    })
+    const lowerInclusive = m[1] === '['
+    const upperInclusive = m[4] === ']'
+    if (lower === null) {
+      // `(,)` is rejected here and unrepresentable in Interval: the anchored grammar
+      // needs at least one bound, and neither variant below can carry none.
+      if (upper === null)
+        throw new Error(
+          `not a canonical support table: an interval needs at least one bound: ${text}`,
+        )
+      out.push({ kind: 'until', upper, upperInclusive })
+    } else if (upper === null) {
+      out.push({ kind: 'from', lower, lowerInclusive })
+    } else {
+      out.push({ kind: 'between', lower, lowerInclusive, upper, upperInclusive })
+    }
   }
   if (out.length === 0) throw new Error(`not a canonical support table: ${text}`)
   return out
@@ -103,35 +135,57 @@ const compare = (a: Release, b: Release): number =>
       ? a.minor - b.minor
       : a.patch - b.patch
 
-export const supportsRelease = (table: ReadonlyArray<Interval>, r: Release): boolean =>
-  compare(r, DOMAIN_FLOOR) < 0
-    ? false
-    : table.some((i) => {
-        if (i.lower !== null) {
-          const c = compare(i.lower, r)
-          if (c > 0 || (c === 0 && !i.lowerInclusive)) return false
-        }
-        if (i.upper !== null) {
-          const c = compare(r, i.upper)
-          if (c > 0 || (c === 0 && !i.upperInclusive)) return false
-        }
-        return true
-      })
+/** A kind the union does not have: reaching here means a variant was added without
+ * teaching this function about it, which TypeScript catches at the assignment. */
+const unknownKind = (i: never): never => {
+  throw new Error(`unknown interval kind: ${JSON.stringify(i)}`)
+}
 
-/** The table in the words the contract uses when a person has to read the error.
- * Every case is spelled out: parseCanonicalSupportTable never yields an interval with
- * both bounds absent, but a hand-built one says `every release` rather than throwing. */
-export const renderProse = (table: ReadonlyArray<Interval>): string =>
-  table
-    .map((i) => {
-      if (i.lower === null) {
-        if (i.upper === null) return 'every release'
-        return i.upperInclusive ? `${str(i.upper)} and earlier` : `earlier than ${str(i.upper)}`
-      }
+const atOrAfter = (lower: Release, inclusive: boolean, r: Release): boolean => {
+  const c = compare(lower, r)
+  return c < 0 || (c === 0 && inclusive)
+}
+
+const atOrBefore = (upper: Release, inclusive: boolean, r: Release): boolean => {
+  const c = compare(r, upper)
+  return c < 0 || (c === 0 && inclusive)
+}
+
+const holds = (i: Interval, r: Release): boolean => {
+  switch (i.kind) {
+    case 'between':
+      return atOrAfter(i.lower, i.lowerInclusive, r) && atOrBefore(i.upper, i.upperInclusive, r)
+    case 'until':
+      return atOrBefore(i.upper, i.upperInclusive, r)
+    case 'from':
+      return atOrAfter(i.lower, i.lowerInclusive, r)
+    default:
+      return unknownKind(i)
+  }
+}
+
+export const supportsRelease = (table: ReadonlyArray<Interval>, r: Release): boolean =>
+  compare(r, DOMAIN_FLOOR) < 0 ? false : table.some((i) => holds(i, r))
+
+const proseFor = (i: Interval): string => {
+  switch (i.kind) {
+    case 'between': {
       const start = i.lowerInclusive ? str(i.lower) : `after ${str(i.lower)}`
-      if (i.upper === null) return i.lowerInclusive ? `${start} and later` : start
       return i.upperInclusive
         ? `${start} through ${str(i.upper)}`
         : `${start} up to but not including ${str(i.upper)}`
-    })
-    .join(', or ')
+    }
+    case 'until':
+      return i.upperInclusive ? `${str(i.upper)} and earlier` : `earlier than ${str(i.upper)}`
+    case 'from':
+      return i.lowerInclusive ? `${str(i.lower)} and later` : `after ${str(i.lower)}`
+    default:
+      return unknownKind(i)
+  }
+}
+
+/** The table in the words the contract uses when a person has to read the error. Each
+ * variant of the union has its own sentence, so the function is total without asserting
+ * that any bound is present. */
+export const renderProse = (table: ReadonlyArray<Interval>): string =>
+  table.map(proseFor).join(', or ')
