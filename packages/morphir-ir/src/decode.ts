@@ -312,12 +312,18 @@ const normalizeCatalogIrRelease = (version: string): string | null => {
  * client has not been taught and which decodeMorphirIr refuses. Advertising it would
  * steer a caller into requesting IR that then fails to decode — the exact failure this
  * predicate exists to prevent. Partial envelope readers are deliberately absent from
- * {@link DECODABLE_IR_RELEASES}. */
+ * {@link DECODABLE_IR_RELEASES}.
+ *
+ * Membership in {@link SUPPORT_TABLE} is checked as well as the catalog, not instead of
+ * it: the two rules answer different questions (what `decodeMorphirIr` will accept, vs.
+ * which minor series has complete semantic vocabulary) and narrowing the declared table
+ * must never leave this predicate advertising a release the decoder then refuses. */
 export const canDecodeIrVersion = (version: string): boolean => {
   const normalized = normalizeCatalogIrRelease(version)
   if (normalized === null) return false
   const release = parseRelease(normalized)
   if (release === null) return false
+  if (!supportsRelease(SUPPORT_TABLE, release)) return false
   return DECODABLE_IR_RELEASES.some((decodable) => {
     const series = parseRelease(decodable)
     return series !== null && series.major === release.major && series.minor === release.minor

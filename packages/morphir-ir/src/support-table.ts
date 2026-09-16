@@ -37,13 +37,34 @@ const release = (s: string): Release => {
 export const parseRelease = (s: string): Release | null =>
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(s) ? release(s) : null
 
+const INTERVAL_PATTERN = /([[(])([0-9.]*),([0-9.]*)([\])])/g
+
+/** The whole input must be one or more canonical intervals joined by single commas,
+ * nothing else — no surrounding text, no extra separators. */
+const CANONICAL_TABLE_PATTERN = new RegExp(
+  `^${INTERVAL_PATTERN.source}(?:,${INTERVAL_PATTERN.source})*$`,
+)
+
+const parseBound = (component: string, text: string): Release | null => {
+  if (component === '') return null
+  const parsed = parseRelease(component)
+  if (parsed === null) throw new Error(`not a canonical support table: ${text}`)
+  return parsed
+}
+
 export const parseCanonicalSupportTable = (text: string): ReadonlyArray<Interval> => {
+  if (!CANONICAL_TABLE_PATTERN.test(text))
+    throw new Error(`not a canonical support table: ${text}`)
   const out: Interval[] = []
-  for (const m of text.matchAll(/([[(])([0-9.]*),([0-9.]*)([\])])/g)) {
+  for (const m of text.matchAll(INTERVAL_PATTERN)) {
+    const lower = parseBound(m[2]!, text)
+    const upper = parseBound(m[3]!, text)
+    if (lower === null && upper === null)
+      throw new Error(`not a canonical support table: an interval needs at least one bound: ${text}`)
     out.push({
-      lower: m[2] === '' ? null : release(m[2]!),
+      lower,
       lowerInclusive: m[1] === '[',
-      upper: m[3] === '' ? null : release(m[3]!),
+      upper,
       upperInclusive: m[4] === ']',
     })
   }
@@ -82,7 +103,9 @@ export const supportsRelease = (table: ReadonlyArray<Interval>, r: Release): boo
 
 const str = (r: Release) => `${r.major}.${r.minor}.${r.patch}`
 
-/** The table in the words the contract uses when a person has to read the error. */
+/** The table in the words the contract uses when a person has to read the error.
+ * The `!` assertions below are sound because parseCanonicalSupportTable guarantees
+ * every interval keeps at least one bound. */
 export const renderProse = (table: ReadonlyArray<Interval>): string =>
   table
     .map((i) => {

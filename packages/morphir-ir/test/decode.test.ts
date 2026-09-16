@@ -639,6 +639,19 @@ describe('canDecodeIrVersion', () => {
     expect(canDecodeIrVersion('3.1')).toBe(false)
   })
 
+  // canDecodeIrVersion now consults two rules, not one: the catalog (DECODABLE_IR_RELEASES,
+  // which minor has complete semantic vocabulary) and the support table (SUPPORT_TABLE,
+  // which decodeMorphirIr actually enforces). They must agree, because narrowing the
+  // declared table without also consulting it here would let this predicate advertise a
+  // release that decodeMorphirIr then refuses — the exact bug this test pins. Under the
+  // current table the two rules already agree, so 3.0.4 (inside both) stays true and
+  // 3.1.0 (outside both — a later minor the table excludes, and a minor series the
+  // catalog never taught this decoder) stays false.
+  test('agrees with the support table as well as the catalog', () => {
+    expect(canDecodeIrVersion('3.0.4')).toBe(true)
+    expect(canDecodeIrVersion('3.1.0')).toBe(false)
+  })
+
   // A version this decoder has never heard of is not decodable. Saying otherwise would
   // send a caller off to request IR that fails at the format check instead.
   test('an unparseable or empty version is not decodable', () => {

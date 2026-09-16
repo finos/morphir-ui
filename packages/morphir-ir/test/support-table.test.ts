@@ -41,6 +41,30 @@ describe('parseCanonicalSupportTable', () => {
     expect(() => parseCanonicalSupportTable('')).toThrow()
     expect(() => parseCanonicalSupportTable('3 and 4')).toThrow()
   })
+
+  // A bound that is not an exact release triplet must throw, not silently become an
+  // interval nobody can compare: routing every bound through parseRelease means a
+  // malformed component fails loudly instead of making compare() return NaN and every
+  // membership test fall through as satisfied.
+  test('rejects a bound that is not a canonical release triplet', () => {
+    expect(() => parseCanonicalSupportTable('[3.0,4.0)')).toThrow()
+  })
+
+  // The whole string must be nothing but canonical intervals: trailing text after the
+  // last interval must not be silently dropped.
+  test('rejects trailing text after the last interval', () => {
+    expect(() => parseCanonicalSupportTable('[3.0.0,4.0.0)junk')).toThrow()
+  })
+
+  // §2.2 declares an interval with both bounds absent invalid; the parser is the right
+  // place to reject it so that renderProse's non-null assertions stay sound.
+  test('rejects an interval with both bounds absent', () => {
+    expect(() => parseCanonicalSupportTable('(,)')).toThrow()
+  })
+
+  test('still parses the reference table to two intervals', () => {
+    expect(parseCanonicalSupportTable(SUPPORTED_IR_FORMAT_VERSIONS)).toHaveLength(2)
+  })
 })
 
 describe('supportsRelease', () => {
