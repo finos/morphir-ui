@@ -157,7 +157,7 @@ export const decodeTypeExpr = (u: unknown): TypeExpr => {
       case 'Function':
         // types-0007 (spec/ir/mck/types.md): `parameterType`/`returnType` are decided;
         // `argumentType` (pre-decision schema) and `arg`/`result` (Rust encoder) are
-        // accepted for decision 0006's one-release window.
+        // accepted for decision 0006's one-release window. Drop this fallback in 0.4.0-alpha.8.
         return isRecord(content)
           ? {
               kind: 'type-function',
@@ -361,6 +361,7 @@ export const decodeValueExpr = (u: unknown): ValueExpr => {
       case 'Field': {
         // values-0006 (spec/ir/mck/values.md): `target`/`name` are decided;
         // decision 0006 (kb) accepts the older `subject`/`fieldName` for one release.
+        // Drop this fallback in 0.4.0-alpha.8.
         if (expandedContent === null) return unknown(u)
         const name = nameFromCanonical(firstOf(expandedContent, 'name', 'fieldName'))
         return name
@@ -370,6 +371,7 @@ export const decodeValueExpr = (u: unknown): ValueExpr => {
       case 'LetDefinition': {
         // values-0017 (spec/ir/mck/values.md): `name`/`definition`/`in` are decided;
         // decision 0006 (kb) accepts `valueName`/`valueDefinition`/`inValue` for one release.
+        // Drop this fallback in 0.4.0-alpha.8.
         if (expandedContent === null) return unknown(u)
         const name = nameFromCanonical(firstOf(expandedContent, 'name', 'valueName'))
         const definition = decodeValueDef(firstOf(expandedContent, 'definition', 'valueDefinition'))
@@ -386,6 +388,7 @@ export const decodeValueExpr = (u: unknown): ValueExpr => {
       case 'IfThenElse': {
         // values-0005 (spec/ir/mck/values.md): `then`/`else` are decided;
         // decision 0006 (kb) accepts the Rust encoder's `thenBranch`/`elseBranch` for one release.
+        // Drop this fallback in 0.4.0-alpha.8.
         if (expandedContent === null) return unknown(u)
         return {
           kind: 'if-then-else',
