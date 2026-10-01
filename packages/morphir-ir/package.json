@@ -9,6 +9,6 @@
     "test": "bun test",
     "build": "tsc --noEmit"
   },
-  "dependencies": { "effect": "^3.22.1" },
+  "dependencies": { "effect": "^4.0.0" },
   "devDependencies": { "bun-types": "^1.4.0", "typescript": "7.0.2" }
 }

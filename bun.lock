@@ -24,7 +24,7 @@
         "@morphir/ui": "workspace:*",
         "@morphir/workspace": "workspace:*",
         "@morphir/workspace-engine": "workspace:*",
-        "effect": "^3.22.1",
+        "effect": "^4.0.0",
         "smol-toml": "^1.8.0",
         "svelte": "^5.56.10",
       },
@@ -51,7 +51,7 @@
         "@morphir/ui": "workspace:*",
         "@morphir/workspace": "workspace:*",
         "@morphir/workspace-engine": "workspace:*",
-        "effect": "^3.22.1",
+        "effect": "^4.0.0",
         "svelte": "^5.56.10",
       },
       "devDependencies": {
@@ -70,14 +70,14 @@
       },
       "devDependencies": {
         "bun-types": "^1.4.0",
-        "effect": "^3.22.1",
+        "effect": "^4.0.0",
         "typescript": "7.0.2",
       },
     },
     "packages/morphir-ir": {
       "name": "@morphir/ir",
       "dependencies": {
-        "effect": "^3.22.1",
+        "effect": "^4.0.0",
       },
       "devDependencies": {
         "bun-types": "^1.4.0",
@@ -96,7 +96,7 @@
         "@morphir/ir": "workspace:*",
         "@morphir/workspace": "workspace:*",
         "codemirror": "^6.0.2",
-        "effect": "^3.22.1",
+        "effect": "^4.0.0",
       },
       "devDependencies": {
         "@sveltejs/vite-plugin-svelte": "^7.3.0",
@@ -116,7 +116,7 @@
     "packages/morphir-workspace": {
       "name": "@morphir/workspace",
       "dependencies": {
-        "effect": "^3.22.1",
+        "effect": "^4.0.0",
       },
       "devDependencies": {
         "bun-types": "^1.4.0",
@@ -127,7 +127,7 @@
       "name": "@morphir/workspace-engine",
       "dependencies": {
         "@morphir/workspace": "workspace:*",
-        "effect": "^3.22.1",
+        "effect": "^4.0.0",
       },
       "devDependencies": {
         "bun-types": "^1.4.0",
@@ -704,7 +704,7 @@
 
     "duplexer2": ["duplexer2@0.1.4", "", { "dependencies": { "readable-stream": "^2.0.2" } }, "sha512-asLFVfWWtJ90ZyOUHMqk7/S2w2guQKxUI2itj3d92ADHhxUSbCMGi1f1cBcJ7xM1To+pE/Khbwo1yuNbMEPKeA=="],
 
-    "effect": ["effect@3.22.1", "", { "dependencies": { "@standard-schema/spec": "^1.0.0", "fast-check": "^3.23.1" } }, "sha512-TNoXushmPOBAjJlthF5d2QwnX2xBPEtcNJr5XKNKbRLbDvBcOYkXlYDfvGfSA0zriwLFuCll5MDtNMAdZL17PQ=="],
+    "effect": ["effect@4.0.0", "", {}, "sha512-ooc1TG5t+FfzgYnFz2ff6BBKyZ7EwBRVXC7c4RhQUAD6/TZ2gTXXMeb4WX7a19ozQo4J73/QW+S00YAIresoMQ=="],
 
     "ejs": ["ejs@3.1.10", "", { "dependencies": { "jake": "^10.8.5" }, "bin": { "ejs": "bin/cli.js" } }, "sha512-UeJmFfOrAQS8OJWPZ4qtgHyWExa088/MtK5UEyoJGFH67cDEXkZSviOiKRCZ4Xij0zxI3JECgYs3oKx+AizQBA=="],
 
@@ -777,8 +777,6 @@
     "expect-type": ["expect-type@1.4.0", "", {}, "sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA=="],
 
     "exponential-backoff": ["exponential-backoff@3.1.3", "", {}, "sha512-ZgEeZXj30q+I0EN+CbSSpIyPaJ5HVQD18Z1m+u1FXbAeT94mr1zw50q4q6jiiC447Nl/YTcIYSAftiGqetwXCA=="],
-
-    "fast-check": ["fast-check@3.23.2", "", { "dependencies": { "pure-rand": "^6.1.0" } }, "sha512-h5+1OzzfCC3Ef7VbtKdcv7zsstUQwUDlYpUTvjeUsJAssPgLn7QzbboPtL5ro04Mq0rPOsMzl7q5hIbRs2wD1A=="],
 
     "fast-deep-equal": ["fast-deep-equal@3.1.3", "", {}, "sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q=="],
 
@@ -1059,8 +1057,6 @@
     "pump": ["pump@3.0.4", "", { "dependencies": { "end-of-stream": "^1.1.0", "once": "^1.3.1" } }, "sha512-VS7sjc6KR7e1ukRFhQSY5LM2uBWAUPiOPa/A3mkKmiMwSmRFUITt0xuj+/lesgnCv+dPIEYlkzrcyXgquIHMcA=="],
 
     "punycode": ["punycode@2.3.1", "", {}, "sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg=="],
-
-    "pure-rand": ["pure-rand@6.1.0", "", {}, "sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA=="],
 
     "pvtsutils": ["pvtsutils@1.3.6", "", { "dependencies": { "tslib": "^2.8.1" } }, "sha512-PLgQXQ6H2FWCaeRak8vvk1GW462lMxB5s3Jm673N82zI4vqtVUPuZdffdZbPDFRoU8kAhItWFtPCWiPpp4/EDg=="],
 
