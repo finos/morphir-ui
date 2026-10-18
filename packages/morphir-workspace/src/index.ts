@@ -1,3 +1,4 @@
 export * from './connected.ts'
 export * from './discovery.ts'
 export * from './model.ts'
+export * from './artifact-path.ts'
