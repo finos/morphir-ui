@@ -22,6 +22,16 @@ A moonrepo + mise + bun monorepo with two deployables over one shared applicatio
 
 Designs live in `docs/specs/`, implementation plans in `docs/plans/`. Read the relevant spec before changing architecture; the decisions in them were reviewed and are binding.
 
+## Design skills
+
+- [Rich designs](.agents/skills/rich-designs/SKILL.md) covers readable HTML specifications, diagrams, browser
+  review, durable design records and PR landing. Read its repository reference for this repo's storage conventions.
+- [Frontend design](.agents/skills/frontend-design/SKILL.md) provides Anthropic's visual-design guidance. Its
+  [pinned upstream provenance and license](.agents/skills/frontend-design/UPSTREAM.md) are retained with the skill.
+  Follow the user's brief and the existing Svelte/theme/accessibility conventions when applying it.
+
+Canonical skill files live in `.agents/skills/`; `.claude/skills/` and `.github/skills/` link to those same files.
+
 ## Toolchain
 
 ```bash
