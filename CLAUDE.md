@@ -12,8 +12,9 @@ Use [frontend-design](.agents/skills/frontend-design/SKILL.md) for Anthropic's v
 the user's brief and existing Svelte/theme/accessibility conventions. The upstream skill and license are pinned
 and preserved. Canonical files live in `.agents/skills/`, with discovery links in `.claude/skills/` and `.github/skills/`.
 
-`mise install` includes the pinned Moonx registry launcher used by rich-design recovery. It exposes only `moonx`,
-so `moon` remains moonrepo. A complete MoonBit source toolchain is a separate requirement for future `.mbtx` scripts.
+`mise -E design install http:moonx` installs the optional pinned launcher/runtime for rich-design recovery.
+It exposes only `moonx`, so `moon` remains moonrepo. See the skill reference for supported hosts and commands.
+A complete MoonBit source toolchain is a separate requirement for future `.mbtx` scripts.
 
 ## ⚠️ CRITICAL: sign off, and never add AI co-authors
 
