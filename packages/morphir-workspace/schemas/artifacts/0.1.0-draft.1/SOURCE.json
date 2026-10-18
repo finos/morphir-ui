@@ -1,0 +1,41 @@
+{
+  "sourceRepository": "https://github.com/finos/morphir",
+  "sourcePath": "spec/workbench/artifacts/0.1.0-draft.1/schemas",
+  "sourceRevision": null,
+  "coordinationStatus": "Pending coordinated parent contribution atop 60f2b265; that base alone does not contain the profile.",
+  "profile": "morphir/workbench/artifacts",
+  "contractVersion": "0.1.0-draft.1",
+  "note": "Local whitespace follows UI formatting. Compact JSON fingerprints preserve the exact parent schema values. Semantic byte/path/base64/raw-number validation is additional to JSON Schema.",
+  "files": [
+    {
+      "file": "generate-request.schema.json",
+      "sourceBytesSha256": "ff626ee780c857658fdd1b68f3d3fcf8b0b2f01dbf5ed20107d90a0ea5728872",
+      "compactJsonSha256": "7a0b3c5328ef0c5abb6a203e7d4ac923160b5b3702d36c8b25a55d8b4b827366"
+    },
+    {
+      "file": "release-request.schema.json",
+      "sourceBytesSha256": "7e8036e03c4e7f5d7ab8b2e421472999188d8ffbb957f1b1b24cfff6bf0e4ca0",
+      "compactJsonSha256": "c8c7fdf4ac17c72dae4c4b474a163d051800e7ed1d24259c6f8fe38e965eb096"
+    },
+    {
+      "file": "read-request.schema.json",
+      "sourceBytesSha256": "cbe229438bf99d658ec1054f42194e3065edf35e444371dfb3fb102217227673",
+      "compactJsonSha256": "6433ca1e9f47d98d8005ac24014b7b96dd02cdfc7cb192edb09e536512f4ec45"
+    },
+    {
+      "file": "release-result.schema.json",
+      "sourceBytesSha256": "8417df32290ba58b5b8bf562ee980249d164322129425051941d7b53a0c3420b",
+      "compactJsonSha256": "ec34065c4c32e2031b9bfdd9178bd7dde562bfb6abf7859ee8e07b3be4d6cb2e"
+    },
+    {
+      "file": "generate-result.schema.json",
+      "sourceBytesSha256": "9676417c5dbd1936f527391951b597d26aaefe0b8ef9a195706e85408cb5ef53",
+      "compactJsonSha256": "dacc68dc3104839d06375cbb9de53de4e0ac4d3c22ea6a69ccb79b7045aeb8ae"
+    },
+    {
+      "file": "read-result.schema.json",
+      "sourceBytesSha256": "749a9f9e935008b7e6ed70d12e322823518d08161b23cb6ba5271167a313b6a8",
+      "compactJsonSha256": "ea3c6db27c92d6769c78f541f6283b2ee67e27a1ccaf0c28b0043e843b592328"
+    }
+  ]
+}
