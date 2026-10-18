@@ -1,0 +1,49 @@
+{
+  "sourceRepository": "https://github.com/finos/morphir",
+  "sourcePath": "spec/workbench/artifacts/0.1.0-draft.1/schemas",
+  "sourceRevision": "f29685e93732349e0a2826f039ecde06175efd8f",
+  "coordinationStatus": "Pinned to the landed parent profile from PR1069. Downstream UI gitlink, Workbench vendoring and complete campaign qualification are coordinated separately.",
+  "profile": "morphir/workbench/artifacts",
+  "contractVersion": "0.1.0-draft.1",
+  "note": "Local whitespace follows UI formatting. Compact JSON fingerprints preserve the exact parent schema values. Semantic byte/path/base64/raw-number validation is additional to JSON Schema.",
+  "files": [
+    {
+      "file": "generate-request.schema.json",
+      "sourceBytesSha256": "0218327c2662764577d6e156702ee443053da57077894905b650a6f85832cf33",
+      "compactJsonSha256": "71cc0ebbc7649ca2c3199154d76a5cd88f9eb3bdaefc2a310f92460b7f047fcd"
+    },
+    {
+      "file": "release-request.schema.json",
+      "sourceBytesSha256": "7e8036e03c4e7f5d7ab8b2e421472999188d8ffbb957f1b1b24cfff6bf0e4ca0",
+      "compactJsonSha256": "c8c7fdf4ac17c72dae4c4b474a163d051800e7ed1d24259c6f8fe38e965eb096"
+    },
+    {
+      "file": "read-request.schema.json",
+      "sourceBytesSha256": "cbe229438bf99d658ec1054f42194e3065edf35e444371dfb3fb102217227673",
+      "compactJsonSha256": "6433ca1e9f47d98d8005ac24014b7b96dd02cdfc7cb192edb09e536512f4ec45"
+    },
+    {
+      "file": "release-result.schema.json",
+      "sourceBytesSha256": "8417df32290ba58b5b8bf562ee980249d164322129425051941d7b53a0c3420b",
+      "compactJsonSha256": "ec34065c4c32e2031b9bfdd9178bd7dde562bfb6abf7859ee8e07b3be4d6cb2e"
+    },
+    {
+      "file": "generate-result.schema.json",
+      "sourceBytesSha256": "dace7918f6f1ce4477420b00ccf801da0928ef62268b1909797feeec85cae091",
+      "compactJsonSha256": "962c11ca7c7696e2b9bac37730a4af97c365eda683481997fcc065346256f1c2"
+    },
+    {
+      "file": "read-result.schema.json",
+      "sourceBytesSha256": "749a9f9e935008b7e6ed70d12e322823518d08161b23cb6ba5271167a313b6a8",
+      "compactJsonSha256": "ea3c6db27c92d6769c78f541f6283b2ee67e27a1ccaf0c28b0043e843b592328"
+    }
+  ],
+  "semanticFixtures": [
+    {
+      "file": "producer-version-boundaries.json",
+      "sourcePath": "spec/workbench/artifacts/0.1.0-draft.1/fixtures/producer-version-boundaries.json",
+      "sourceBytesSha256": "88dde3a766ccb2903f15d97c02b8f62d7fced227db4adb68b7f381b624a64bc6",
+      "compactJsonSha256": "0103624567c8710bb6b71fde9ed466913088cb1e05daf5b9cecb1822d0a04591"
+    }
+  ]
+}

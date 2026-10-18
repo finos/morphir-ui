@@ -3,7 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./artifact-path": "./src/artifact-path.ts",
+    "./artifact-transfer": "./src/artifact-transfer.ts",
+    "./artifact-transfer/schemas": "./src/artifact-transfer-schemas.ts"
   },
   "scripts": {
     "lint": "eslint src test",
@@ -12,6 +15,7 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@std/semver": "npm:@jsr/std__semver@1.0.8",
     "effect": "^3.22.1"
   },
   "devDependencies": {
