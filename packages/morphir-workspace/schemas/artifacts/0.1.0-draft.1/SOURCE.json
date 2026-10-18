@@ -1,8 +1,8 @@
 {
   "sourceRepository": "https://github.com/finos/morphir",
   "sourcePath": "spec/workbench/artifacts/0.1.0-draft.1/schemas",
-  "sourceRevision": "99f00543240b7b5774aa5c117623e77b87605264",
-  "coordinationStatus": "Verified against the committed coordinated parent profile; no publication or merge is claimed.",
+  "sourceRevision": "f384d39b7cc245b4db6db28838d61a0ef187922e",
+  "coordinationStatus": "Verified against committed coordinated parent profile; unpublished source pin, replace with final landed parent revision after qualification.",
   "profile": "morphir/workbench/artifacts",
   "contractVersion": "0.1.0-draft.1",
   "note": "Local whitespace follows UI formatting. Compact JSON fingerprints preserve the exact parent schema values. Semantic byte/path/base64/raw-number validation is additional to JSON Schema.",
@@ -29,13 +29,21 @@
     },
     {
       "file": "generate-result.schema.json",
-      "sourceBytesSha256": "9676417c5dbd1936f527391951b597d26aaefe0b8ef9a195706e85408cb5ef53",
-      "compactJsonSha256": "dacc68dc3104839d06375cbb9de53de4e0ac4d3c22ea6a69ccb79b7045aeb8ae"
+      "sourceBytesSha256": "82a34af7d1338d3e7551b941082a7a7639552b8f3384459bfc396f7d07a35e1e",
+      "compactJsonSha256": "2b72e7e4ff565390a6b1394e7aea4a4e264e04af2178430de924471b63060070"
     },
     {
       "file": "read-result.schema.json",
       "sourceBytesSha256": "749a9f9e935008b7e6ed70d12e322823518d08161b23cb6ba5271167a313b6a8",
       "compactJsonSha256": "ea3c6db27c92d6769c78f541f6283b2ee67e27a1ccaf0c28b0043e843b592328"
+    }
+  ],
+  "semanticFixtures": [
+    {
+      "file": "producer-version-boundaries.json",
+      "sourcePath": "spec/workbench/artifacts/0.1.0-draft.1/fixtures/producer-version-boundaries.json",
+      "sourceBytesSha256": "88dde3a766ccb2903f15d97c02b8f62d7fced227db4adb68b7f381b624a64bc6",
+      "compactJsonSha256": "0103624567c8710bb6b71fde9ed466913088cb1e05daf5b9cecb1822d0a04591"
     }
   ]
 }

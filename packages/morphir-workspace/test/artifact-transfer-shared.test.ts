@@ -23,6 +23,7 @@ import readRequest from './fixtures/artifacts/0.1.0-draft.1/read-request.json'
 import released from './fixtures/artifacts/0.1.0-draft.1/release-result.json'
 import releaseRequest from './fixtures/artifacts/0.1.0-draft.1/release-request.json'
 import provenance from '../schemas/artifacts/0.1.0-draft.1/SOURCE.json'
+import producerVersions from './fixtures/artifacts/0.1.0-draft.1/producer-version-boundaries.json'
 
 test('exported structural schemas preserve the coordinated parent JSON values', () => {
   expect(Object.keys(ARTIFACT_JSON_SCHEMAS).length).toBe(6)
@@ -124,4 +125,45 @@ test('the additive profile leaves connected v1 manifests and generate schemas un
       capabilities: [host.providers[0]!.capabilities[0]!],
     }).ok,
   ).toBe(false)
+})
+
+test('shared producer-version boundaries preserve portable canonical SemVer exactly', () => {
+  const fixture = provenance.semanticFixtures.find(
+    (entry) => entry.file === 'producer-version-boundaries.json',
+  )
+  if (!fixture) throw new Error('Missing shared fixture provenance')
+  expect(createHash('sha256').update(JSON.stringify(producerVersions)).digest('hex')).toBe(
+    fixture.compactJsonSha256,
+  )
+  const selected = selectArtifactTransferProfile({
+    id: 'playground',
+    status: 'available',
+    capabilities: [{ name: generated.profile, version: generated.contractVersion }],
+  })
+  if (!selected.ok) throw new Error(selected.error.code)
+  const captured = captureArtifactGeneration(selected.value, {
+    sessionId: generated.sessionId,
+    target: generated.target,
+    irVersion: generated.irVersion,
+  })
+  const id = parseArtifactRequestId(1)
+  if (!captured.ok || !id.ok) throw new Error('Fixture capture failed')
+  for (const entry of producerVersions.cases) {
+    const result = decodeArtifactGenerateReply(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        result: { ...generated, producer: { ...generated.producer, version: entry.version } },
+      }),
+      captured.value,
+      id.value,
+    )
+    expect(result.ok).toBe(entry.accepted)
+    if (result.ok) {
+      if (result.value.status !== 'ready') throw new Error('Expected a ready manifest')
+      expect<string>(result.value.producer.version).toBe(entry.version)
+    } else {
+      expect(result.error.kind).toBe('invalid')
+    }
+  }
 })
