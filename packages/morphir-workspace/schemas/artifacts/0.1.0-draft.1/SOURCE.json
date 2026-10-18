@@ -1,8 +1,8 @@
 {
   "sourceRepository": "https://github.com/finos/morphir",
   "sourcePath": "spec/workbench/artifacts/0.1.0-draft.1/schemas",
-  "sourceRevision": null,
-  "coordinationStatus": "Pending coordinated parent contribution atop 60f2b265; that base alone does not contain the profile.",
+  "sourceRevision": "99f00543240b7b5774aa5c117623e77b87605264",
+  "coordinationStatus": "Verified against the committed coordinated parent profile; no publication or merge is claimed.",
   "profile": "morphir/workbench/artifacts",
   "contractVersion": "0.1.0-draft.1",
   "note": "Local whitespace follows UI formatting. Compact JSON fingerprints preserve the exact parent schema values. Semantic byte/path/base64/raw-number validation is additional to JSON Schema.",
