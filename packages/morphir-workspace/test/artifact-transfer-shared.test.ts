@@ -27,6 +27,9 @@ import producerVersions from './fixtures/artifacts/0.1.0-draft.1/producer-versio
 
 test('exported structural schemas preserve the coordinated parent JSON values', () => {
   expect(Object.keys(ARTIFACT_JSON_SCHEMAS).length).toBe(6)
+  expect(
+    ARTIFACT_JSON_SCHEMAS.generateRequest.properties.generation.properties.options,
+  ).toHaveProperty('type', 'object')
   for (const source of provenance.files) {
     const local = JSON.parse(
       readFileSync(
