@@ -4,6 +4,18 @@ This file provides instructions for Claude Code and other AI assistants working 
 
 For the full development guidelines — repository layout, toolchain, Svelte and TypeScript conventions, and testing practice — see [AGENTS.md](AGENTS.md).
 
+## Design skills
+
+Use [rich-designs](.agents/skills/rich-designs/SKILL.md) for readable HTML specifications, diagrams,
+browser review, durable design records and PR landing. Its repository reference explains this repo's storage rules.
+Use [frontend-design](.agents/skills/frontend-design/SKILL.md) for Anthropic's visual-design guidance within
+the user's brief and existing Svelte/theme/accessibility conventions. The upstream skill and license are pinned
+and preserved. Canonical files live in `.agents/skills/`, with discovery links in `.claude/skills/` and `.github/skills/`.
+
+`mise -E design install http:moonx` installs the optional pinned launcher/runtime for rich-design recovery.
+It exposes only `moonx`, so `moon` remains moonrepo. See the skill reference for supported hosts and commands.
+A complete MoonBit source toolchain is a separate requirement for future `.mbtx` scripts.
+
 ## ⚠️ CRITICAL: sign off, and never add AI co-authors
 
 Every commit must carry a DCO sign-off (`git commit -s`), and **no commit may attribute an AI assistant**. FINOS gates merges on EasyCLA; lines like `Co-Authored-By: Claude <noreply@anthropic.com>` or "Generated with Claude Code" break CLA verification and block the pull request. Only the human contributor appears in commit metadata.
@@ -17,6 +29,7 @@ Every commit must carry a DCO sign-off (`git commit -s`), and **no commit may at
 - **Toolchain** — `mise install && bun install && moon run :build`
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:970c3bf2 -->
+
 ## Beads Issue Tracker
 
 This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
@@ -67,11 +80,12 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 5. **Hand off** - Summarize changes, validation, issue status, and any blocked sync/commit/push step
 
 **Critical rules:**
+
 - Explicit user or orchestrator instructions override this Beads block.
 - Do not commit or push without clear authority from the active profile or the current user request.
 - If a required sync or push is blocked, stop and report the exact command and error.
-<!-- END BEADS INTEGRATION -->
 
+<!-- END BEADS INTEGRATION -->
 
 ## Build & Test
 

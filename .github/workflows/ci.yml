@@ -18,6 +18,8 @@ jobs:
           # clone has no 'main' ref and fails with git exit code 128.
           fetch-depth: 0
       - uses: jdx/mise-action@v4
+      - name: Check portable design tooling
+        run: mise -E design exec http:moonx -- moonx cli/jq@0.2.2 --version
       - run: bun install --frozen-lockfile
       - name: Lint, typecheck, test, build
         env:

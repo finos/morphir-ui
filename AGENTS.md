@@ -22,6 +22,16 @@ A moonrepo + mise + bun monorepo with two deployables over one shared applicatio
 
 Designs live in `docs/specs/`, implementation plans in `docs/plans/`. Read the relevant spec before changing architecture; the decisions in them were reviewed and are binding.
 
+## Design skills
+
+- [Rich designs](.agents/skills/rich-designs/SKILL.md) covers readable HTML specifications, diagrams, browser
+  review, durable design records and PR landing. Read its repository reference for this repo's storage conventions.
+- [Frontend design](.agents/skills/frontend-design/SKILL.md) provides Anthropic's visual-design guidance. Its
+  [pinned upstream provenance and license](.agents/skills/frontend-design/UPSTREAM.md) are retained with the skill.
+  Follow the user's brief and the existing Svelte/theme/accessibility conventions when applying it.
+
+Canonical skill files live in `.agents/skills/`; `.claude/skills/` and `.github/skills/` link to those same files.
+
 ## Toolchain
 
 ```bash
@@ -31,6 +41,11 @@ moon run :build     # build everything
 moon run :test      # test everything
 moon run :lint :typecheck
 ```
+
+For rich-design recovery, `mise -E design install http:moonx` installs the optional pinned Moonx registry launcher
+and its runtime. It exposes only `moonx`; `moon` remains moonrepo. The normal application setup is unchanged.
+See the rich-designs repository reference for supported hosts and exact commands. A complete MoonBit compiler/core
+is a separate requirement for future `.mbtx` source automation.
 
 moon global tasks live under `.moon/tasks/**` — **not** `.moon/tasks.yml`, which nothing inherits.
 
