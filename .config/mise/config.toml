@@ -2,3 +2,30 @@
 bun = "1.4.0"
 node = "24"
 "aqua:moonrepo/moon" = "2.5.3"
+
+# Registry tools such as cli/jq run as prebuilt Wasm through moonx. Expose only
+# moonx so the MoonBit launcher cannot shadow this repository's moonrepo `moon`.
+[tools."http:moonx"]
+version = "0.10.15+943464bfa"
+bin_path = "moonx-bin"
+postinstall = """
+{% if os() == "windows" %}
+cmd /c mkdir "%MISE_TOOL_INSTALL_PATH%\\moonx-bin"
+cmd /c copy /Y "%MISE_TOOL_INSTALL_PATH%\\bin\\moon.exe" "%MISE_TOOL_INSTALL_PATH%\\moonx-bin\\moonx.exe"
+{% else %}
+mkdir -p "$MISE_TOOL_INSTALL_PATH/moonx-bin"
+cp "$MISE_TOOL_INSTALL_PATH/bin/moon" "$MISE_TOOL_INSTALL_PATH/moonx-bin/moonx"
+chmod +x "$MISE_TOOL_INSTALL_PATH/moonx-bin/moonx"
+{% endif %}
+"""
+
+[tools."http:moonx".platforms]
+linux-x64 = { url = "https://cli.moonbitlang.com/binaries/0.10.15%2B943464bfa/moonbit-linux-x86_64.tar.gz" }
+linux-arm64 = { url = "https://cli.moonbitlang.com/binaries/0.10.15%2B943464bfa/moonbit-linux-aarch64.tar.gz" }
+macos-arm64 = { url = "https://cli.moonbitlang.com/binaries/0.10.15%2B943464bfa/moonbit-darwin-aarch64.tar.gz" }
+windows-x64 = { url = "https://cli.moonbitlang.com/binaries/0.10.15%2B943464bfa/moonbit-windows-x86_64.zip", format = "zip" }
+
+[env]
+# moonrepo also ships a moonx executable. Prefer the MoonBit registry launcher
+# explicitly while leaving moonrepo's `moon` as the only exposed moon command.
+_.path = { path = "{{ tools['http:moonx'].path }}/moonx-bin", tools = true }

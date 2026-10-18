@@ -17,8 +17,11 @@ The application uses Svelte 5, Effect and theme tokens. Apply the installed fron
 conventions: no `style=` attributes, respect the existing theme, and keep pure IR/insight packages free of DOM
 and Svelte. A request to improve an HTML specification does not authorize restyling the product.
 
-This repo's `moon` command is moonrepo, not the MoonBit compiler. Use `moonx` explicitly for MoonBit scripts;
-do not replace the existing moonrepo toolchain to run them. Native `bd` commands remain appropriate.
+This repo's `moon` command is moonrepo, not the MoonBit compiler. `mise install` also installs pinned `moonx`
+in an isolated bin directory for prebuilt registry tools such as the documented `cli/jq@0.2.2` fallback.
+It does not expose a competing `moon` command. The registry launcher does not install a complete MoonBit
+source-compilation toolchain; add that explicitly if a future `.mbtx` script needs it. Native `bd` commands
+remain appropriate.
 
 For documentation/skill-only edits, validate frontmatter, relative links, discovery paths, upstream file identity
 and licensing, and use the installed Prettier tooling for authored Markdown/YAML. Keep vendored upstream files

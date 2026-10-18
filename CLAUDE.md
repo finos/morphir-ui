@@ -12,6 +12,9 @@ Use [frontend-design](.agents/skills/frontend-design/SKILL.md) for Anthropic's v
 the user's brief and existing Svelte/theme/accessibility conventions. The upstream skill and license are pinned
 and preserved. Canonical files live in `.agents/skills/`, with discovery links in `.claude/skills/` and `.github/skills/`.
 
+`mise install` includes the pinned Moonx registry launcher used by rich-design recovery. It exposes only `moonx`,
+so `moon` remains moonrepo. A complete MoonBit source toolchain is a separate requirement for future `.mbtx` scripts.
+
 ## ⚠️ CRITICAL: sign off, and never add AI co-authors
 
 Every commit must carry a DCO sign-off (`git commit -s`), and **no commit may attribute an AI assistant**. FINOS gates merges on EasyCLA; lines like `Co-Authored-By: Claude <noreply@anthropic.com>` or "Generated with Claude Code" break CLA verification and block the pull request. Only the human contributor appears in commit metadata.

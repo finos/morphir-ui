@@ -42,6 +42,10 @@ moon run :test      # test everything
 moon run :lint :typecheck
 ```
 
+The pinned Moonx registry launcher is also installed by mise for portable helpers such as rich-design recovery.
+It exposes only `moonx`; `moon` remains moonrepo. This launcher runs prebuilt registry packages and does not
+install the complete MoonBit source compiler/core needed for future `.mbtx` automation.
+
 moon global tasks live under `.moon/tasks/**` — **not** `.moon/tasks.yml`, which nothing inherits.
 
 ## Conventions
