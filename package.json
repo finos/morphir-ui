@@ -14,7 +14,7 @@
     "vendor:workspace-wasm": "bun tools/vendor-workspace-wasm.ts"
   },
   "devDependencies": {
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "@eslint/js": "10.0.1",
     "eslint": "^10.9.1",
     "typescript-eslint": "^8.68.0",
