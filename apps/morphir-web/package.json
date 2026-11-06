@@ -24,6 +24,6 @@
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "svelte-check": "^4.7.6",
     "typescript": "^5.9.0",
-    "happy-dom": "^20.11.12"
+    "happy-dom": "^21.0.0"
   }
 }
