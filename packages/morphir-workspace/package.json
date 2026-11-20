@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@std/semver": "npm:@jsr/std__semver@1.0.8",
-    "effect": "^3.22.1"
+    "effect": "^4.0.0"
   },
   "devDependencies": {
     "bun-types": "^1.4.0",
