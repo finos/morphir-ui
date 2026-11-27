@@ -29,7 +29,7 @@
     "@morphir/ir": "workspace:*",
     "@morphir/workspace": "workspace:*",
     "codemirror": "^6.0.2",
-    "effect": "^3.22.1"
+    "effect": "^4.0.0"
   },
   "peerDependencies": {
     "svelte": "^5.56.10"
